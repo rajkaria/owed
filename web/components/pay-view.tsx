@@ -115,14 +115,17 @@ function Recipient({ model }: { model: PayModel }) {
         Paying to
       </h2>
       <p className="mt-1.5 font-mono text-[0.9rem] leading-relaxed break-all">{model.recipient}</p>
+      {model.chain === "base" ? null : <p className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to this request.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-        <CopyButton
-          text={model.recipient}
-          label="Copy address"
-          copiedLabel="Address copied"
-          icon={<CopyIcon className="shrink-0" width={16} height={16} />}
-          className="inline-flex items-center gap-1.5 font-medium text-accent"
-        />
+        {model.chain === "base" ? (
+          <CopyButton
+            text={model.recipient}
+            label="Copy address"
+            copiedLabel="Address copied"
+            icon={<CopyIcon className="shrink-0" width={16} height={16} />}
+            className="inline-flex items-center gap-1.5 font-medium text-accent"
+          />
+        ) : null}
         <a
           href={model.chain === "base" ? basescanAddress(model.recipient) : solscanAccount(model.recipient)}
           target="_blank"
