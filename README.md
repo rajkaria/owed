@@ -12,7 +12,7 @@ Six tools, uploaded to the PayBox developer portal (build of `main`, hosted chec
 
 | Tool | What it does |
 |---|---|
-| `ask_for_money` | Creates a request and returns a short link, a QR code and a ready-to-send message. Anyone can pay it from a Solana wallet (Phantom, Solflare, Backpack) or from their own PayBox agent. |
+| `ask_for_money` | Creates a request and returns a short link, a QR code and a ready-to-send message. Anyone can pay it by scanning the QR with a Solana wallet app or from their own PayBox agent. |
 | `check_payments` | Checks up to 20 requests on Solana mainnet: open, paid, underpaid, not found, with payer, amount and transaction once paid. |
 | `pay_link` | Pays an Owed link or any Solana Pay transfer link with one unsigned transaction for the user to approve in PayBox. It refuses checkout links (transaction requests), paid requests and amounts above `max_amount`. |
 | `verify_payee` | Checks whether a domain publishes the wallet a request pays, reading DNS from the plugin itself. |

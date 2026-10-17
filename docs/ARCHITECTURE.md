@@ -14,7 +14,7 @@ flowchart LR
   S --> DB[(Neon Postgres)]
   S -->|JSON-RPC| R
   S -->|DNS-over-HTTPS| D
-  X[Payer's wallet<br/>Phantom, Solflare, PayBox] -->|one transaction| R
+  X[Payer's wallet app] -->|one transaction| R
   W -->|signed by the payer| R
 ```
 
