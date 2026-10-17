@@ -184,3 +184,31 @@ it("0009 is safe to re-run, and adds the pair to invoices when that table exists
     "requests.from_domain text", "requests.from_domain_verified_at timestamp with time zone",
   ]);
 });
+
+/** The real NODATA capture re-addressed to `domain`, carrying `values`: what the owner of `domain` would publish. */
+function dohFor(domain: string, values: string[]): DohFixture {
+  const base = doh("nodata-signed");
+  const qname = `_owed.${domain}`;
+  return withTxt({
+    query: { qname },
+    responses: base.responses.map((r) => ({ ...r, url: r.url.replace("_owed.example.com", qname), body: r.body.replaceAll("_owed.example.com", qname) })),
+  }, values);
+}
+
+it("QA-02: a brand word in the verified domain flags the request (pay page caution); a brand's own domain doesn't", async () => {
+  dns = dohFor("paybox-support.com", [`owed-pay=${RECIPIENT}`]);
+  const res = await create({ from_domain: "paybox-support.com", for: "lunch" });
+  assert.equal(res.status, 201);
+  const body = CreateRequestResponse.parse(await res.json());
+  assert.deepEqual(body.flags, ["brand_word:paybox"]);
+  assert.equal(body.from_domain, "paybox-support.com");
+  assert.deepEqual(GetRequestResponse.parse(await (await read(body.id)).json()).flags, ["brand_word:paybox"]);
+
+  dns = dohFor("paybox.sh", [`owed-pay=${RECIPIENT}`]);
+  const own = CreateRequestResponse.parse(await (await create({ from_domain: "paybox.sh", for: "lunch" })).json());
+  assert.deepEqual(own.flags, []);
+
+  dns = dohFor("coinbase.refunds-desk.com", [`owed-pay=${RECIPIENT}`]);
+  const both = CreateRequestResponse.parse(await (await create({ from_domain: "coinbase.refunds-desk.com", note: "PayBox refund" })).json());
+  assert.deepEqual(both.flags, ["brand_word:paybox", "brand_word:refund", "brand_word:coinbase"]);
+});

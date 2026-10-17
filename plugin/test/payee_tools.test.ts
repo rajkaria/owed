@@ -9,7 +9,7 @@ import { askForMoney, inputSchema as askInput, outputSchema as askOutput } from 
 import { inputSchema as payInput, payLink } from "../src/tools/pay_link.ts";
 import { inputSchema as verifyInput, outputSchema as verifyOutput, verifyPayeeTool } from "../src/tools/verify_payee.ts";
 import { fixture, json, makeDeps, RECIPIENT, REFERENCE, SENDER, textOf, type Route } from "./helpers.ts";
-import { dohFixture, dohRoutes, withTxt } from "./payee-helpers.ts";
+import { dohFixture, dohFor, dohRoutes, withTxt } from "./payee-helpers.ts";
 
 const KEY = "io.paybox/transactionProposal";
 const openRequest = { ...fixture("get-request.res.json"), status: "open", paid: null };
@@ -287,4 +287,35 @@ test("real record: _owed.getowed.xyz publishes the team wallet → verify_payee 
 
   const other = makeDeps({ routes: dohRoutes(dohFixture("published-record")) });
   assert.equal(verified(await verifyPayeeTool(verifyInput.parse({ address: SENDER, domain: "getowed.xyz" }), other.deps)).status, "unverified");
+});
+
+// ---------------------------------------------------------------- QA-02 in pay_link
+
+async function previewFor(domain: string): Promise<string[]> {
+  const { deps } = makeDeps({ routes: { ...owed({ ...openRequest, from_domain: domain, from_domain_verified_at: "2026-10-17T13:00:00Z" }), ...dohFor(domain, [`owed-pay=${RECIPIENT}`]) } });
+  return lines(await payLink(pay(), deps));
+}
+
+test("QA-02 pay_link: a verified brand domain leads with the brand caution, then the verified line, then why", async () => {
+  const out = await previewFor("paybox-support.com");
+  assert.equal(out[0], 'Caution: this request mentions "PayBox". Owed can\'t confirm who sent it.');
+  assert.match(out[1]!, /^Pay 15 USDC to paybox-support\.com \(verified by DNS, DNSSEC\)\. /);
+  assert.ok(out.includes("paybox-support.com looks like PayBox but isn't PayBox's domain (paybox.sh): verified only means paybox-support.com publishes this wallet."));
+});
+
+test("QA-02 pay_link: a domain placed in front of another domain gets its own caution first", async () => {
+  const out = await previewFor("getowed.xyz.example-attacker.com");
+  assert.equal(out[0], "Caution: getowed.xyz.example-attacker.com is not getowed.xyz; it only starts with that name.");
+  assert.match(out[1]!, /^Pay 15 USDC to getowed\.xyz\.example-attacker\.com \(verified by DNS/);
+  const both = await previewFor("paybox.sh.example-attacker.com");
+  assert.deepEqual(both.slice(0, 2), ['Caution: this request mentions "PayBox". Owed can\'t confirm who sent it.', "Caution: paybox.sh.example-attacker.com is not paybox.sh; it only starts with that name."]);
+});
+
+test("QA-02 pay_link: a domain imitating Owed is called out; Owed's and PayBox's own domains are not", async () => {
+  assert.equal((await previewFor("getowed-pay.com"))[0], "Caution: getowed-pay.com is not Owed's domain (getowed.xyz).");
+  for (const own of ["getowed.xyz", "paybox.sh"]) {
+    const out = await previewFor(own);
+    assert.match(out[0]!, new RegExp(`^Pay 15 USDC to ${own.replace(".", "\\.")} \\(verified by DNS`), own);
+    assert.ok(!out.some((l) => l.startsWith("Caution")), own);
+  }
 });
