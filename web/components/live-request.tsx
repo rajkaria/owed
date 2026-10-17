@@ -346,7 +346,8 @@ export function LiveRequest({
           {state.status === "expired" && <ExpiredCard at={state.at} asker={asker} />}
         </div>
       )}
-      <div className="[grid-area:recipient]">{recipient}</div>
+      {/* W3-C: once paid, underpaid, cancelled or expired there is no QR or Open in wallet, so drop the "Pay with…" hint. */}
+      <div className={open ? "[grid-area:recipient]" : "[grid-area:recipient] [&_[data-pay-hint]]:hidden"}>{recipient}</div>
       <p className="sr-only" aria-live="assertive">
         {flipped && state.status === "paid" ? "Payment received." : ""}
         {flipped && state.status === "underpaid" ? "A partial payment arrived." : ""}

@@ -115,7 +115,7 @@ function Recipient({ model }: { model: PayModel }) {
         Paying to
       </h2>
       <p className="mt-1.5 font-mono text-[0.9rem] leading-relaxed break-all">{model.recipient}</p>
-      {model.chain === "base" ? null : <p className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to this request.</p>}
+      {model.chain === "base" ? null : <p data-pay-hint className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to this request.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         {model.chain === "base" ? (
           <CopyButton
