@@ -107,6 +107,48 @@ export const statsResSchema = z.object({
   since: isoTime,
 });
 
+// Split bills: POST /groups (and GET /groups/:id, same shape). Share ids commit to their terms like any
+// request id; the group id commits to the share ids in order (tools/split_bill.ts `groupIdFor`).
+export const groupIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+
+export const createGroupReqSchema = z.object({
+  recipient: addressSchema,
+  total: decimalSchema,
+  token: tokenSchema,
+  title: z.string().min(1).max(60),
+  people: z.array(z.object({ name: z.string().min(1).max(40), amount: decimalSchema.optional() }).strict()).min(2).max(20),
+  requester_name: z.string().max(40).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const groupShareSchema = z.object({
+  id: requestIdSchema,
+  // Caps are in UTF-16 units here; the server caps code points, so leave room.
+  name: z.string().max(160).nullable(),
+  amount: decimalSchema,
+  status: z.string().max(20),
+  link: httpsUrl,
+  solana_pay_url: solanaPayUrl,
+  reference: addressSchema,
+  paid: paidInfoSchema.nullable().optional(),
+});
+
+export const groupResSchema = z.object({
+  id: groupIdSchema,
+  link: httpsUrl,
+  title: z.string().max(240).nullable(),
+  recipient: addressSchema,
+  token: tokenSchema,
+  total: decimalSchema,
+  requester_name: z.string().max(160).nullable().optional(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  share_count: z.number().int().min(2).max(20),
+  paid_count: z.number().int().nonnegative(),
+  amount_received: decimalSchema,
+  shares: z.array(groupShareSchema).min(2).max(20),
+});
+
 export const errorResSchema = z.object({
   error: z.object({ code: errorCodeSchema, message: z.string().max(500) }),
 });
@@ -124,3 +166,5 @@ export type StatusRawReq = z.infer<typeof statusRawReqSchema>;
 export type StatusRawRes = z.infer<typeof statusRawResSchema>;
 export type StatsRes = z.infer<typeof statsResSchema>;
 export type ErrorRes = z.infer<typeof errorResSchema>;
+export type CreateGroupReq = z.infer<typeof createGroupReqSchema>;
+export type GroupRes = z.infer<typeof groupResSchema>;
