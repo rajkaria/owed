@@ -85,7 +85,11 @@ export const RPC_BUDGET_MS = 5500;
 
 // getTransaction must accept v1 transactions: mainnet (solana-core 4.3, Oct 2026) carries them, and
 // maxSupportedTransactionVersion 0 makes the node refuse the whole call with -32015.
-const SIGNATURES_OPTS = { limit: 10, commitment: "confirmed" } as const;
+// A reference is public (it is in the solana: URL), so anyone can add it to cheap transactions:
+// ask for the whole history the node keeps per call, drop failed ones, read the oldest first (QA-04).
+const SIGNATURES_OPTS = { limit: 1000, commitment: "confirmed" } as const;
+/** Transactions read per check, oldest successful first; a fresh reference's first one is normally the payment. */
+export const MAX_TX_READS = 8;
 const TX_OPTS = { maxSupportedTransactionVersion: 1, commitment: "confirmed", encoding: "jsonParsed" } as const;
 const ACCOUNTS_OPTS = { encoding: "jsonParsed", commitment: "confirmed" } as const;
 
@@ -123,8 +127,7 @@ export async function findPayment(
   if (!Array.isArray(sigs)) throw new RpcError("getSignaturesForAddress: unexpected response");
   let underpaid: PaymentCheck | undefined;
   let failure: unknown;
-  for (const s of [...sigs].reverse()) {
-    if (s.err) continue;
+  for (const s of [...sigs].reverse().filter((x) => !x.err).slice(0, MAX_TX_READS)) {
     let tx: ParsedTx | null;
     try {
       tx = await within(deadline, rpc.call<ParsedTx | null>("getTransaction", [s.signature, TX_OPTS]));
