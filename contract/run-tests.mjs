@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 // Runs each side's contract test (plugin/src/contract.ts and web/lib/contract.ts must both parse every fixture).
-//   node contract/run-tests.mjs [--strict]
+//   node contract/run-tests.mjs [--strict] [--root <repo>]
 // Per side: a `test:contract` package script wins; otherwise every *contract*.test.ts file runs under node:test
 // with the plugin's tsx loader (tsx also resolves web's `@/` tsconfig paths). A side with neither contract.ts nor a
 // test is "pending" (a failure with --strict). A side with contract.ts but no test always fails.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const repo = dirname(dirname(fileURLToPath(import.meta.url)));
+const rootFlag = process.argv.indexOf("--root");
+const root = rootFlag === -1 ? repo : resolve(process.argv[rootFlag + 1]);
 const strict = process.argv.includes("--strict");
-const tsxLoader = join(root, "plugin/node_modules/tsx/dist/loader.mjs");
+const tsxLoader = join(repo, "plugin/node_modules/tsx/dist/loader.mjs");
 const sides = [
   { name: "plugin", dir: join(root, "plugin"), contract: "src/contract.ts" },
   { name: "web", dir: join(root, "web"), contract: "lib/contract.ts" },
@@ -31,7 +33,10 @@ function findTests(dir, found = []) {
 
 function run(command, args, cwd) {
   console.log(`$ (cd ${relative(root, cwd) || "."} && ${[command, ...args].join(" ")})`);
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", env: process.env });
+  // A parent `node --test` sets NODE_TEST_CONTEXT, which turns a nested runner into a silent child reporter whose
+  // exit code no longer reflects failures. These tests are top-level runs of their own.
+  const { NODE_TEST_CONTEXT, ...env } = process.env;
+  const result = spawnSync(command, args, { cwd, stdio: "inherit", env });
   return result.status === 0;
 }
 
@@ -46,7 +51,7 @@ for (const side of sides) {
     const tests = findTests(side.dir);
     if (tests.length) {
       if (!existsSync(tsxLoader)) {
-        console.error(`tsx loader missing at ${relative(root, tsxLoader)}: run pnpm install in plugin/ first`);
+        console.error(`tsx loader missing at ${relative(repo, tsxLoader)}: run pnpm install in plugin/ first`);
         outcome = "fail";
       } else {
         const files = tests.map((file) => relative(side.dir, file));
