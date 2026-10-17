@@ -17,6 +17,7 @@ function registerAll(): Map<string, Registered> {
 test("index registers the Owed tools", () => {
   assert.deepEqual([...registerAll().keys()], [
     "ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me",
+    "cancel_request", // W3-C
   ]);
 });
 
@@ -31,11 +32,13 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("write_reminder")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   // Not idempotent: each signed message unlocks the ledger once.
   assert.deepEqual(seen.get("who_owes_me")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  // W3-C: cancelling ends a request (destructive); cancelling twice changes nothing (idempotent).
+  assert.deepEqual(seen.get("cancel_request")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);

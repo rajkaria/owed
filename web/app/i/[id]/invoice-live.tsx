@@ -13,7 +13,7 @@ const STAMP_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "s
 
 /**
  * Polls POST /api/v1/status every 4 s while the invoice is open and the tab is visible; stops for
- * good once it is paid, underpaid or cancelled. What shows always comes from the API, so a hard
+ * good once it is paid, underpaid, cancelled or expired. What shows always comes from the API, so a hard
  * refresh after the flip shows the same Paid stamp (the server renders it from the stored payment).
  */
 function useInvoiceState(initial: LiveState, id: string, total: string, token: Token): LiveState {
@@ -99,6 +99,8 @@ function StatusChip({ state, dueLabel, overdue }: { state: LiveState; dueLabel: 
       return <span className={`${base} bg-warn-soft text-warn print:border-warn`}>Partly paid</span>;
     case "cancelled":
       return <span className={`${base} bg-sunken text-muted print:border-line`}>Cancelled</span>;
+    case "expired": // W3-C
+      return <span className={`${base} bg-sunken text-muted print:border-line`}>Expired</span>;
     default:
       return (
         <span className={`${base} ${overdue ? "bg-warn-soft text-warn print:border-warn" : "bg-accent-soft text-accent print:border-accent"}`}>
@@ -106,6 +108,28 @@ function StatusChip({ state, dueLabel, overdue }: { state: LiveState; dueLabel: 
         </span>
       );
   }
+}
+
+// W3-C: when the invoice ended (cancelled or expired), and until when an open one is payable.
+function Ended({ at, lead, tail }: { at?: string | null; lead: string; tail: string }) {
+  const when = at ? formatUtc(at) : null;
+  if (!at || !when) return null;
+  return (
+    <>
+      {lead} <LocalTime iso={at} fallback={when} />
+      {tail}{" "}
+    </>
+  );
+}
+
+function PayableUntil({ at }: { at: string }) {
+  const when = formatUtc(at);
+  if (!when) return null;
+  return (
+    <p className="mt-3 text-sm text-muted print:text-[0.8rem]">
+      Payable until <LocalTime iso={at} fallback={when} />. After that this invoice stops taking payments.
+    </p>
+  );
 }
 
 /** The rubber stamp across the top of a paid invoice: "PAID", the date and the transaction. */
@@ -220,7 +244,10 @@ export function InvoiceLive({
   head,
   children,
   pay,
+  expiresAt = null,
 }: {
+  /** W3-C: when an open invoice stops taking payments. */
+  expiresAt?: string | null;
   initial: LiveState;
   id: string;
   total: string;
@@ -248,12 +275,25 @@ export function InvoiceLive({
       {children}
       <div className="mt-7 print:mt-4 print:break-inside-avoid">
         {state.status === "open" && pay}
+        {state.status === "open" && expiresAt && <PayableUntil at={expiresAt} />}
         {state.status === "paid" && <Receipt state={state} token={token} />}
         {state.status === "underpaid" && <Underpaid state={state} token={token} total={total} sender={sender} />}
         {state.status === "cancelled" && (
           <section className="rounded-xl border border-line bg-sunken px-4 py-4">
             <h2 className="text-lg font-semibold">This invoice was cancelled</h2>
-            <p className="mt-1 text-muted">Don&apos;t send money for it.</p>
+            <p className="mt-1 text-muted">
+              <Ended at={state.at} lead="Cancelled" tail=" by the wallet it pays, with a signed message." />
+              Don&apos;t send money for it.
+            </p>
+          </section>
+        )}
+        {state.status === "expired" && (
+          <section className="rounded-xl border border-line bg-sunken px-4 py-4">
+            <h2 className="text-lg font-semibold">This invoice has expired</h2>
+            <p className="mt-1 text-muted">
+              <Ended at={state.at} lead="It stopped taking payments" tail="." />
+              Don&apos;t send money for it; ask the sender for a new invoice.
+            </p>
           </section>
         )}
       </div>

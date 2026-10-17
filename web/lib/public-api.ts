@@ -1,11 +1,12 @@
 import "server-only";
 import { isRequestId } from "./ids";
-import { getRequest, settleFromChain, toPublic } from "./requests";
+import { chainCheckable, getRequest, settleFromChain, toPublic } from "./requests";
 
 // Owned by sprint W1-D (web-api). Signatures are fixed so W1-E (pages) can build in parallel.
 // Shapes match contract/fixtures/get-request.res.json and status.res.json.
 
-export type RequestStatus = "open" | "paid" | "underpaid" | "cancelled";
+// W3-C: "expired" is computed on read once expires_at has passed (lib/requests.ts EFFECTIVE_STATUS).
+export type RequestStatus = "open" | "paid" | "underpaid" | "cancelled" | "expired";
 
 export interface PublicRequest {
   id: string;
@@ -27,6 +28,9 @@ export interface PublicRequest {
   // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
   from_domain: string | null;
   from_domain_verified_at: string | null;
+  // W3-C: when it stops taking payments (null = never), and the recipient's signed cancellation, if any.
+  expires_at: string | null;
+  cancelled: null | { at: string; signed_message: string; signature: string };
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */
@@ -40,7 +44,7 @@ export async function getPublicRequest(id: string): Promise<PublicRequest | null
   if (!isRequestId(id)) return null;
   let row = await getRequest(id);
   if (!row) return null;
-  if (row.status === "open" || row.status === "underpaid") {
+  if (chainCheckable(row.status)) { // W3-C: expired and cancelled requests may still have been paid
     try {
       [row] = await settleFromChain([row], { deadline: Date.now() + PAGE_CHAIN_BUDGET_MS, timeoutMs: PAGE_CHAIN_BUDGET_MS });
     } catch {

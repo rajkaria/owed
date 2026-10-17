@@ -11,6 +11,7 @@ import { checkFromDomain } from "../payee.js";
 import { idMatchesTerms } from "../request-id.js";
 import type { Screening } from "../screen.js";
 import { cautionLine, clean, quote, rateLimitedText } from "../text.js";
+import { DAY_MS as EXPIRY_DAY_MS, expiresInDaysInput, expiryLine, expiryProblem } from "../expiry.js"; // W3-C
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -47,6 +48,7 @@ export const inputSchema = z.object({
   invoice_number: z.string().min(1).max(INVOICE_LIMITS.invoice_number).optional().describe("The user's own invoice number, if they have one."),
   notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional().describe("Optional note printed on the invoice, e.g. payment terms or a thank-you."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls whose _owed TXT record publishes this wallet (verified payee)."),
+  expires_in_days: expiresInDaysInput.optional().describe("Optional: the invoice stops taking payments after this many days (1 to 90, reaching at least the due date). Owed's server sets the exact time."), // W3-C
 }).strict();
 
 const itemOutput = z.object({
@@ -74,6 +76,7 @@ export const outputSchema = z.object({
   from_domain: z.string().nullable(),
   share_text: z.string().describe("A ready-to-send message for the client."),
   status: z.literal("open"),
+  expires_at: z.string().optional().describe("When the invoice stops taking payments (set by Owed's server)."), // W3-C
 }).strict();
 
 export type InvoiceInput = z.output<typeof inputSchema>;
@@ -156,6 +159,18 @@ export function dueDateProblem(dueDate: string, now: number): string | null {
   return null;
 }
 
+/** W3-C: an invoice that stops taking payments before it is due is a mistake (the server refuses it too). */
+export function expiryBeforeDue(dueDate: string, days: number | undefined, now: number): string | null {
+  if (days === undefined) return null;
+  const due = Date.parse(`${dueDate}T00:00:00Z`);
+  const d = new Date(now + days * EXPIRY_DAY_MS);
+  const expiresDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  if (!Number.isFinite(due) || expiresDay >= due) return null;
+  const t = new Date(now);
+  const needed = Math.round((due - Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())) / EXPIRY_DAY_MS);
+  return `expires_in_days ${days} would end the invoice before its due date ${dueDate}. Use at least ${needed}, or leave it out.`;
+}
+
 /** "2026-10-31" -> "Oct 31, 2026". */
 export function readableDate(isoDate: string): string {
   const ms = Date.parse(`${isoDate}T00:00:00Z`);
@@ -196,6 +211,8 @@ export async function createInvoice(
   const token = args.token;
   const dueProblem = dueDateProblem(args.due_date, started);
   if (dueProblem) return refusal(dueProblem);
+  const expiryEarly = expiryBeforeDue(args.due_date, args.expires_in_days, started); // W3-C
+  if (expiryEarly) return refusal(expiryEarly);
 
   let priced: ReturnType<typeof priceItems>;
   try {
@@ -251,6 +268,7 @@ export async function createInvoice(
     ...(text.notes && { notes: text.notes }),
     ...(domain?.ok && { from_domain: domain.from_domain }),
     source: "plugin",
+    ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
   };
 
   // The API client gives up after API_TIMEOUT_MS; `within` also keeps a slow screening + DNS step from pushing past 10 s.
@@ -268,6 +286,8 @@ export async function createInvoice(
 
   const mismatch = checkInvoice(res, body, priced, ctx, deps);
   if (mismatch) return refusal(mismatch);
+  const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
+  if (expiry) return refusal(expiry);
 
   const share_text = invoiceShareText({
     clientName: res.client_name ? clean(res.client_name, INVOICE_LIMITS.client_name) : text.clientName,
@@ -298,6 +318,7 @@ export async function createInvoice(
     from_domain: res.from_domain ?? null,
     share_text,
     status: "open",
+    ...(args.expires_in_days !== undefined && res.expires_at && { expires_at: res.expires_at }), // W3-C
   };
 
   const count = res.items.length;
@@ -306,6 +327,7 @@ export async function createInvoice(
     `Message to send: ${share_text}`,
   ];
   if (domain?.ok) lines.push(...domain.lines);
+  if (output.expires_at && args.expires_in_days !== undefined) lines.push(expiryLine(output.expires_at, args.expires_in_days, "the invoice")); // W3-C
   const caution = cautionLine(res.flags);
   if (caution) lines.push(caution.replace("this request", "this invoice"));
   if (screening.screening === "unavailable") lines.push("Recipient screening was unavailable, so this address wasn't screened.");

@@ -26,7 +26,9 @@ export type LiveState =
       signature: string | null;
       at: string | null;
     }
-  | { status: "cancelled" };
+  // W3-C: `at` is when it was cancelled or when it expired, when known.
+  | { status: "cancelled"; at?: string | null }
+  | { status: "expired"; at?: string | null };
 
 export type PollTarget =
   | { endpoint: "/api/v1/status"; id: string }
@@ -53,6 +55,8 @@ export interface PayModel {
   brandWords: string[];
   initial: LiveState;
   poll: PollTarget | null;
+  /** W3-C: when an open request stops taking payments (ISO), or null. */
+  expiresAt?: string | null;
 }
 
 // SPEC §6 brand-word list. A hit never blocks; it shows a caution banner.
@@ -164,10 +168,16 @@ export function stateFromStatus(result: unknown, requested: string | null, token
       };
     }
     case "cancelled":
-      return { status: "cancelled" };
+    case "expired": // W3-C: polling stops here, like cancelled
+      return ended(r.status, iso(r.status === "cancelled" ? r.cancelled_at : r.expires_at));
     default:
       return null;
   }
+}
+
+/** W3-C: a cancelled or expired state, with when it happened only if known. */
+function ended(status: "cancelled" | "expired", at: string | null): LiveState {
+  return at ? { status, at } : { status };
 }
 
 /** Pick this request's row out of a POST /api/v1/status response. */
@@ -203,7 +213,8 @@ export function stateFromRequest(req: PublicRequest): LiveState {
       };
     }
     case "cancelled":
-      return { status: "cancelled" };
+    case "expired": // W3-C
+      return ended(req.status, iso(req.status === "cancelled" ? req.cancelled?.at : req.expires_at));
     default:
       return { status: "open" };
   }
@@ -241,6 +252,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     brandWords,
     initial: stateFromRequest(req),
     poll: { endpoint: "/api/v1/status", id: req.id },
+    expiresAt: iso(req.expires_at), // W3-C
   };
 }
 
@@ -301,7 +313,10 @@ export function pageTitle(model: Pick<PayModel, "asker" | "amount" | "token" | "
 }
 
 /** Preview text under the title: amount, quoted reason, how to pay. */
-export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords">): string {
+export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords"> & { initial?: LiveState }): string {
+  // W3-C: a cancelled or expired request's preview never invites a payment.
+  if (model.initial?.status === "cancelled") return "This request was cancelled. Don't send money to it.";
+  if (model.initial?.status === "expired") return "This request has expired and no longer takes payments.";
   const how = "Pay with any Solana wallet, or with your AI agent in PayBox.";
   if (model.amount === null) return how;
   const amount = formatAmount(model.amount, model.token);

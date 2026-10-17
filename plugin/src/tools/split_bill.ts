@@ -13,6 +13,7 @@ import type { Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
 import { clean, quote, rateLimitedText, shareText } from "../text.js";
+import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -38,6 +39,7 @@ export const inputSchema = z.object({
   }).strict()).min(MIN_PEOPLE).max(MAX_SPLIT).describe("2 to 20 people who owe money, not including the user."),
   requester_name: z.string().min(1).max(LIMITS.requester_name).optional().describe("The user's own first name, so people know who is asking."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls that publishes this wallet (verified payee)."),
+  expires_in_days: expiresInDaysInput.optional(), // W3-C: every share expires together
 }).strict();
 
 const shareOutput = z.object({
@@ -61,6 +63,7 @@ export const outputSchema = z.object({
   shares: z.array(shareOutput).min(MIN_PEOPLE).max(MAX_SPLIT),
   remainder_note: z.string().optional().describe("Set when the total doesn't divide evenly: who pays the extra smallest unit."),
   from_domain: z.string().optional().describe("The verified payee domain every share carries (checked over DNS by the plugin)."),
+  expires_at: z.string().optional().describe("When every share stops taking payments (set by Owed's server)."), // W3-C
 }).strict();
 
 export type SplitInput = z.output<typeof inputSchema>;
@@ -198,8 +201,10 @@ export async function splitBill(
     ...(requesterName && { requester_name: requesterName }),
     source: "plugin",
     ...(fromDomain && { from_domain: fromDomain }),
+    ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
   };
 
+  let expiresAt: string | undefined; // W3-C
   let created: { groupId: string | null; groupLink: string | null; mode: "hosted" | "offline"; shares: Array<{ id: string | null; link: string; solana_pay_url: string; reference: string }> };
   try {
     const res = await ctx.api.createGroup(body);
@@ -209,6 +214,9 @@ export async function splitBill(
     if (fromDomain && (res.from_domain !== fromDomain || res.shares.some((s) => s.from_domain !== fromDomain))) {
       return refusal(`Owed's server didn't attach ${fromDomain} to every share, so the links weren't used. Try again, or split without from_domain.`);
     }
+    const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
+    if (expiry) return refusal(expiry);
+    if (args.expires_in_days !== undefined) expiresAt = res.expires_at;
     created = {
       groupId: res.id, groupLink: res.link, mode: "hosted",
       shares: res.shares.map((s) => ({ id: s.id, link: s.link, solana_pay_url: s.solana_pay_url, reference: s.reference })),
@@ -233,6 +241,7 @@ export async function splitBill(
     title, recipient: args.recipient, total, token, shares,
     ...(note && { remainder_note: note }),
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain }),
+    ...(expiresAt && { expires_at: expiresAt }), // W3-C
   };
 
   const lines = [
@@ -243,6 +252,8 @@ export async function splitBill(
   ];
   if (note) lines.push(note);
   if (created.mode === "hosted") lines.push(...domainLines);
+  if (expiresAt && args.expires_in_days !== undefined) lines.push(expiryLine(expiresAt, args.expires_in_days, "every share")); // W3-C
+  if (created.mode === "offline" && args.expires_in_days !== undefined) lines.push(OFFLINE_NO_EXPIRY.replace("this one stays", "these stay"));
   lines.push("Send each person their own link (each share has a ready share_text). check_payments takes the share ids or links to see who has paid.");
   if (created.mode === "offline") {
     lines.push("Owed's server didn't answer, so these are self-contained links with no short ids and no board. Each works with any Solana wallet, and check_payments can verify them with the same links.");
