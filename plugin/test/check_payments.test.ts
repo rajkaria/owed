@@ -30,7 +30,8 @@ test("owed ids and links: one batched status call, SPEC-style summary and a line
   });
   assert.deepEqual(o.results[1], { input: "https://owed.link/r/Bq3wL8mNc2", id: "Bq3wL8mNc2", status: "open", amount_requested: "4.5", token: "USDC" });
   assert.equal(o.results[2]!.status, "paid");
-  assert.equal(o.summary, "2 of 3 paid · 30 USDC received · 4.5 USDC outstanding");
+  // JArQ6g9JvoWr is listed twice: one result per input, but it counts once in the summary (QA-10).
+  assert.equal(o.summary, "1 of 2 paid · 15 USDC received · 4.5 USDC outstanding");
   const lines = textOf(result).split("\n");
   assert.equal(lines[0], o.summary);
   assert.equal(lines[1], `Paid, request JArQ6g9JvoWr: 15 USDC from 9WzD…AWWM: https://solscan.io/tx/${SIGNATURE}`);
@@ -174,4 +175,29 @@ test("input schema: 1 to 20 bounded strings, strict", () => {
   assert.equal(ok({ requests: ["x".repeat(2049)] }), false);
   assert.equal(ok({ requests: ["JArQ6g9JvoWr"], extra: 1 }), false);
   assert.equal(ok({ requests: "JArQ6g9JvoWr" }), false);
+});
+
+test("QA-05: the server's not_found result (id and status only) reads as not found; the rest of the batch still reports", async () => {
+  const body = { results: [row("JArQ6g9JvoWr", "paid", "15", "15"), { id: "111111111111", status: "not_found" }] };
+  const { deps } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, body) } });
+  const result = await checkPayments({ requests: ["JArQ6g9JvoWr", "111111111111"] }, deps);
+  const o = out(result);
+  assert.deepEqual(o.results.map((r) => r.status), ["paid", "not_found"]);
+  assert.deepEqual(o.results[1], { input: "111111111111", id: "111111111111", status: "not_found", amount_requested: null, token: null, error: "No Owed request has this id." });
+  assert.equal(o.summary, "1 of 2 paid · 15 USDC received · 1 not found");
+  assert.doesNotMatch(textOf(result), /unreachable/);
+});
+
+test("QA-05: an open result without its amount is still off-contract (only not_found and invalid may omit it)", async () => {
+  const { deps } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, { results: [{ id: "JArQ6g9JvoWr", status: "open" }] }) } });
+  const o = out(await checkPayments({ requests: ["JArQ6g9JvoWr"] }, deps));
+  assert.equal(o.results[0]!.status, "unknown");
+});
+
+test("QA-10: an id and its link count once; distinct requests still add up", async () => {
+  const body = { results: [row("Bq3wL8mNc2", "open", "4.5"), row("Cq3wL8mNc2", "open", "15")] };
+  const { deps } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, body) } });
+  const o = out(await checkPayments({ requests: ["Bq3wL8mNc2", "https://owed.link/r/Bq3wL8mNc2", "Cq3wL8mNc2"] }, deps));
+  assert.equal(o.results.length, 3);
+  assert.equal(o.summary, "0 of 2 paid · 19.5 USDC outstanding");
 });

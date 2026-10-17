@@ -85,14 +85,21 @@ const paymentFields = {
   paid_at: isoTime.optional(),
 };
 
+// A result for an id the server doesn't know ("not_found") or can't read ("invalid") carries only id and status
+// (QA-05); every other status names the amount and token, as contract/shapes.mjs requires.
 export const statusResultSchema = z.object({
   id: requestIdSchema,
   status: requestStatusSchema,
-  amount_requested: decimalSchema,
-  token: tokenSchema,
+  amount_requested: decimalSchema.optional(),
+  token: tokenSchema.optional(),
   ...paymentFields,
-  // Not in the fixtures yet; when the API adds it, check_payments reports how long an open request has waited.
+  // check_payments turns it into how long an open request has waited.
   created_at: isoTime.optional(),
+}).superRefine((r, ctx) => {
+  if (r.status === "not_found" || r.status === "invalid") return;
+  for (const key of ["amount_requested", "token"] as const) {
+    if (r[key] === undefined) ctx.addIssue({ code: "custom", path: [key], message: `missing for status ${r.status}` });
+  }
 });
 
 export const statusResSchema = z.object({ results: z.array(statusResultSchema).max(20) });
