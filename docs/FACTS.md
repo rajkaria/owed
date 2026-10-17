@@ -6,6 +6,7 @@ Every number or claim in the README, landing page and submission comes from this
 - Web: https://owed-omega.vercel.app (Vercel project `owed`, root `web`, first production deploy 2026-10-17 00:15 EDT, verified HTTP 200 with the one-liner).
 - Plugin: transaction-layout test build uploaded to the PayBox developer portal 2026-10-17 00:30 EDT; hosted checks passed (2 tools). Not submitted.
 - Plugin: build of `main` ed9623b (dist/plugin.mjs, 1,052,829 bytes, sha256 `2100bdbe4ed1f356976445ba4eadafc967ceb1a799f7333071e2b17f01ccd560`, same digest as CI) uploaded to the PayBox developer portal 2026-10-17 01:52 EDT. Hosted checks passed, 3 tools. Network access: owed-omega.vercel.app, solana-rpc.publicnode.com, api.mainnet-beta.solana.com. Variable OWED_BASE_URL=https://owed-omega.vercel.app. Not submitted.
+- Plugin: build of `main` 9c93ee8 (dist/plugin.mjs, 1,053,764 bytes, sha256 `019eda0fe05488e5a6e37c84ed918f5ef633ba5f38a27f3549c2e82574722474`) uploaded 2026-10-17 02:10 EDT, replacing ed9623b. Hosted checks passed, 3 tools. Not submitted.
 - Web production: ed9623b at https://owed-omega.vercel.app; `smoke.mjs --strict --create` 22 pass, 0 fail (2026-10-17 01:40 EDT, request `1RRer81ufk`).
 
 ## Database
@@ -22,6 +23,13 @@ Every number or claim in the README, landing page and submission comes from this
 ## PayBox validation spike
 - Variant A (ATA-create-idempotent + memo + transferChecked + 1 reference): 399 bytes; portal Test run succeeded and returned a valid proposal. Validate transaction with sol-default: "Validation failed: the proposal could not be simulated or prepared" while the wallet held 0 SOL and 0 USDC. Re-run after funding to separate format from funds.
 - Variants B, C, D: not needed. The real `pay_link` (variant A) passes Validate with the funded wallet, below.
+
+## Request ids commit to the payment terms (from main 9c93ee8)
+- A request id is the last 12 base58 characters of sha256 over `owed-request:v1`, recipient, asset (USDC mint or SOL), atomic amount and reference (`plugin/src/request-id.ts`, `web/lib/ids.ts`, same test vector `JArQ6g9JvoWr` on both sides).
+- `pay_link` recomputes the id from what the server returns and refuses on a mismatch, so the server can't change who gets paid or how much behind a shared link. Unit test: a server returning an internally consistent swapped recipient, amount or reference is refused; with the check disabled that test fails.
+- `ask_for_money` refuses a hosted link whose id doesn't hash its terms. Older random 10-character ids stay readable; `pay_link` refuses them.
+- Production: migration `0001a_derived_ids` applied to both databases 2026-10-17 05:57Z. `smoke.mjs --strict --create` 23 pass, 0 fail; the smoke contract checks every 12-char id it sees (request `qS77tLgiuG7N`).
+- Portal, build 9c93ee8: `ask_for_money` → hosted `2eakA8uYr4Qd` (4,358 ms); `pay_link` on it from sol-default → proposal (3,534 ms); Validate with sol-default: "Simulation passed"; `pay_link` on the older link `1RRer81ufk` → refused, "This is an older Owed link whose payment details can't be checked against its id…".
 
 ## PayBox portal test console (2026-10-17, build ed9623b)
 - `ask_for_money` (0.01 USDC to the team wallet): hosted request `ux9oshckE4` created inside the PayBox sandbox, 4,353 ms total.
