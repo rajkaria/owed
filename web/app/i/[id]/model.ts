@@ -3,7 +3,7 @@
 
 import type { PublicInvoice } from "@/lib/invoices";
 import { formatAmount, groupDigits, isToken, type Token } from "@/lib/view/money";
-import { brandWordsFromFlags, detectBrandWords, stateFromRequest, type LiveState } from "@/lib/view/request-view";
+import { brandWordsFromFlags, detectBrandWords, stateFromRequest, walletPayUrl, type LiveState } from "@/lib/view/request-view";
 import { shortAddress } from "@/lib/view/format";
 import type { PublicRequest } from "@/lib/public-api";
 
@@ -113,7 +113,8 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     })),
     recipient: inv.recipient,
     recipientShort: shortAddress(inv.recipient),
-    solanaPayUrl: inv.solana_pay_url,
+    // The QR and "Open in wallet" use Owed's transaction request, so the wallet can't drop the reference.
+    solanaPayUrl: walletPayUrl(new URL(inv.link).origin, inv.id),
     invoiceLink: inv.link,
     requestLink: inv.request_link,
     agentPrompt: `Use the Owed plugin in PayBox to pay this invoice: ${inv.request_link}`,

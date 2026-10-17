@@ -223,6 +223,17 @@ export function stateFromRequest(req: PublicRequest): LiveState {
   }
 }
 
+/**
+ * What a hosted Solana request's QR code and "Open in wallet" open: a Solana Pay transaction request
+ * served by Owed (app/api/v1/pay/[id]), not the transfer URL. Phantom turns a scanned transfer URL into a
+ * plain Send without its reference or memo, so the payment could never be matched; with a transaction
+ * request the wallet signs the transaction Owed built, reference included. The transfer URL stays in
+ * the API for agents (pay_link, check_payments).
+ */
+export function walletPayUrl(origin: string, id: string): string {
+  return `solana:${origin}/api/v1/pay/${encodeURIComponent(id)}`;
+}
+
 export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
   const token: Token = isToken(req.token) ? req.token : "USDC";
   const requester = cleanText(req.requester_name, LIMITS.name);
@@ -249,7 +260,8 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     forText,
     note,
     recipient: req.recipient,
-    solanaPayUrl: req.solana_pay_url ?? req.pay_url ?? "", // W3-B: Base requests open their EIP-681 link
+    // W3-B: Base requests open their EIP-681 link. Solana: the transaction request (see walletPayUrl).
+    solanaPayUrl: req.chain === "base" ? (req.pay_url ?? req.solana_pay_url ?? "") : walletPayUrl(origin, req.id),
     shareLink,
     agentPrompt: `Use the Owed plugin in PayBox to pay ${shareLink}`,
     x402Url: token === "USDC" && req.id.length === 12 ? `${origin}/x/${encodeURIComponent(req.id)}` : null,
