@@ -342,7 +342,7 @@ it("POST /api/hooks/moonpay: refuses a missing or wrong Moonpay-Signature-V2; ac
     const t = Math.floor(Date.now() / 1000);
     const good = `t=${t},s=${createHmac("sha256", "wk_test_owedtest").update(`${t}.${body}`).digest("hex")}`;
     assert.equal((await post(null)).status, 401);
-    assert.equal((await post(good.replace(/s=./, "s=0"))).status, 401);
+    assert.equal((await post(good.replace(/s=(.)/, (_, c: string) => `s=${c === "0" ? "1" : "0"}`))).status, 401, "one hex digit changed");
     assert.equal((await post(`t=${t},s=${createHmac("sha256", "other").update(`${t}.${body}`).digest("hex")}`)).status, 401);
     const ok = await post(good);
     assert.equal(ok.status, 200);
