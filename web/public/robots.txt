@@ -1,0 +1,5 @@
+# Owed: https://www.getowed.xyz. Pay, split and invoice pages are noindex in their own metadata.
+# A plain-text guide for agents and LLMs: https://www.getowed.xyz/llms.txt
+User-agent: *
+Allow: /
+Disallow: /api/
