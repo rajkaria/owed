@@ -207,6 +207,8 @@ export async function handleBaseX402(req: Request, row: RequestRow, base: string
   if (row.status === "paid") return json(baseReceiptBody(row, base, "paid"), { headers: BASE_HEADERS });
   if (row.status === "underpaid") return conflict("This request already received a partial payment. Ask the requester for a new link.");
   if (row.status === "cancelled") return conflict("This request was cancelled by the requester.");
+  // Anything else that isn't open (W3-C's expired, say) takes no payment.
+  if (row.status !== "open") return conflict(`This request can't be paid (status: ${String(row.status)}).`);
 
   const resourceUrl = `${base}/x/${row.id}`;
   let supported: Supported;

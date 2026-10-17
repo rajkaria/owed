@@ -38,14 +38,20 @@ const lastScanned = new Map<string, number>();
 
 interface OpenRow extends OpenBaseRequest {
   cursor: number | null;
+  cancelled: boolean;
 }
+
+/** Stored statuses still watched for a payment. W3-C: a cancelled (or expired, still stored 'open') request records a late payment. */
+const WATCHED = "('open', 'cancelled')";
+/** Row statuses that trigger a scan: open, and W3-C's computed 'expired' and 'cancelled'. */
+const SCANNED = new Set(["open", "expired", "cancelled"]);
 
 async function openRequestsTo(recipient: string): Promise<OpenRow[]> {
   const rows = await sql(
     `select id, recipient, amount_atomic::text as amount_atomic, extract(epoch from created_at)::bigint::text as created_unix,
-            chain_cursor::text as chain_cursor
+            chain_cursor::text as chain_cursor, status
        from requests
-      where chain = 'base' and status = 'open' and recipient = $1
+      where chain = 'base' and status in ${WATCHED} and recipient = $1
       order by created_at asc, id asc
       limit ${MAX_OPEN_PER_RECIPIENT}`,
     [recipient],
@@ -56,6 +62,7 @@ async function openRequestsTo(recipient: string): Promise<OpenRow[]> {
     amountAtomic: BigInt(r.amount_atomic!),
     createdUnix: Number(r.created_unix),
     cursor: r.chain_cursor == null ? null : Number(r.chain_cursor),
+    cancelled: r.status === "cancelled",
   }));
 }
 
@@ -71,7 +78,7 @@ async function recordTransfer(requestId: string, t: TimedTransfer): Promise<bool
       `update requests
           set status = 'paid', paid_signature = $2, paid_payer = $3, paid_amount_atomic = $4,
               paid_at = to_timestamp($5::bigint), paid_rail = 'base_transfer', chain_cursor = $6
-        where id = $1 and chain = 'base' and status = 'open'
+        where id = $1 and chain = 'base' and status in ${WATCHED}
         returning id`,
       [requestId, t.txHash, t.from, t.value, t.at, t.blockNumber],
     );
@@ -130,7 +137,12 @@ async function settleRecipient(
     } catch (e) {
       console.warn(`Base x402 receipts unavailable: ${e instanceof Error ? e.message : String(e)}`);
     }
-    for (const a of assignTransfers(open, candidates, used)) {
+    // Open requests take transfers first (oldest first); a cancelled one only gets a transfer no open one matches.
+    const live = open.filter((r) => !r.cancelled);
+    const liveAssigned = assignTransfers(live, candidates, used);
+    const usedNow = new Set([...used, ...liveAssigned.map((a) => a.transfer.txHash)]);
+    const assignments = [...liveAssigned, ...assignTransfers(open.filter((r) => r.cancelled), candidates, usedNow)];
+    for (const a of assignments) {
       const t = a.transfer;
       const receipt = x402ReceiptFor(receipts, a.requestId, t);
       let done: boolean;
@@ -153,7 +165,7 @@ async function settleRecipient(
   if (stillOpen.length > 0 && scan.scannedTo >= fromBlock) {
     await sql(
       `update requests set chain_cursor = greatest(coalesce(chain_cursor, 0), $2::bigint)
-        where id = any($1::text[]) and chain = 'base' and status = 'open'`,
+        where id = any($1::text[]) and chain = 'base' and status in ${WATCHED}`,
       [stillOpen, cursor],
     );
   }
@@ -169,7 +181,7 @@ export async function settleBaseRequests(
 ): Promise<Set<string>> {
   const paid = new Set<string>();
   const now = Date.now();
-  const recipients = [...new Set(rows.filter((r) => r.chain === "base" && r.status === "open").map((r) => r.recipient))]
+  const recipients = [...new Set(rows.filter((r) => r.chain === "base" && SCANNED.has(r.status)).map((r) => r.recipient))]
     .filter((rc) => now - (lastScanned.get(rc) ?? 0) >= RECHECK_MS);
   if (recipients.length === 0) return paid;
   const head = await deps.head(o);
