@@ -263,6 +263,7 @@ export const ledgerReqSchema = z.object({
   recipient: addressSchema,
   signed_message: z.string().min(1).max(200),
   signature: z.string().min(64).max(200),
+  csv: z.literal(true).optional(), // W3-D: also mint a 10-minute CSV download link
 }).strict();
 
 export const ledgerEntrySchema = z.object({
@@ -288,6 +289,32 @@ export const ledgerEntrySchema = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   from_domain: z.string().max(253).nullable(),
   flags: z.array(z.string().max(80)).max(32).optional(),
+  // W3-D: the monthly schedule and month that opened this request (null or absent for one-off requests).
+  schedule_id: z.string().max(40).nullable().optional(),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
+});
+
+// W3-D: a monthly schedule as the ledger lists it.
+export const scheduleSummarySchema = z.object({
+  id: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/),
+  status: z.string().max(20),
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).nullable(),
+  for: z.string().max(80).nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  requests_opened: z.number().int().nonnegative(),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  from_domain: z.string().max(253).nullable(),
+  last_error: z.string().max(400).nullable(),
+  requests: z.array(z.object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    id: requestIdSchema,
+    link: httpsUrl,
+    status: z.string().max(20),
+  })).max(24),
 });
 
 export const ledgerResSchema = z.object({
@@ -305,6 +332,8 @@ export const ledgerResSchema = z.object({
     paid_count: z.number().int().nonnegative(),
   })).max(2),
   truncated: z.boolean(),
+  schedules: z.array(scheduleSummarySchema).max(20).optional(), // W3-D
+  csv: z.object({ url: httpsUrl, expires_at: isoTime }).nullable().optional(), // W3-D: null = export not configured
 });
 
 export type LedgerReq = z.infer<typeof ledgerReqSchema>;
@@ -323,3 +352,52 @@ export const cancelResSchema = getRequestResSchema.extend({ already_cancelled: z
 
 export type CancelReq = z.infer<typeof cancelReqSchema>;
 export type CancelRes = z.infer<typeof cancelResSchema>;
+export type ScheduleSummary = z.infer<typeof scheduleSummarySchema>;
+
+// W3-D: POST /api/v1/schedules (ask_every_month). Same payer, amount and text on the same day each month (UTC).
+export const createScheduleReqSchema = z.object({
+  recipient: addressSchema,
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).optional(),
+  for: z.string().max(80).optional(),
+  requester_name: z.string().max(40).optional(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).optional(),
+  from_domain: z.string().min(1).max(253).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const scheduleResSchema = z.object({
+  id: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/),
+  recipient: addressSchema,
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).nullable(),
+  for: z.string().max(80).nullable(),
+  requester_name: z.string().max(40).nullable().optional(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  first_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  status: z.string().max(20),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
+  first_request: z.object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    id: requestIdSchema,
+    link: httpsUrl,
+    solana_pay_url: solanaPayUrl,
+    qr_url: httpsUrl,
+    reference: addressSchema,
+    x402_url: httpsUrl.nullable().optional(),
+    created_at: isoTime,
+    flags: z.array(z.string().max(80)).max(32),
+    from_domain: z.string().max(253).nullable().optional(),
+  }).nullable(),
+});
+
+export type CreateScheduleReq = z.infer<typeof createScheduleReqSchema>;
+export type ScheduleRes = z.infer<typeof scheduleResSchema>;

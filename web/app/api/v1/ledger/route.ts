@@ -1,6 +1,8 @@
 import { LedgerBody } from "@/lib/contract";
 import { baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { getLedger } from "@/lib/ledger";
+import { csvLink } from "@/lib/ledger-csv"; // W3-D
+import { withSchedules } from "@/lib/schedules"; // W3-D
 import { ledgerPrefix, verifySignedMessage } from "@/lib/verify-signature";
 
 export const runtime = "nodejs";
@@ -9,6 +11,7 @@ export const runtime = "nodejs";
  * POST /api/v1/ledger — a recipient's open requests and the ones paid in the last 30 days, with totals.
  * Needs "Owed ledger access for <recipient> at <ISO time>" signed by the recipient's wallet (PayBox
  * request_wallet_sign, op solanaMessage), at most 5 minutes old. Each signed message works once.
+ * W3-D: also lists the wallet's monthly schedules; with csv: true the reply carries a CSV link for 10 minutes.
  */
 export async function POST(req: Request): Promise<Response> {
   try {
@@ -19,7 +22,11 @@ export async function POST(req: Request): Promise<Response> {
       signer: body.recipient,
       prefix: ledgerPrefix(body.recipient),
     });
-    return json(await getLedger(body.recipient, { base: baseUrl(req) }));
+    // W3-D start: monthly schedules and, when asked, a 10-minute CSV link (minted only after the signature check)
+    const base = baseUrl(req);
+    const ledger = await withSchedules(await getLedger(body.recipient, { base }), { base });
+    return json(body.csv ? { ...ledger, csv: csvLink(body.recipient, base) } : ledger);
+    // W3-D end
   } catch (e) {
     return toErrorResponse(e);
   }
