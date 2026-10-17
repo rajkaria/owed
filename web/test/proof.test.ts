@@ -151,11 +151,13 @@ it("a Solana Pay payment from a team wallet is recorded with is_team, and /proof
   assert.ok(!JSON.stringify(proof).includes("dinner"));
 });
 
-it("a payment into a team wallet counts too (the recipient is on the list)", async () => {
-  process.env.OWED_TEAM_WALLETS = SOL_PAYEE;
+it("QA-19: a stranger paying a request into a team wallet does not count; only the payer decides", async () => {
+  process.env.OWED_TEAM_WALLETS = SOL_PAYEE; // the recipient is a team wallet, the payer isn't
   const id = await solRequest();
-  await requests.settleFromChain([(await requests.getRequest(id))!], rpc);
-  assert.equal(await isTeam(id), true);
+  const [row] = await requests.settleFromChain([(await requests.getRequest(id))!], rpc);
+  assert.equal(row!.status, "paid");
+  assert.equal(await isTeam(id), false);
+  assert.equal((await loadProof()).count, 0);
 });
 
 it("with no team wallets configured, or none involved, the payment is recorded but stays off /proof", async () => {
@@ -247,19 +249,20 @@ it("scripts/mark-team.ts SQL: flags older settled rows by the same rule, clears 
     return id;
   };
   const fromTeam = await mk(1, OTHER, TEAM, false); // paid by the team before the env var existed
-  const toTeam = await mk(2, TEAM, SOL_PAYER, false); // paid into a team wallet
-  const stale = await mk(3, SOL_PAYEE, SOL_PAYER, true); // flagged, but no longer on the list
+  const toTeam = await mk(2, TEAM, SOL_PAYER, false); // a stranger paid into a team wallet: stays off
+  const stale = await mk(3, SOL_PAYEE, SOL_PAYER, true); // flagged, but its payer is no longer on the list
+  const oldRule = await mk(6, TEAM, OTHER, true); // flagged by the earlier recipient-or-payer rule (QA-19)
   const already = await mk(4, TEAM, TEAM, true);
   const open = await mk(5, TEAM, null, false);
   const wallets = teamWallets({ OWED_TEAM_WALLETS: TEAM });
   const pending = await sql(`select id from requests where ${teamMismatchSql("$1")} order by id`, [wallets]);
-  assert.deepEqual(pending.map((r) => r.id), [fromTeam, toTeam, stale].sort());
+  assert.deepEqual(pending.map((r) => r.id), [fromTeam, stale, oldRule].sort());
   const updated = await sql(`update requests set is_team = ${isTeamSql("$1", "paid_payer")} where ${teamMismatchSql("$1")} returning id`, [wallets]);
   assert.equal(updated.length, 3);
   assert.deepEqual(
-    await Promise.all([fromTeam, toTeam, stale, already, open].map(isTeam)),
-    [true, true, false, true, false],
+    await Promise.all([fromTeam, toTeam, stale, oldRule, already, open].map(isTeam)),
+    [true, false, false, false, true, false],
   );
   assert.equal((await sql(`select id from requests where ${teamMismatchSql("$1")}`, [wallets])).length, 0);
-  assert.deepEqual((await loadProof()).payments.map((p) => p.id).sort(), [already, fromTeam, toTeam].sort());
+  assert.deepEqual((await loadProof()).payments.map((p) => p.id).sort(), [already, fromTeam].sort());
 });
