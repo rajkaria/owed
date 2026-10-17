@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { ApiError } from "../api.js";
 import { addressSchema, decimalSchema, type GetRequestRes } from "../contract.js";
-import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
+import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { USDC_MINT, type Token } from "../money.js";
 import { proposeSolana, solanaOutputSchema } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
@@ -17,6 +17,9 @@ export const inputSchema = z.object({
 
 export const outputSchema = solanaOutputSchema;
 export type PayInput = z.output<typeof inputSchema>;
+
+/** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
+export const PAY_BUDGET_MS = 8500;
 
 export const REFUSE_TRANSACTION_REQUEST = "This is a Solana Pay checkout link (transaction request). Owed pays transfer links only; open it in a wallet app instead.";
 export const REFUSE_ALREADY_PAID = "This request is already paid.";
@@ -39,6 +42,7 @@ interface Resolved {
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
+  const started = deps.now();
   if (!deps.isSolanaAddress(args.sender)) return refusal("sender must be a Solana wallet address (the user's own PayBox Solana wallet).");
   let ctx: CallContext;
   try {
@@ -102,10 +106,14 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
 
   let readiness;
   try {
-    readiness = await deps.payerReadiness(deps.rpc(), { sender: args.sender, recipient: request.recipient, token, amountAtomic });
+    readiness = await within(
+      deps.payerReadiness(deps.rpc(), { sender: args.sender, recipient: request.recipient, token, amountAtomic }),
+      PAY_BUDGET_MS - (deps.now() - started), () => null,
+    );
   } catch {
-    return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
+    readiness = null;
   }
+  if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   if (!readiness.ok) return refusal(readiness.reason ?? "Your wallet can't cover this payment and its fees.");
 
   const createRecipientAta = token === "USDC" && !readiness.recipientAtaExists;

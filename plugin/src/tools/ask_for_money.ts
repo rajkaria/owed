@@ -110,11 +110,14 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
 
-/** The server builds the link the payer sees; refuse to hand out one that pays anyone or anything else. */
+/**
+ * The server builds what the payer pays; refuse to hand out a link that pays anyone or anything else.
+ * The page link's host isn't pinned: the server's domain can change before the plugin's OWED_BASE_URL does.
+ */
 function checkHosted(res: CreateRequestRes, recipient: string, token: "USDC" | "SOL", atomic: bigint, ctx: CallContext, deps: Deps): string | null {
   const bad = "Owed's server returned a payment link that doesn't match this request, so it wasn't used. Nothing was created on your side; try again.";
   try {
-    if (!ctx.hosts.includes(new URL(res.link).host)) return bad;
+    if (new URL(res.link).protocol !== "https:") return bad;
     const parsed = deps.parseLink(res.solana_pay_url, ctx.hosts);
     if (parsed.kind !== "transfer") return bad;
     const r = parsed.request;

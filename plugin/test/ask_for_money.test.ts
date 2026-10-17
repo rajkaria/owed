@@ -135,7 +135,6 @@ test("refuses a hosted link that pays someone else or a different amount", async
     { ...created, solana_pay_url: created.solana_pay_url.replace("amount=15", "amount=150") },
     { ...created, solana_pay_url: created.solana_pay_url.replace(`&spl-token=${USDC_MINT}`, "") },
     { ...created, reference: other },
-    { ...created, link: "https://owed.evil.example/r/7Gh2kQpXa9" },
     { ...created, solana_pay_url: "solana:https%3A%2F%2Fevil.example%2Fcheckout" },
   ];
   for (const body of tampered) {
@@ -144,6 +143,12 @@ test("refuses a hosted link that pays someone else or a different amount", async
     assert.equal((result as { isError?: boolean }).isError, true, JSON.stringify(body).slice(0, 80));
     assert.match(textOf(result), /doesn't match this request/);
   }
+});
+
+test("accepts a hosted link on a domain the plugin doesn't know yet (domain switch)", async () => {
+  const moved = { ...created, link: "https://getowed.xyz/r/7Gh2kQpXa9", qr_url: "https://getowed.xyz/api/qr/7Gh2kQpXa9.png" };
+  const { deps } = makeDeps({ routes: { "POST /api/v1/requests": () => json(201, moved) } });
+  assert.equal(structured(await askForMoney(input(), deps)).link, "https://getowed.xyz/r/7Gh2kQpXa9");
 });
 
 test("rejects bad recipients, amounts and misconfiguration", async () => {

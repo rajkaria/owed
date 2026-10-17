@@ -131,6 +131,19 @@ test("RPC and builder failures refuse without proposing", async () => {
   assert.equal(refusalText(await payLink(input(), broken)), "Couldn't build the payment: transaction is 1300 bytes");
 });
 
+test("a slow RPC can't push the call past PayBox's 10 s limit", async () => {
+  let t = 0;
+  const { deps, rec } = makeDeps({
+    routes: owedRoutes(openRequest),
+    now: () => (t += 9000), // every reading is past the 8.5 s budget
+    payerReadiness: () => new Promise(() => {}),
+  });
+  const started = Date.now();
+  assert.match(refusalText(await payLink(input(), deps)), /^Solana couldn't be reached/);
+  assert.ok(Date.now() - started < 1000);
+  assert.equal(rec.built.length, 0);
+});
+
 test("links without an amount need one; links with an amount can't be changed", async () => {
   const noAmount = `solana:${RECIPIENT}?spl-token=${USDC_MINT}&reference=${REFERENCE}`;
   const { deps, rec } = makeDeps();
