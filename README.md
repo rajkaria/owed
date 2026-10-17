@@ -19,7 +19,7 @@ Six tools, uploaded to the PayBox developer portal (build of `main`, hosted chec
 | `split_bill` | Splits a bill into one request per person and a live board that shows who has paid. |
 | `create_invoice` | Creates a printable invoice with line items, due date and invoice number, payable by QR, link or the client's agent. |
 
-Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made to or from the team's own wallets with their transactions.
+Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets, with their transactions.
 
 ## Why your agent can trust what it pays
 
