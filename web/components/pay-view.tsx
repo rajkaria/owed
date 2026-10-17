@@ -86,6 +86,7 @@ function Actions({ model }: { model: PayModel }) {
         Opens Phantom, Solflare, Backpack or any Solana wallet on this device. <em className="not-italic text-fg">Pay with
         your AI agent</em> copies a message to paste into Claude or ChatGPT with PayBox connected.
       </p>
+      {model.x402Url ? <p className="text-sm leading-relaxed text-muted">AI agents can pay this at <span className="break-all font-mono text-fg">{model.x402Url}</span></p> : null}
     </div>
   );
 }

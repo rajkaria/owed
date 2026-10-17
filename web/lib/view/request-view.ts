@@ -47,6 +47,8 @@ export interface PayModel {
   solanaPayUrl: string;
   shareLink: string;
   agentPrompt: string;
+  /** W2-B: where an x402 agent pays this request (USDC, 12-char ids); null otherwise. */
+  x402Url: string | null;
   brandWords: string[];
   initial: LiveState;
   poll: PollTarget | null;
@@ -221,6 +223,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     solanaPayUrl: req.solana_pay_url,
     shareLink,
     agentPrompt: `Use the Owed plugin in PayBox to pay ${shareLink}`,
+    x402Url: token === "USDC" && req.id.length === 12 ? `${origin}/x/${encodeURIComponent(req.id)}` : null,
     brandWords,
     initial: stateFromRequest(req),
     poll: { endpoint: "/api/v1/status", id: req.id },
@@ -247,6 +250,7 @@ export function modelFromTransfer(t: TransferRequest, origin: string): PayModel 
     shareLink: `${origin}/p?u=${encodeURIComponent(t.raw)}`,
     // pay_link takes the solana: URL directly; it may not know /p links.
     agentPrompt: `Use the Owed plugin in PayBox to pay ${t.raw}`,
+    x402Url: null,
     brandWords,
     initial: { status: "open" },
     poll: t.references.length > 0 ? { endpoint: "/api/v1/status-raw", solanaPayUrl: t.raw } : null,
