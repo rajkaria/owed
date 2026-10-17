@@ -41,7 +41,7 @@ async function handle(req: Request, ctx: RouteContext<"/x/[id]">): Promise<Respo
   }
 }
 
-/** GET|POST /x/:id — pay an Owed request over x402 (USDC on Solana mainnet). */
+/** GET|POST /x/:id — pay an Owed request over x402 (USDC on Solana mainnet; W3-B: USDC on Base for Base requests). */
 export const GET = handle;
 export const POST = handle;
 

@@ -1,0 +1,132 @@
+{
+ "_about": "W3-B Base requests: vectors both plugin/src/evm.ts + request-id.ts and web/lib/evm/* + ids.ts must reproduce. keccak256 values come from @noble/hashes 1.8.0 (a transitive dependency, used only to record them); EIP-55 vectors are the examples in EIP-55; ids: chain null/solana must equal the pre-W3-B Solana ids.",
+ "keccak256": [
+  {
+   "input_utf8": "",
+   "keccak256": "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+  },
+  {
+   "input_utf8": "abc",
+   "keccak256": "4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45"
+  },
+  {
+   "input_utf8": "Transfer(address,address,uint256)",
+   "keccak256": "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+  },
+  {
+   "input_utf8": "transfer(address,uint256)",
+   "keccak256": "a9059cbb2ab09eb219583f4a59a5d0623ade346d962bcd4e46b11da047c9049b"
+  },
+  {
+   "input_utf8": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "keccak256": "34367dc248bbd832f4e3e69dfaac2f92638bd0bbd18f2912ba4ef454919cf446"
+  },
+  {
+   "input_utf8": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "keccak256": "a6c4d403279fe3e0af03729caada8374b5ca54d8065329a3ebcaeb4b60aa386e"
+  },
+  {
+   "input_utf8": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "keccak256": "d869f639c7046b4929fc92a4d988a8b22c55fbadb802c0c66ebcd484f1915f39"
+  },
+  {
+   "input_utf8": "Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed Owed ",
+   "keccak256": "deeaa9b2ad5867ce73dc68168d880b4e800ad935b663c4f4d15c9ef073822384"
+  }
+ ],
+ "eip55": {
+  "valid": [
+   "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+   "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
+   "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb",
+   "0x52908400098527886E0F7030069857D2E4169EE7",
+   "0x8617E340B3D01FA5F11F306F4090FD50E238070D",
+   "0xde709f2102306220921060314715629080e2fb77",
+   "0x27b1fdb04752bbc536007a920d24acb045561c26",
+   "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+  ],
+  "normalize": [
+   {
+    "input": "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+    "checksummed": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+   },
+   {
+    "input": "0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED",
+    "checksummed": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+   },
+   {
+    "input": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    "checksummed": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+   },
+   {
+    "input": " 0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359 ",
+    "checksummed": "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"
+   }
+  ],
+  "invalid": [
+   "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD",
+   "0x5aaEb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAe",
+   "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAedd",
+   "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeg",
+   "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+   ""
+  ]
+ },
+ "request_ids": [
+  {
+   "chain": "solana",
+   "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+   "token": "USDC",
+   "amount_atomic": "15000000",
+   "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+   "id": "JArQ6g9JvoWr"
+  },
+  {
+   "chain": null,
+   "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+   "token": "USDC",
+   "amount_atomic": "15000000",
+   "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+   "id": "JArQ6g9JvoWr"
+  },
+  {
+   "chain": "solana",
+   "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+   "token": "SOL",
+   "amount_atomic": "15000000",
+   "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+   "id": "NAsyaiM7RoHi"
+  },
+  {
+   "chain": "base",
+   "recipient": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "token": "USDC",
+   "amount_atomic": "500000",
+   "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+   "id": "BWPPcRxKPi21"
+  },
+  {
+   "chain": "base",
+   "recipient": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "token": "USDC",
+   "amount_atomic": "15000000",
+   "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+   "id": "tB6GWmFdihkt"
+  }
+ ],
+ "eip681": [
+  {
+   "recipient": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+   "amount_atomic": "500000",
+   "url": "ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453/transfer?address=0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed&uint256=500000"
+  },
+  {
+   "recipient": "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+   "amount_atomic": "1",
+   "url": "ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453/transfer?address=0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359&uint256=1"
+  }
+ ]
+}

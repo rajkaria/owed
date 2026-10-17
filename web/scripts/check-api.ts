@@ -97,7 +97,7 @@ await check("POST /api/v1/requests creates a request (201, contract shape)", asy
   created = shape(CreateRequestResponse, r.data);
   assert.equal(created.link, `${base}/r/${created.id}`);
   assert.equal(created.qr_url, `${base}/api/qr/${created.id}.png`);
-  const link = parseTransferUrl(created.solana_pay_url);
+  const link = parseTransferUrl(created.solana_pay_url ?? ""); // W3-B: null only on Base requests
   assert.deepEqual(
     { recipient: link.recipient, amount: link.amount, splToken: link.splToken, references: link.references, memo: link.memo },
     { recipient: TEAM, amount: "1", splToken: USDC, references: [created.reference], memo: `owed:${created.id}` },

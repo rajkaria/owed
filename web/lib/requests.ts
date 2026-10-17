@@ -10,6 +10,12 @@ import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
 import { isTeamSql, teamWallets } from "./team"; // W2-F is_team
 import { watchSoon } from "./notify/helius"; // W3-A
+// W3-B Base requests start
+import { BASE_USDC, BASE_USDC_DECIMALS, eip681Transfer, type Chain } from "./evm/base";
+import { settleBaseRequests } from "./evm/settle";
+import { BaseRpcError } from "./evm/rpc";
+import { ApiError } from "./http";
+// W3-B Base requests end
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -32,7 +38,7 @@ export interface RequestRow {
   paidPayer: string | null;
   paidAmountAtomic: bigint | null;
   paidAt: string | null;
-  paidRail: "solana_pay" | "x402" | null;
+  paidRail: "solana_pay" | "x402" | "base_transfer" | null;
   source: "plugin" | "web";
   createdAt: string;
   // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
@@ -44,6 +50,9 @@ export interface RequestRow {
   /** The recipient's signed "Owed cancel <id> for <recipient> at <ISO>" and its signature: the proof. */
   cancelMessage?: string | null;
   cancelSignature?: string | null;
+  // W3-B Base requests: absent means Solana. chainCursor = last Base block scanned for the payment.
+  chain?: Chain;
+  chainCursor?: bigint | null;
 }
 
 // W3-C: an open request past expires_at reads as 'expired' (computed by the database clock on every read).
@@ -54,7 +63,8 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   paid_signature, paid_payer, paid_amount_atomic::text as paid_amount_atomic, ${isoUtc("paid_at")} as paid_at,
   paid_rail, source, ${isoUtc("created_at")} as created_at,
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
-  ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature`;
+  ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
+  chain, chain_cursor::text as chain_cursor`; // W3-B: chain, chain_cursor
 
 export function fromRow(r: Row): RequestRow {
   return {
@@ -85,6 +95,8 @@ export function fromRow(r: Row): RequestRow {
     cancelledAt: r.cancelled_at ?? null,
     cancelMessage: r.cancel_message ?? null,
     cancelSignature: r.cancel_signature ?? null,
+    chain: r.chain === "base" ? "base" : "solana", // W3-B
+    chainCursor: r.chain_cursor == null ? null : BigInt(r.chain_cursor), // W3-B
   };
 }
 
@@ -110,6 +122,17 @@ export function solanaPayUrl(row: RequestRow): string {
   });
 }
 
+// W3-B Base requests start
+export function isBaseRow(row: Pick<RequestRow, "chain">): boolean {
+  return row.chain === "base";
+}
+
+/** What a wallet opens to pay: the Solana Pay URL, or for Base the EIP-681 USDC transfer link. */
+export function payUrl(row: RequestRow): string {
+  return isBaseRow(row) ? eip681Transfer(row.recipient, row.amountAtomic) : solanaPayUrl(row);
+}
+// W3-B Base requests end
+
 /** `base` is the public origin for links; without it the x402 URL is left out. */
 export function toPublic(row: RequestRow, base?: string): PublicRequest {
   const settled = (row.status === "paid" || row.status === "underpaid") && row.paidSignature && row.paidAmountAtomic != null;
@@ -124,7 +147,7 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     note: row.note,
     requester_name: row.requesterName,
     status: row.status,
-    solana_pay_url: solanaPayUrl(row),
+    solana_pay_url: isBaseRow(row) ? null : solanaPayUrl(row), // W3-B: Base requests have no Solana Pay URL
     reference: row.reference,
     x402_url: base ? x402UrlFor(base, row) : null,
     created_at: row.createdAt,
@@ -145,6 +168,8 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     cancelled: row.cancelledAt && row.cancelMessage && row.cancelSignature
       ? { at: row.cancelledAt, signed_message: row.cancelMessage, signature: row.cancelSignature }
       : null,
+    chain: row.chain ?? "solana", // W3-B
+    pay_url: payUrl(row), // W3-B
   };
 }
 
@@ -173,21 +198,26 @@ export interface CreateInput {
   fromDomain?: string | null;
   /** W3-C: whole days (1-90, checked by the route); the database sets expires_at = now() + this. */
   expiresInDays?: number | null;
+  /** W3-B: "base" makes a USDC request on Base; the recipient must already be a checksummed 0x address. */
+  chain?: Chain;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
-  const { mint, decimals } = TOKENS[input.token];
+  // W3-B: a Base request is USDC on Base (lib/evm/base.ts); the 0011 check constraint pins the same.
+  const chain: Chain = input.chain ?? "solana";
+  if (chain === "base" && input.token !== "USDC") throw new Error("Base requests are USDC only");
+  const { mint, decimals } = chain === "base" ? { mint: BASE_USDC, decimals: BASE_USDC_DECIMALS } : TOKENS[input.token];
   for (let attempt = 0; ; attempt++) {
     // The id is derived from the terms (see lib/ids.ts), so it changes whenever the reference does.
     const reference = newReference();
-    const id = requestIdFor({ recipient: input.recipient, token: input.token, amountAtomic: input.amountAtomic, reference });
+    const id = requestIdFor({ recipient: input.recipient, token: input.token, amountAtomic: input.amountAtomic, reference, ...(chain === "base" && { chain }) });
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
-           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at)
+           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
            $14, case when $14::text is null then null else now() end,
-           case when $15::int is null then null else now() + make_interval(days => $15::int) end)
+           case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16)
          returning ${COLUMNS}`,
         [
           id,
@@ -205,6 +235,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.source,
           input.fromDomain ?? null,
           input.expiresInDays ?? null,
+          chain,
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key
@@ -262,6 +293,23 @@ const lastChecked = new Map<string, number>();
  * can't be reached within the budget.
  */
 export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptions = {}): Promise<RequestRow[]> {
+  // W3-B Base requests start: Base rows settle from Base USDC Transfer logs, never from Solana.
+  if (rows.some(isBaseRow)) {
+    const solana = rows.filter((r) => !isBaseRow(r));
+    const [solanaDone, basePaid] = await Promise.all([
+      solana.length ? settleFromChain(solana, rpc) : Promise.resolve([]),
+      settleBaseRequests(rows.filter(isBaseRow), { deadline: rpc.deadline, timeoutMs: rpc.timeoutMs }).catch((e: unknown) => {
+        // Base unreachable: alone, that's an outage to report; next to Solana rows, Base rows keep their stored state.
+        if (solana.length === 0) throw e instanceof BaseRpcError ? new ApiError("upstream_unavailable", "Base RPC is unavailable, try again shortly") : e;
+        console.warn(`Base settle skipped: ${e instanceof Error ? e.message : String(e)}`);
+        return new Set<string>();
+      }),
+    ]);
+    const fresh = basePaid.size ? await getRequests([...basePaid]) : new Map<string, RequestRow>();
+    const byId = new Map(solanaDone.map((r) => [r.id, r]));
+    return rows.map((r) => fresh.get(r.id) ?? byId.get(r.id) ?? r);
+  }
+  // W3-B Base requests end
   const now = Date.now();
   let due = rows.filter(
     (r) => chainCheckable(r.status) && now - (lastChecked.get(r.id) ?? 0) >= RECHECK_MS,

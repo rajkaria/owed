@@ -324,6 +324,14 @@ export function parseTxtAnswer(body: unknown, qname: string): TxtAnswer | null {
   return { rcode, txt, ad: b.AD === true };
 }
 
+// W3-B Base requests: a record may name a 0x (Base) address; EVM addresses compare case-insensitively
+// (EIP-55 case is only a checksum), Solana addresses exactly.
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+export function sameWallet(published: string, address: string): boolean {
+  if (EVM_ADDRESS.test(published) && EVM_ADDRESS.test(address)) return published.toLowerCase() === address.toLowerCase();
+  return published === address;
+}
+
 export function owedPayValues(txt: string[]): string[] {
   return txt
     .map((t) => t.trim())
@@ -382,7 +390,7 @@ export async function verifyDomain(domain: string, address: string, options: Pay
     if (!answer) continue;
     const wallets = owedPayValues(answer.txt);
     return {
-      status: wallets.includes(address) ? "verified" : "unverified",
+      status: wallets.some((w) => sameWallet(w, address)) ? "verified" : "unverified",
       domain: d.ascii,
       display_domain: d.unicode,
       dnssec: answer.ad,

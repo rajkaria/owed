@@ -6,7 +6,7 @@ import { loadPublicRequest } from "@/lib/request-source";
 import { formatAmount, isToken } from "@/lib/view/money";
 import { LIMITS, cleanText } from "@/lib/view/text";
 
-export const alt = "Payment request on Owed. Pay with any Solana wallet.";
+export const alt = "Payment request on Owed. Pay it from your wallet or with your AI agent."; // W3-B: chain-neutral (Base requests too)
 export const size = OG_SIZE;
 export const contentType = "image/png";
 
@@ -43,7 +43,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         title={formatAmount(request.amount, token)}
         line={forText ? `for “${forText}”` : null}
         verified={verifiedDomain(request.from_domain, request.from_domain_verified_at)}
-        cta="Pay with any Solana wallet"
+        cta={request.chain === "base" ? "Pay from any Base wallet" : "Pay with any Solana wallet"} // W3-B
       />
     ),
     size,
