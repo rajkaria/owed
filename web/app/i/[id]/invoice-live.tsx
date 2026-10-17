@@ -114,7 +114,7 @@ function PaidStamp({ state }: { state: Extract<LiveState, { status: "paid" }> })
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute right-3 top-16 z-10 -rotate-[9deg] rounded-lg border-[3px] border-paid bg-surface/80 px-3 py-1.5 text-center text-paid shadow-sm sm:right-8 sm:top-10 print:right-0 print:top-2 print:bg-transparent print:shadow-none [print-color-adjust:exact]"
+      className="pointer-events-none absolute right-3 top-24 z-10 -rotate-[9deg] rounded-lg border-[3px] border-paid bg-surface/80 px-3 py-1.5 text-center text-paid shadow-sm sm:right-10 sm:top-24 print:right-2 print:top-14 print:bg-transparent print:shadow-none [print-color-adjust:exact]"
     >
       <p className="text-3xl font-black uppercase leading-none tracking-[0.2em] sm:text-4xl">Paid</p>
       {(date || state.signature) && (
