@@ -375,6 +375,10 @@ test("check_payments labels a matched payment and points an underpaid request at
   const text = textOf(result);
   assert.ok(text.includes(`Paid, request ${ids[0]}: 15 USDC from `) && text.includes(`, ${MATCHED_LABEL}: https://solscan.io/tx/`));
   assert.ok(text.includes(`The rest is asked in request ${ids[2]}.`));
+  // The remainder is owed once: by the rest request, not again by the underpaid one (found by the local e2e run).
+  assert.ok(text.startsWith("1 of 3 paid · 19.5 USDC received · 7.5 USDC outstanding · 1 underpaid"), text.split("\n")[0]);
+  const alone = await checkPayments({ requests: [ids[1]] }, d);
+  assert.match(textOf(alone), /^0 of 1 paid · 4\.5 USDC received · 7\.5 USDC outstanding · 1 underpaid/);
 });
 
 test("who_owes_me labels a matched payment and the rest it asks for", async () => {

@@ -22,6 +22,7 @@ Ten tools, uploaded to the PayBox developer portal (build of `main`, hosted chec
 | `write_reminder` | Drafts a polite, firm or formal reminder with the link and days outstanding; it reads the status first and drafts nothing for a paid request. |
 | `ask_every_month` | Asks someone for the same amount every month: stores a monthly schedule and opens a new Owed request on that day (UTC); each month's request works with every other tool. |
 | `cancel_request` | Cancels one of your own requests, shares or invoices after you sign one message with the wallet it pays: its page shows Cancelled and `pay_link` refuses it. A paid request can't be cancelled. |
+| `match_payments` | Finds money that reached your wallet but was never counted: exchanges and some wallets drop the Solana Pay reference. It lists transfers of exactly the amount still owed, with reasons and ambiguity warnings, and marks nothing until you sign that one is yours; the request then shows "matched by the recipient (no reference on the payment)". For an underpaid request it asks for exactly the rest. |
 
 Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); an x402 endpoint per request (`/x/<id>`) that any x402 agent can pay; a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets, with their transactions.
 

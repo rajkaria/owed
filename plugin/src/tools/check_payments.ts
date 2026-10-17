@@ -227,10 +227,13 @@ export function summarize(all: CheckResult[], deps: Deps): string {
   const received = new Map<Token, bigint>();
   const outstanding = new Map<Token, bigint>();
   const count = (status: CheckResult["status"]) => results.filter((r) => r.status === status).length;
+  // 0012: an underpaid request whose rest request is also being checked owes nothing on its own; the rest request does.
+  const checkedIds = new Set(results.flatMap((r) => (r.id ? [r.id] : [])));
   for (const r of results) {
     if (!r.token) continue;
     const paid = atomicOf(r.amount_paid, r.token);
     if (r.status === "paid" || r.status === "underpaid") received.set(r.token, (received.get(r.token) ?? 0n) + paid);
+    if (r.status === "underpaid" && r.rest_request && checkedIds.has(r.rest_request)) continue;
     if (r.status === "open" || r.status === "underpaid") {
       const owedNow = atomicOf(r.amount_requested, r.token) - paid;
       if (owedNow > 0n) outstanding.set(r.token, (outstanding.get(r.token) ?? 0n) + owedNow);
