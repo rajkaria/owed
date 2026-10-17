@@ -137,8 +137,90 @@ export function domainWarnings(d: NormalizedDomain): string[] {
   const plain = asciiLabels.filter((l) => !l.startsWith("xn--")).join(".");
   const digits = DIGIT_LOOKALIKES.filter(({ re }) => re.test(plain)).map(({ text }) => text);
   if (digits.length > 0) out.push(`${d.ascii} has characters that can pass for others: ${listFormat(digits)}.`);
+  for (const brand of brandsIn(d)) {
+    out.push(
+      brand.official.length > 0
+        ? `${d.unicode} looks like ${brand.display} but isn't ${brand.display}'s domain (${brand.official.join(" or ")}): verified only means ${d.unicode} publishes this wallet.`
+        : `${d.unicode} contains "${brand.display}": verified only means ${d.unicode} publishes this wallet, not that it is who the name suggests.`,
+    );
+  }
+  const embedded = embeddedName(d);
+  if (embedded) out.push(`${d.ascii} only starts with "${embedded}": the end of a domain name decides who controls it, so this is not ${embedded}.`);
   if (out.length > 0) out.push("Check the spelling letter by letter.");
   return out;
+}
+
+// ---------------------------------------------------------------- brand names in the domain (QA-02), as the plugin
+
+interface DomainBrand {
+  /** The brand-flag word (lib/safety.ts BRAND_WORDS), or null for Owed itself, which has no flag. */
+  flag: string | null;
+  display: string;
+  /** Letters to look for, separators removed. */
+  spell: string;
+  /** The brand's own domains: a domain equal to one, or under one, is the brand and gets no warning. */
+  official: readonly string[];
+  /** Short words match a whole hyphen-separated part only ("irs-help", not "first"). */
+  whole?: boolean;
+}
+
+const DOMAIN_BRANDS: readonly DomainBrand[] = [
+  { flag: "paybox", display: "PayBox", spell: "paybox", official: ["paybox.sh"] },
+  { flag: "moonpay", display: "MoonPay", spell: "moonpay", official: ["moonpay.com"] },
+  { flag: "coinbase", display: "Coinbase", spell: "coinbase", official: ["coinbase.com"] },
+  { flag: "binance", display: "Binance", spell: "binance", official: ["binance.com", "binance.us"] },
+  { flag: "phantom", display: "Phantom", spell: "phantom", official: ["phantom.app", "phantom.com"] },
+  { flag: "solflare", display: "Solflare", spell: "solflare", official: ["solflare.com"] },
+  { flag: "solana foundation", display: "Solana Foundation", spell: "solanafoundation", official: ["solana.org", "solana.com"] },
+  { flag: "circle", display: "Circle", spell: "circle", official: ["circle.com"] },
+  { flag: "usdc support", display: "USDC support", spell: "usdcsupport", official: [] },
+  { flag: "refund", display: "refund", spell: "refund", official: [] },
+  { flag: "irs", display: "IRS", spell: "irs", official: ["irs.gov"], whole: true },
+  { flag: "tax office", display: "tax office", spell: "taxoffice", official: [] },
+  { flag: null, display: "Owed", spell: "getowed", official: ["getowed.xyz", "owed-omega.vercel.app"] },
+  { flag: null, display: "Owed", spell: "owed", official: ["getowed.xyz", "owed-omega.vercel.app"], whole: true },
+];
+
+const DIGIT_AS_LETTER: Record<string, string> = { "0": "o", "1": "l", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b" };
+
+function readings(label: string): string[] {
+  const asLetters = label.replace(/[0-9]/g, (c) => DIGIT_AS_LETTER[c] ?? c);
+  return [...new Set([label, asLetters, label.replace(/[0-9]/g, (c) => (c === "1" ? "i" : (DIGIT_AS_LETTER[c] ?? c)))])];
+}
+
+function brandsIn(d: NormalizedDomain): DomainBrand[] {
+  const ascii = d.ascii.split(".");
+  const unicode = d.unicode.split(".");
+  const names = ascii.slice(0, -1).map((l, i) => (l.startsWith("xn--") ? skeleton(unicode[i] ?? l) : l));
+  const found: DomainBrand[] = [];
+  for (const brand of DOMAIN_BRANDS) {
+    if (found.some((f) => f.display === brand.display)) continue;
+    if (brand.official.some((o) => d.ascii === o || d.ascii.endsWith(`.${o}`))) continue;
+    const hit = names.some((name) =>
+      readings(name).some((r) => (brand.whole ? r.split("-").includes(brand.spell) : r.replace(/-/g, "").includes(brand.spell))),
+    );
+    if (hit) found.push(brand);
+  }
+  return found;
+}
+
+const TLD_LIKE = new Set([
+  "com", "net", "org", "io", "xyz", "app", "sh", "co", "gg", "dev", "ai", "me", "so", "link", "info", "biz", "gov",
+  "us", "uk", "eu", "de", "fr", "in", "ru", "cn", "pay", "finance", "money", "cash", "wallet", "site", "online", "top",
+  "shop", "store", "live", "pro", "vip", "club", "tech", "cloud",
+]);
+
+/** "getowed.xyz" for "getowed.xyz.example.com": a domain-looking start that isn't the domain. */
+function embeddedName(d: NormalizedDomain): string | null {
+  const labels = d.ascii.split(".");
+  for (let i = 1; i <= labels.length - 3; i++) if (TLD_LIKE.has(labels[i])) return labels.slice(0, i + 1).join(".");
+  return null;
+}
+
+/** `brand_word:<word>` flags for brand words in a domain (its own brand's domains excepted), merged into a request's flags. */
+export function domainBrandFlags(domain: string | null | undefined): string[] {
+  const d = domain ? normalizeDomain(domain) : null;
+  return d ? brandsIn(d).flatMap((brand) => (brand.flag ? [`brand_word:${brand.flag}`] : [])) : [];
 }
 
 export interface PayeeDisplay {
