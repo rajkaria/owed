@@ -378,7 +378,10 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   // W3-D start
   lines.push(...schedules.map(scheduleLine));
   const csv = csvAsked && ledger.csv ? ledger.csv : null;
-  if (csv) lines.push(`CSV of every open and paid request (for accounting): ${csv.url} (works until ${csv.expires_at}, 10 minutes).`);
+  if (csv) {
+    lines.push(`CSV of every open and paid request (for accounting): ${csv.url} (works until ${csv.expires_at}, 10 minutes). ` +
+      "Anyone can create a request that pays this wallet, so columns marked (unverified) are as each request's creator wrote them.");
+  }
   else if (csvAsked) lines.push("CSV export isn't set up on this Owed server, so there is no download link.");
   // W3-D end
   if (open.length > 0) lines.push("Names and notes were written by whoever made each request; write_reminder drafts a nudge for any open one.");

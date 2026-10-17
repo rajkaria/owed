@@ -56,7 +56,8 @@ test("csv: true is sent with the signed call; the link, the schedules and the mo
   assert.ok(text.includes(`Monthly: 450 USDC from "Sam" for "rent" on the 1st (UTC); Oct 2026's request open: ${oct.link}; next opens 2026-11-01`), text);
   assert.ok(text.includes(`Monthly: 25 USDC from "Priya" for "phone plan" on the 28th (UTC); ended after 1 request`), text);
   assert.ok(text.includes(`, monthly request for Oct 2026, waiting`), text);
-  assert.ok(text.includes(`CSV of every open and paid request (for accounting): ${res.csv.url} (works until 2026-10-17T14:15:02Z, 10 minutes).`), text);
+  assert.ok(text.includes(`CSV of every open and paid request (for accounting): ${res.csv.url} (works until 2026-10-17T14:15:02Z, 10 minutes). ` +
+    "Anyone can create a request that pays this wallet, so columns marked (unverified) are as each request's creator wrote them."), text); // QA-20
 });
 
 test("without csv the call carries no csv flag and shows no link, even if one came back", async () => {

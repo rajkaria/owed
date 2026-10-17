@@ -2,7 +2,7 @@
 // POST /api/v1/ledger (schedules + csv) and GET /api/v1/ledger/csv. Needs migration 0008 on its database.
 //
 //   set -a; source .env.preview.local; set +a        # DATABASE_URL, CRON_SECRET, CSV_LINK_SECRET of the target (never printed)
-//   node --import ./test/setup.mjs scripts/check-schedules.ts <base-url> --create [--wait-expiry]
+//   node --import ./test/setup.mjs scripts/check-schedules.ts <base-url> --create [--wait-expiry] [--skip-ledger]
 //   VERCEL_SHARE_URL=<https://<preview>/?_vercel_share=…> node --import ./test/setup.mjs scripts/check-schedules.ts https://<preview>.vercel.app --create
 //
 // --create writes, on the target's database:
@@ -15,6 +15,7 @@
 //      opened by the API, so a ledger signed by that wallet can be read: it lists the schedule and its request,
 //      csv: true returns a link, the CSV downloads with the right rows, and (--wait-expiry) the same link is refused
 //      once its 10 minutes are up.
+// --skip-ledger leaves out step 3 (on production, read the team wallet's own ledger with who_owes_me in PayBox instead).
 // Refuses production hosts unless --allow-production.
 import assert from "node:assert/strict";
 import bs58 from "bs58";
@@ -27,7 +28,7 @@ const TEAM_WALLET = "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs";
 const args = process.argv.slice(2);
 const base = (args[0] ?? "").replace(/\/+$/, "");
 if (!/^https?:\/\//.test(base) || !args.includes("--create")) {
-  console.error("usage: scripts/check-schedules.ts <base-url> --create [--wait-expiry] [--allow-production]");
+  console.error("usage: scripts/check-schedules.ts <base-url> --create [--wait-expiry] [--skip-ledger] [--allow-production]");
   process.exit(2);
 }
 const PRODUCTION_HOSTS = ["owed-omega.vercel.app", "www.getowed.xyz", "getowed.xyz"];
@@ -146,6 +147,11 @@ await step("a second call opens none", async () => {
 });
 
 // 3. The ledger: a throwaway wallet signs, so its ledger (and CSV) can be read.
+if (args.includes("--skip-ledger")) {
+  console.log(JSON.stringify(report, null, 2));
+  console.log(failures === 0 ? "all checks passed (ledger skipped)" : `${failures} check(s) failed`);
+  process.exit(failures === 0 ? 0 : 1);
+}
 const key = nacl.sign.keyPair();
 const throwaway = bs58.encode(key.publicKey);
 const iso = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(".000Z", "Z");
@@ -202,12 +208,13 @@ await step("the CSV downloads: header, the request's row, quoted cells, formula 
   const bytes = Buffer.from(await r.arrayBuffer());
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
   const lines = bytes.subarray(3).toString("utf8").split("\r\n");
-  assert.match(lines[0], /^"request_id","kind","status","amount","token",/);
+  assert.match(lines[0], /^# Anyone can create a request that pays your wallet\./); // QA-20 caution
+  assert.match(lines[1], /^"request_id","kind","status","amount","token",.*"payer_name \(unverified\)","for \(unverified\)"/);
   const row = lines.find((l) => l.startsWith(`"${throwawayRequest}"`));
   assert.ok(row, "the request's row");
   assert.ok(row.includes(`"'=Owed check","'@W3-D ledger check, do not pay"`), row);
   assert.ok(row.endsWith(`"${throwawaySchedule}","${new Date().toISOString().slice(0, 7)}"`), row);
-  report.csv_rows = lines.length - 2;
+  report.csv_rows = lines.length - 3;
 });
 await step("a tampered link (another wallet) is refused", async () => {
   const u = new URL(onTarget(csvUrl));

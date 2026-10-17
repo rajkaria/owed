@@ -11,7 +11,7 @@ import { POST as ledgerPOST } from "@/app/api/v1/ledger/route";
 import { POST as schedulesPOST } from "@/app/api/v1/schedules/route";
 import { LedgerResponse, ScheduleResponse } from "@/lib/contract";
 import { requestIdFor } from "@/lib/ids";
-import { checkCsvLink, csvCell, csvLine, csvLink, CSV_COLUMNS } from "@/lib/ledger-csv";
+import { checkCsvLink, csvCell, csvLine, csvLink, CSV_CAUTION, CSV_COLUMNS } from "@/lib/ledger-csv";
 import { getRequest } from "@/lib/requests";
 import {
   createSchedule, cronAuthorized, dateIn, dayLabel, dayOf, duePeriod, firstPeriodFor, isoDate, nextPeriod, nextRequestOn,
@@ -117,6 +117,15 @@ test("CSV cells are quoted, quotes doubled, and formula starts neutralised", () 
   assert.equal(csvCell("line\nbreak, comma"), '"line\nbreak, comma"');
   assert.equal(csvLine(["a", null, "=b"]), '"a","","\'=b"');
   assert.equal(CSV_COLUMNS.length, 17);
+});
+
+test("QA-20: the export opens with the caution on its own line, and requester-written columns say unverified", () => {
+  // One cell in every spreadsheet: no separators or quotes. A "#" line that comment-aware readers skip.
+  assert.match(CSV_CAUTION, /^# Anyone can create a request that pays your wallet\. Owed can't tell which ones you made\./);
+  assert.doesNotMatch(CSV_CAUTION, /[,;"\t\r\n]/);
+  assert.deepEqual(CSV_COLUMNS.filter((c) => c.endsWith("(unverified)")), ["payer_name (unverified)", "for (unverified)", "invoice_number (unverified)"]);
+  // Every other column is server-made: ids, amounts, wallets, times, links.
+  assert.equal(CSV_COLUMNS.filter((c) => c.includes("(")).length, 3);
 });
 
 const SECRET_A = "csv-test-secret-0123456789abcdefghijklmnop";
@@ -530,8 +539,9 @@ it("csv: true returns a link that downloads open + paid as escaped CSV, and refu
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]); // UTF-8 BOM, for spreadsheet apps
   const lines = bytes.subarray(3).toString("utf8").split("\r\n");
   assert.equal(lines.at(-1), "");
-  assert.equal(lines[0], csvLine(CSV_COLUMNS));
-  assert.equal(lines.length, 4); // header, 2 rows, trailing newline
+  assert.equal(lines[0], CSV_CAUTION); // QA-20: first, before the header
+  assert.equal(lines[1], csvLine(CSV_COLUMNS));
+  assert.equal(lines.length, 5); // caution, header, 2 rows, trailing newline
   const paidLine = lines.find((x) => x.startsWith(`"${paidId}"`))!;
   assert.equal(paidLine, csvLine([
     paidId, "single", "paid", "2.5", "USDC", "2.5", "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", `https://solscan.io/tx/${sig}`,
