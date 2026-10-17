@@ -1,0 +1,17 @@
+{
+ "name": "readiness-usdc-empty-sender",
+ "note": "Fresh address (no SOL, no USDC account) paying a wallet that has a USDC account.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-17T04:49:51.224Z",
+ "query": {
+  "fresh": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+  "accounts": [
+   "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+   "3Dm6pULR2rPz7Spru9QNnpqhorCpRZnJDqHJA2YVheKL",
+   "7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3"
+  ]
+ },
+ "calls": [
+{"method":"getMultipleAccounts","params":[["A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF","3Dm6pULR2rPz7Spru9QNnpqhorCpRZnJDqHJA2YVheKL","7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3"],{"encoding":"jsonParsed","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.0","slot":457909654},"value":[null,null,{"data":{"parsed":{"info":{"isNative":false,"mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","owner":"FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT","state":"initialized","tokenAmount":{"amount":"69063710","decimals":6,"uiAmount":69.06371,"uiAmountString":"69.06371"}},"type":"account"},"program":"spl-token","space":165},"executable":false,"lamports":2039280,"owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","rentEpoch":18446744073709552000,"space":165}]}}
+ ]
+}
