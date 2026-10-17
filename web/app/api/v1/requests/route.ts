@@ -2,9 +2,11 @@ import { PublicKey } from "@solana/web3.js";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
+import { requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
+import { x402UrlFor } from "@/lib/x402/url";
 
 export const runtime = "nodejs";
 
@@ -40,6 +42,9 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
+    // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
+    const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
+
     const row = await createRequest({
       recipient: body.recipient,
       token: body.token,
@@ -50,6 +55,7 @@ export async function POST(req: Request): Promise<Response> {
       requesterName: sanitizeText(body.requester_name, TEXT_LIMITS.requester_name),
       flags,
       source: body.source,
+      fromDomain,
     });
 
     const base = baseUrl(req);
@@ -59,9 +65,10 @@ export async function POST(req: Request): Promise<Response> {
       solana_pay_url: solanaPayUrl(row),
       qr_url: `${base}/api/qr/${row.id}.png`,
       reference: row.reference,
-      x402_url: null,
+      x402_url: x402UrlFor(base, row),
       created_at: row.createdAt,
       flags: row.flags,
+      from_domain: row.fromDomain,
     };
     return json(res, { status: 201 });
   } catch (e) {

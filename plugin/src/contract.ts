@@ -31,6 +31,7 @@ export const createRequestReqSchema = z.object({
   kind: z.literal("single").optional(),
   group_id: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
+  from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -42,6 +43,7 @@ export const createRequestResSchema = z.object({
   x402_url: httpsUrl.nullable().optional(),
   created_at: isoTime,
   flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(), // W2-H verified payee
 });
 
 export const paidInfoSchema = z.object({
@@ -69,6 +71,9 @@ export const getRequestResSchema = z.object({
   created_at: isoTime,
   paid: paidInfoSchema.nullable().optional(),
   flags: z.array(z.string().max(80)).max(32),
+  // W2-H verified payee: display copy only. pay_link re-checks the domain's DNS itself.
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
@@ -107,8 +112,109 @@ export const statsResSchema = z.object({
   since: isoTime,
 });
 
+// Split bills: POST /groups (and GET /groups/:id, same shape). Share ids commit to their terms like any
+// request id; the group id commits to the share ids in order (tools/split_bill.ts `groupIdFor`).
+export const groupIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+
+export const createGroupReqSchema = z.object({
+  recipient: addressSchema,
+  total: decimalSchema,
+  token: tokenSchema,
+  title: z.string().min(1).max(60),
+  people: z.array(z.object({ name: z.string().min(1).max(40), amount: decimalSchema.optional() }).strict()).min(2).max(20),
+  requester_name: z.string().max(40).optional(),
+  source: z.enum(["plugin", "web"]),
+  from_domain: z.string().min(1).max(253).optional(),
+}).strict();
+
+export const groupShareSchema = z.object({
+  id: requestIdSchema,
+  // Caps are in UTF-16 units here; the server caps code points, so leave room.
+  name: z.string().max(160).nullable(),
+  amount: decimalSchema,
+  status: z.string().max(20),
+  link: httpsUrl,
+  solana_pay_url: solanaPayUrl,
+  reference: addressSchema,
+  paid: paidInfoSchema.nullable().optional(),
+});
+
+export const groupResSchema = z.object({
+  id: groupIdSchema,
+  link: httpsUrl,
+  title: z.string().max(240).nullable(),
+  recipient: addressSchema,
+  token: tokenSchema,
+  total: decimalSchema,
+  requester_name: z.string().max(160).nullable().optional(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
+  share_count: z.number().int().min(2).max(20),
+  paid_count: z.number().int().nonnegative(),
+  amount_received: decimalSchema,
+  shares: z.array(groupShareSchema).min(2).max(20),
+});
+
 export const errorResSchema = z.object({
   error: z.object({ code: errorCodeSchema, message: z.string().max(500) }),
+});
+
+// ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
+// An invoice is one request for its total with the same id, so the request schemas above apply to it too.
+
+export const INVOICE_LIMITS = { business_name: 60, client_name: 60, description: 80, invoice_number: 20, notes: 280, items: 20 } as const;
+export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** A positive decimal with at most 4 places ("1.5" hours). */
+export const quantitySchema = z.string().max(20).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,4})?$/);
+
+export const createInvoiceReqSchema = z.object({
+  recipient: addressSchema,
+  token: tokenSchema,
+  business_name: z.string().min(1).max(INVOICE_LIMITS.business_name),
+  client_name: z.string().min(1).max(INVOICE_LIMITS.client_name),
+  items: z.array(z.object({
+    description: z.string().min(1).max(INVOICE_LIMITS.description),
+    quantity: quantitySchema.optional(),
+    unit_price: decimalSchema,
+  }).strict()).min(1).max(INVOICE_LIMITS.items),
+  due_date: isoDateSchema,
+  invoice_number: z.string().min(1).max(INVOICE_LIMITS.invoice_number).optional(),
+  notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional(),
+  from_domain: z.string().min(1).max(253).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const invoiceResSchema = z.object({
+  id: requestIdSchema,
+  link: httpsUrl,
+  request_link: httpsUrl,
+  solana_pay_url: solanaPayUrl,
+  qr_url: httpsUrl,
+  reference: addressSchema,
+  x402_url: httpsUrl.nullable().optional(),
+  recipient: addressSchema,
+  token: tokenSchema,
+  business_name: z.string().max(INVOICE_LIMITS.business_name),
+  client_name: z.string().max(INVOICE_LIMITS.client_name),
+  invoice_number: z.string().max(INVOICE_LIMITS.invoice_number).nullable(),
+  notes: z.string().max(INVOICE_LIMITS.notes).nullable(),
+  issue_date: isoDateSchema,
+  due_date: isoDateSchema,
+  items: z.array(z.object({
+    description: z.string().max(INVOICE_LIMITS.description),
+    quantity: quantitySchema,
+    unit_price: decimalSchema,
+    amount: decimalSchema,
+  })).min(1).max(INVOICE_LIMITS.items),
+  total: decimalSchema,
+  status: requestStatusSchema,
+  paid: paidInfoSchema.nullable().optional(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
 });
 
 export type Token = z.infer<typeof tokenSchema>;
@@ -124,6 +230,10 @@ export type StatusRawReq = z.infer<typeof statusRawReqSchema>;
 export type StatusRawRes = z.infer<typeof statusRawResSchema>;
 export type StatsRes = z.infer<typeof statsResSchema>;
 export type ErrorRes = z.infer<typeof errorResSchema>;
+export type CreateGroupReq = z.infer<typeof createGroupReqSchema>;
+export type GroupRes = z.infer<typeof groupResSchema>;
+export type CreateInvoiceReq = z.infer<typeof createInvoiceReqSchema>;
+export type InvoiceRes = z.infer<typeof invoiceResSchema>;
 
 // W2-D: POST /api/v1/ledger (who_owes_me). A fresh recipient signature unlocks the ledger once.
 export const ledgerReqSchema = z.object({

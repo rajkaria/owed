@@ -1,0 +1,22 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "total": "1.5",
+  "token": "USDC",
+  "title": "Pizza night",
+  "people": [
+    {
+      "name": "Priya",
+      "amount": "0.5"
+    },
+    {
+      "name": "Sam",
+      "amount": "0.5"
+    },
+    {
+      "name": "Alex",
+      "amount": "0.5"
+    }
+  ],
+  "requester_name": "Raj",
+  "source": "plugin"
+}

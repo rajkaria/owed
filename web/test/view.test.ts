@@ -180,6 +180,7 @@ test("hosted model from the canonical paid request", () => {
   assert.equal(m.claimedName, null);
   assert.equal(m.shareLink, "https://owed.link/r/JArQ6g9JvoWr");
   assert.equal(m.agentPrompt, "Use the Owed plugin in PayBox to pay https://owed.link/r/JArQ6g9JvoWr");
+  assert.equal(m.x402Url, "https://owed.link/x/JArQ6g9JvoWr");
   assert.equal(pageTitle(m), "Raj is asking you for 15 USDC");
   assert.equal(
     pageDescription(m),
@@ -292,6 +293,7 @@ test("stateless model from a raw Solana Pay link", () => {
   assert.equal(m.asker, "Raj");
   assert.equal(m.forText, "dinner");
   assert.equal(m.agentPrompt, `Use the Owed plugin in PayBox to pay ${created.solana_pay_url}`);
+  assert.equal(m.x402Url, null);
   assert.equal(m.shareLink, `https://owed.link/p?u=${encodeURIComponent(created.solana_pay_url)}`);
   assert.deepEqual(m.poll, { endpoint: "/api/v1/status-raw", solanaPayUrl: created.solana_pay_url });
   assert.equal(headline({ ...m, amount: null }).lead, "Raj is asking you for a payment in");

@@ -4,9 +4,12 @@ import { ApiError } from "../api.js";
 import { addressSchema, decimalSchema, type GetRequestRes } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { USDC_MINT, type Token } from "../money.js";
-import { proposeSolana, solanaOutputSchema } from "../paybox.js";
+import { proposeSolana, proposeX402, solanaOutputSchema, x402OutputSchema } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
+// W2-H verified payee start
+import { PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
+// W2-H verified payee end
 import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
 
 export const inputSchema = z.object({
@@ -14,9 +17,17 @@ export const inputSchema = z.object({
   sender: addressSchema.describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id."),
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
+  rail: z.enum(["solana_pay", "x402"]).optional().describe("How to pay. solana_pay (default): an unsigned Solana transaction from the user's wallet. x402: pay an Owed USDC request at its x402 URL; PayBox pays it over x402 and the facilitator covers the network fee, so no SOL is needed."),
+  // W2-H verified payee start
+  allow_unverified: z.boolean().optional().describe("Only when the user explicitly accepts it: pay a request that names a domain even though DNS can't be checked right now. Never pays a domain that doesn't publish the wallet."),
+  // W2-H verified payee end
 }).strict();
 
-export const outputSchema = solanaOutputSchema;
+const PROPOSAL_KEY = "io.paybox/transactionProposal";
+/** A Solana transaction proposal (rail solana_pay) or an x402 payment proposal (rail x402). */
+export const outputSchema = z.object({
+  [PROPOSAL_KEY]: z.union([solanaOutputSchema.shape[PROPOSAL_KEY], x402OutputSchema.shape[PROPOSAL_KEY]]),
+}).strict();
 export type PayInput = z.output<typeof inputSchema>;
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
@@ -30,16 +41,26 @@ const DESCRIPTION = [
   "Use it when the user pastes a link and says \"pay this\" or \"pay Raj's request\".",
   "sender is the user's own PayBox Solana wallet address (from list_credentials). The tool checks the request is still open and that the wallet has the funds plus about 0.003 SOL for fees, then returns an unsigned Solana transaction for the user to approve in PayBox.",
   "It refuses checkout links (Solana Pay transaction requests), paid requests and amounts above max_amount.",
+  "With rail \"x402\" (Owed USDC requests only) it checks the request's live x402 challenge pays exactly the same recipient and amount, then returns an x402 payment proposal instead; use it when the user asks to pay over x402 or has no SOL for fees.",
   "Show the user the text preview: it quotes the requester's words as unverified and adds a caution if they mention a brand. Nothing is sent until the user approves in PayBox.",
+  // W2-H verified payee start
+  "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
+  // W2-H verified payee end
 ].join(" ");
 
 interface Resolved {
+  /** The Owed request id, when the link is an Owed link (checked against its terms). */
+  id?: string;
   request: TransferRequest;
   token: Token;
   /** Requester-written text, raw (untrusted); shown only through quote(). */
   name?: string | null;
   notes: Array<string | null | undefined>;
   flags: string[];
+  // W2-H verified payee start
+  /** The domain the request claims to come from (server-supplied, untrusted until DNS says so). */
+  fromDomain?: string | null;
+  // W2-H verified payee end
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -59,6 +80,8 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     return refusal(errorText(error, "This isn't a payment link Owed can read."));
   }
   if (parsed.kind === "transaction") return refusal(REFUSE_TRANSACTION_REQUEST);
+  const x402 = args.rail === "x402";
+  if (x402 && parsed.kind !== "owed") return refusal(REFUSE_X402_NOT_OWED);
 
   let resolved: Resolved;
   if (parsed.kind === "owed") {
@@ -74,6 +97,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     resolved = { request: r, token, name: r.label, notes: [r.message, memo], flags: [] };
   }
   const { request, token } = resolved;
+  if (x402 && token !== "USDC") return refusal(REFUSE_X402_NOT_USDC);
 
   if (request.recipient === args.sender) return refusal("This request pays your own wallet, so there is nothing to send.");
 
@@ -105,38 +129,71 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     }
   }
 
+  const remaining = () => PAY_BUDGET_MS - (deps.now() - started);
+  // The x402 rail reads the live challenge while the balance check runs.
+  const x402Url = x402 && resolved.id ? x402UrlFor(ctx.base, resolved.id) : null;
+  const challengeCheck = x402Url
+    ? checkX402Challenge(x402Url, { recipient: request.recipient, amountAtomic }, deps, Math.min(X402_CHALLENGE_TIMEOUT_MS, remaining()))
+    : null;
+  // W2-H verified payee start
+  const payeeCheck = payeeForPayment(resolved.fromDomain, request.recipient, args.allow_unverified === true, deps,
+    Math.min(PAYEE_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
+  // W2-H verified payee end
   let readiness;
   try {
     readiness = await within(
       deps.payerReadiness(deps.rpc(), { sender: args.sender, recipient: request.recipient, token, amountAtomic }),
-      PAY_BUDGET_MS - (deps.now() - started), () => null,
+      remaining(), () => null,
     );
   } catch {
     readiness = null;
   }
+  // W2-H verified payee start
+  const payee = await payeeCheck;
+  if (!payee.ok) return refusal(payee.refuse);
+  // W2-H verified payee end
   if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
-  if (!readiness.ok) return refusal(readiness.reason ?? "Your wallet can't cover this payment and its fees.");
+  // Over x402 the facilitator pays the network fee, so a wallet without SOL can still pay.
+  const feeOnly = x402 && readiness.reason !== undefined && FEE_SHORTFALL.test(readiness.reason);
+  if (!readiness.ok && !feeOnly) return refusal(readiness.reason ?? "Your wallet can't cover this payment and its fees.");
 
   const createRecipientAta = token === "USDC" && !readiness.recipientAtaExists;
   let structuredContent;
-  try {
-    const built = deps.buildTransferTx({ sender: args.sender, request, token, amountAtomic, createRecipientAta });
-    structuredContent = proposeSolana({ transactionBase64: built.transactionBase64 }).structuredContent;
-  } catch (error) {
-    return refusal(`Couldn't build the payment: ${errorText(error, "unknown error")}`);
+  if (x402) {
+    // An x402 payment can't open the recipient's USDC account the way the Solana Pay transaction does.
+    if (createRecipientAta) return refusal(REFUSE_X402_NO_ACCOUNT);
+    const challenge = await challengeCheck!;
+    if (challenge !== true) return refusal(challenge);
+    try {
+      structuredContent = proposeX402({ chain: "solana:mainnet", url: x402Url!, maxAmount: amountAtomic.toString() }).structuredContent;
+    } catch (error) {
+      return refusal(`Couldn't build the x402 payment: ${errorText(error, "unknown error")}`);
+    }
+  } else {
+    try {
+      const built = deps.buildTransferTx({ sender: args.sender, request, token, amountAtomic, createRecipientAta });
+      structuredContent = proposeSolana({ transactionBase64: built.transactionBase64 }).structuredContent;
+    } catch (error) {
+      return refusal(`Couldn't build the payment: ${errorText(error, "unknown error")}`);
+    }
   }
 
   const caution = cautionLine([...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes)])]);
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);
   const preview = [
-    `Pay ${amount} ${token} to ${shortAddress(request.recipient)}.`,
+    // W2-H verified payee start
+    `Pay ${amount} ${token} to ${payee.lead ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`,
+    // W2-H verified payee end
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
     createRecipientAta ? "This also opens the recipient's USDC account (about 0.002 SOL, paid by you)." : "",
+    x402 ? "The x402 facilitator pays the network fee." : "",
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
-  const text = [caution, preview, `Recipient: ${request.recipient}`].filter(Boolean).join("\n");
+  // W2-H verified payee start
+  const text = [caution, preview, `Recipient: ${request.recipient}`, ...payee.lines].filter(Boolean).join("\n");
+  // W2-H verified payee end
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 
@@ -186,9 +243,80 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     return REFUSE_TAMPERED;
   }
   return {
-    request: parsed.request, token,
+    id, request: parsed.request, token,
     name: rq.requester_name, notes: [rq.for, rq.note], flags: rq.flags,
+    // W2-H verified payee start
+    fromDomain: rq.from_domain,
+    // W2-H verified payee end
   };
+}
+
+// ---- x402 rail (SPEC §5.2 T2.2) ----
+
+export const REFUSE_X402_NOT_OWED = "x402 pays Owed requests only (an Owed link or id). Pay this link with rail solana_pay.";
+export const REFUSE_X402_NOT_USDC = "x402 pays USDC requests only. Pay this request with rail solana_pay.";
+export const REFUSE_X402_NO_ACCOUNT = "The recipient has no USDC account yet, and an x402 payment can't open one. Pay with rail solana_pay, which opens it (about 0.002 SOL).";
+export const REFUSE_X402_MISMATCH = "This request's x402 endpoint asks for a different payment than the request itself (recipient, amount or asset). Nothing was sent.";
+export const X402_CHALLENGE_TIMEOUT_MS = 3000;
+const FEE_SHORTFALL = /needs about [0-9.]+ SOL for fees/;
+const X402_NETWORK_V2 = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+const X402_NETWORK_V1 = "solana";
+
+export function x402UrlFor(base: string, id: string): string {
+  return `${base}/x/${encodeURIComponent(id)}`;
+}
+
+function decodeBase64Json(value: string | null): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(Buffer.from(value, "base64").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function entries(doc: unknown): Array<Record<string, unknown>> | null {
+  const accepts = (doc as { accepts?: unknown } | null | undefined)?.accepts;
+  if (!Array.isArray(accepts) || accepts.length === 0) return null;
+  return accepts.every((a) => typeof a === "object" && a !== null) ? accepts as Array<Record<string, unknown>> : null;
+}
+
+/**
+ * PayBox fetches the challenge again when it pays, so this can't pin what it pays; it does
+ * refuse before proposing if the server's challenge disagrees with the id-checked request.
+ * Every option in both x402 generations must pay exactly the request's recipient and amount.
+ */
+export async function checkX402Challenge(
+  url: string,
+  expect: { recipient: string; amountAtomic: bigint },
+  deps: Pick<Deps, "fetch">,
+  timeoutMs: number,
+): Promise<true | string> {
+  let res: Response;
+  try {
+    res = await deps.fetch(url, { method: "GET", headers: { accept: "application/json" }, signal: AbortSignal.timeout(Math.max(1, timeoutMs)), redirect: "error" });
+  } catch {
+    return "Owed's x402 endpoint couldn't be reached. Nothing was sent; try again, or pay with rail solana_pay.";
+  }
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    body = undefined;
+  }
+  if (res.status === 200 && (body as { paid?: unknown } | undefined)?.paid === true) return REFUSE_ALREADY_PAID;
+  if (res.status !== 402) {
+    const message = (body as { error?: { message?: unknown } } | undefined)?.error?.message;
+    return `Owed's x402 endpoint can't take this payment (HTTP ${res.status}${typeof message === "string" ? `: ${message.slice(0, 200)}` : ""}). Nothing was sent.`;
+  }
+  const amount = expect.amountAtomic.toString();
+  const v2 = entries(decodeBase64Json(res.headers.get("payment-required")));
+  const v1 = entries(body);
+  if (!v2 && !v1) return "Owed's x402 endpoint returned a challenge Owed can't read. Nothing was sent.";
+  const ok =
+    (v2 ?? []).every((a) => a.scheme === "exact" && a.network === X402_NETWORK_V2 && a.asset === USDC_MINT && a.payTo === expect.recipient && a.amount === amount)
+    && (v1 ?? []).every((a) => a.scheme === "exact" && a.network === X402_NETWORK_V1 && a.asset === USDC_MINT && a.payTo === expect.recipient && a.maxAmountRequired === amount);
+  return ok ? true : REFUSE_X402_MISMATCH;
 }
 
 export function register(server: McpServer, deps: Deps = defaultDeps) {

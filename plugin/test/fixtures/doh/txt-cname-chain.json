@@ -1,0 +1,25 @@
+{
+ "name": "txt-cname-chain",
+ "note": "A CNAME followed by the TXT record at its target.",
+ "captured_at": "2026-10-17T06:59:41.695Z",
+ "query": {
+  "qname": "k1._domainkey.mailchimp.com",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=k1._domainkey.mailchimp.com&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"k1._domainkey.mailchimp.com\",\"type\":16}],\"Answer\":[{\"name\":\"k1._domainkey.mailchimp.com\",\"type\":5,\"TTL\":88,\"data\":\"dkim.mcsv.net.\"},{\"name\":\"dkim.mcsv.net\",\"type\":16,\"TTL\":86188,\"data\":\"\\\"k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDbNrX2cY/GUKIFx2G/1I00ftdAj713WP9AQ1xir85i89sA2guU0ta4UX1Xzm06XIU6iBP41VwmPwBGRNofhBVR+e6WHUoNyIR4Bn84LVcfZE20rmDeXQblIupNWBqLXM1Q+VieI/eZu/7k9/vOkLSaQQdml4Cv8lb3PcnluMVIhQIDAQAB;\\\"\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=k1._domainkey.mailchimp.com&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"k1._domainkey.mailchimp.com.\",\"type\":16}],\"Answer\":[{\"name\":\"k1._domainkey.mailchimp.com.\",\"type\":5,\"TTL\":300,\"data\":\"dkim.mcsv.net.\"},{\"name\":\"dkim.mcsv.net.\",\"type\":16,\"TTL\":21600,\"data\":\"k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDbNrX2cY/GUKIFx2G/1I00ftdAj713WP9AQ1xir85i89sA2guU0ta4UX1Xzm06XIU6iBP41VwmPwBGRNofhBVR+e6WHUoNyIR4Bn84LVcfZE20rmDeXQblIupNWBqLXM1Q+VieI/eZu/7k9/vOkLSaQQdml4Cv8lb3PcnluMVIhQIDAQAB;\"}],\"Comment\":\"Response from 156.154.65.177.\"}"
+  }
+ ]
+}

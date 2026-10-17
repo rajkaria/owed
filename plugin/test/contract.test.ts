@@ -4,8 +4,9 @@ import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type * as z from "zod/v4";
 import {
-  createRequestReqSchema, createRequestResSchema, errorResSchema, getRequestResSchema, statsResSchema,
-  statusRawReqSchema, statusRawResSchema, statusReqSchema, statusResSchema,
+  createGroupReqSchema, createRequestReqSchema, createRequestResSchema, errorResSchema, getRequestResSchema, groupResSchema,
+  statsResSchema, statusRawReqSchema, statusRawResSchema, statusReqSchema, statusResSchema,
+  createInvoiceReqSchema, invoiceResSchema,
 } from "../src/contract.ts";
 import { ledgerReqSchema, ledgerResSchema } from "../src/contract.ts";
 import { fixture } from "./helpers.ts";
@@ -15,11 +16,17 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "create-request.res.json": createRequestResSchema,
   "error.res.json": errorResSchema,
   "get-request.res.json": getRequestResSchema,
+  "groups.create.req.json": createGroupReqSchema,
+  "groups.create.res.json": groupResSchema,
+  "groups.get.res.json": groupResSchema,
   "stats.res.json": statsResSchema,
   "status-raw.req.json": statusRawReqSchema,
   "status-raw.res.json": statusRawResSchema,
   "status.req.json": statusReqSchema,
   "status.res.json": statusResSchema,
+  "invoices.create.req.json": createInvoiceReqSchema,
+  "invoices.create.res.json": invoiceResSchema,
+  "invoices.get.res.json": invoiceResSchema,
   "ledger.req.json": ledgerReqSchema,
   "ledger.res.json": ledgerResSchema,
 };

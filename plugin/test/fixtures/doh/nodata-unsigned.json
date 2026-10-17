@@ -1,0 +1,26 @@
+{
+ "name": "nodata-unsigned",
+ "note": "owed-omega.vercel.app publishes nothing at _owed; unsigned zone (AD false).",
+ "captured_at": "2026-10-17T06:59:38.619Z",
+ "query": {
+  "domain": "owed-omega.vercel.app",
+  "qname": "_owed.owed-omega.vercel.app",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=_owed.owed-omega.vercel.app&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.owed-omega.vercel.app\",\"type\":16}],\"Authority\":[{\"name\":\"vercel.app\",\"type\":6,\"TTL\":900,\"data\":\"ns1.vercel-dns-3.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=_owed.owed-omega.vercel.app&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.owed-omega.vercel.app.\",\"type\":16}],\"Authority\":[{\"name\":\"vercel.app.\",\"type\":6,\"TTL\":900,\"data\":\"ns1.vercel-dns-3.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400\"}],\"Comment\":\"Response from 2600:9000:5305:7400::1.\"}"
+  }
+ ]
+}

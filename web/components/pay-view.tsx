@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { headline, type PayModel } from "@/lib/view/request-view";
 import { solscanAccount } from "@/lib/view/format";
 import { CopyButton } from "./copy-button";
@@ -86,6 +87,7 @@ function Actions({ model }: { model: PayModel }) {
         Opens Phantom, Solflare, Backpack or any Solana wallet on this device. <em className="not-italic text-fg">Pay with
         your AI agent</em> copies a message to paste into Claude or ChatGPT with PayBox connected.
       </p>
+      {model.x402Url ? <p className="text-sm leading-relaxed text-muted">AI agents can pay this at <span className="break-all font-mono text-fg">{model.x402Url}</span></p> : null}
     </div>
   );
 }
@@ -130,7 +132,7 @@ function Recipient({ model }: { model: PayModel }) {
   );
 }
 
-export function PayView({ model }: { model: PayModel }) {
+export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-4 pb-10 pt-5 sm:px-6 md:pt-8">
       <header className="flex items-center justify-between">
@@ -152,7 +154,12 @@ export function PayView({ model }: { model: PayModel }) {
           token={model.token}
           asker={model.asker}
           heading={{ ...headline(model), mono: model.askerIsAddress }}
-          info={<RequesterDetails model={model} />}
+          info={
+            <>
+              {badge /* W2-H verified payee: <VerifiedBadge>, wired by the page */}
+              <RequesterDetails model={model} />
+            </>
+          }
           actions={<Actions model={model} />}
           qr={<QrPanel model={model} />}
           recipient={<Recipient model={model} />}

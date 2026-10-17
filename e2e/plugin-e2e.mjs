@@ -23,6 +23,8 @@ const PLUGIN_DIR = resolve(HERE, "../plugin");
 const NET_GUARD = pathToFileURL(join(HERE, "lib/net-guard.mjs"));
 const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 const RPC_HOSTS = ["solana-rpc.publicnode.com", "api.mainnet-beta.solana.com"];
+// W2-H verified payee: the plugin reads _owed TXT records over DNS-over-HTTPS itself (same list as the portal).
+const DOH_HOSTS = ["cloudflare-dns.com", "dns.google"];
 export const LIMITS = { budgetMs: 10_000, stdoutBytes: 256 * 1024, stderrBytes: 16 * 1024, artifactBytes: 10 * 1024 * 1024, contentItems: 128, toolPages: 16 };
 
 const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-args | @file.json] [options]
@@ -31,7 +33,7 @@ const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-arg
   --sample             call the tool and arguments in plugin/paybox-plugin.json
   --base-url URL       OWED_BASE_URL for the plugin (default: $OWED_BASE_URL, else unset → plugin default)
   --hosts LIST         hosts the call may reach over HTTPS, comma-separated, or "none" / "any"
-                       (default: the Owed host + ${RPC_HOSTS.join(", ")})
+                       (default: the Owed host + ${[...RPC_HOSTS, ...DOH_HOSTS].join(", ")})
   --down LIST          hosts to refuse as a simulated outage (not a failure), e.g. the Owed host for row 8
   --no-guard           launch without the network guard or stack probe (pure PayBox launch)
   --env KEY=VALUE      extra plugin env var (repeatable)
@@ -186,7 +188,7 @@ export async function runE2E(options) {
   const budgetMs = options.budgetMs ?? LIMITS.budgetMs;
   const env = { ...(options.baseUrl ? { OWED_BASE_URL: options.baseUrl } : {}), ...options.env };
   const ownHost = new URL(options.baseUrl ?? DEFAULT_BASE_URL).hostname;
-  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS];
+  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS, ...DOH_HOSTS];
   const down = options.down ?? [];
   const callGuard = options.guard === false ? null : { policy: hosts === "none" || hosts === "any" ? hosts : "allow", hosts: Array.isArray(hosts) ? hosts : [], down };
   const listGuard = options.guard === false ? null : { policy: "none", hosts: [], down: [] };

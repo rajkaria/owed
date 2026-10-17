@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import type { ZodType } from "zod";
 import {
+  CreateGroupBody,
+  CreateInvoiceBody,
+  InvoiceResponse,
   CreateRequestBody,
   CreateRequestResponse,
   ErrorResponse,
   GetRequestResponse,
+  GroupResponse,
   StatsResponse,
   StatusBody,
   StatusRawBody,
@@ -22,11 +26,17 @@ const SCHEMAS: Record<string, ZodType> = {
   "create-request.res.json": CreateRequestResponse,
   "error.res.json": ErrorResponse,
   "get-request.res.json": GetRequestResponse,
+  "groups.create.req.json": CreateGroupBody,
+  "groups.create.res.json": GroupResponse,
+  "groups.get.res.json": GroupResponse,
   "stats.res.json": StatsResponse,
   "status-raw.req.json": StatusRawBody,
   "status-raw.res.json": StatusRawResponse,
   "status.req.json": StatusBody,
   "status.res.json": StatusResponse,
+  "invoices.create.req.json": CreateInvoiceBody,
+  "invoices.create.res.json": InvoiceResponse,
+  "invoices.get.res.json": InvoiceResponse,
   "ledger.req.json": LedgerBody,
   "ledger.res.json": LedgerResponse,
 };

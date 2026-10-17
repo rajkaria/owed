@@ -156,6 +156,8 @@ const signature = string({ test: isSignature, label: "a base58 64-byte signature
 const amount = string({ max: 40, pattern: AMOUNT_RE, label: "a decimal amount" });
 const positiveAmount = string({ max: 40, test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text), label: "a positive decimal amount" });
 const token = oneOf("USDC", "SOL");
+// W2-H verified payee: the server stores the domain lower-case ASCII (punycode for IDN), as migration 0009 checks.
+const domain = string({ max: 253, pattern: /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/, label: "a lower-case ASCII domain" });
 const iso = string({
   max: 40, label: "an ISO-8601 timestamp",
   test: (text) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/.test(text) && Number.isFinite(Date.parse(text)),
@@ -232,6 +234,62 @@ function statusConsistent(value, path, ctx) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------- split bills
+
+/** Group id = last 12 base58 chars of sha256 over its share ids in board order (web/lib/groups.ts, plugin split_bill). */
+export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
+  const asset = token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-group:v1\n${recipient}\n${asset}\n${totalAtomic}\n${shareIds.join("\n")}`, "utf8").digest();
+  return base58Encode(digest).slice(-12);
+}
+
+const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+
+/** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
+function peopleFitTotal(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  let total;
+  try { total = toAtomic(value.total, decimals); } catch (error) { return void ctx.errors.push(`${path}.total: ${error.message}`); }
+  let fixed = 0n;
+  let open = 0;
+  value.people.forEach((person, index) => {
+    if (person.amount === undefined) return void (open += 1);
+    try { fixed += toAtomic(person.amount, decimals); } catch (error) { ctx.errors.push(`${path}.people[${index}].amount: ${error.message}`); }
+  });
+  if (open === 0 && fixed !== total) ctx.errors.push(`${path}.people: amounts add up to ${fromAtomic(fixed, decimals)}, total is ${value.total}`);
+  if (open > 0 && total - fixed < BigInt(open)) ctx.errors.push(`${path}.people: nothing left to split between the people without an amount`);
+}
+
+/** Every share pays the group's recipient its own amount, its id hashes its terms, and the group id hashes the share ids. */
+function groupConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (value.share_count !== value.shares.length) ctx.errors.push(`${path}.share_count: ${value.share_count} but ${value.shares.length} shares`);
+  const paidCount = value.shares.filter((share) => share.status === "paid").length;
+  if (value.paid_count !== paidCount) ctx.errors.push(`${path}.paid_count: ${value.paid_count} but ${paidCount} shares are paid`);
+  if (!new URL(value.link).pathname.endsWith(`/g/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /g/${value.id}`);
+  if (decimals === undefined) return;
+  let total = 0n;
+  let received = 0n;
+  value.shares.forEach((share, index) => {
+    const at = `${path}.shares[${index}]`;
+    try { total += toAtomic(share.amount, decimals); } catch (error) { ctx.errors.push(`${at}.amount: ${error.message}`); }
+    urlMatchesFields({ ...share, recipient: value.recipient, token: value.token }, at, ctx);
+    if (!new URL(share.link).pathname.endsWith(`/r/${share.id}`)) ctx.errors.push(`${at}.link: does not end in /r/${share.id}`);
+    if ((share.status === "paid" || share.status === "underpaid") && !share.paid) ctx.errors.push(`${at}.paid: status is ${share.status} but paid is ${show(share.paid)}`);
+    if (share.status === "open" && share.paid) ctx.errors.push(`${at}.paid: status is open but paid is set`);
+    if (share.paid) try { received += toAtomic(share.paid.amount, decimals); } catch { /* reported by the amount shape */ }
+  });
+  try {
+    if (toAtomic(value.total, decimals) !== total) ctx.errors.push(`${path}.total: ${value.total} but the shares add up to ${fromAtomic(total, decimals)}`);
+    if (toAtomic(value.amount_received, decimals) !== received) ctx.errors.push(`${path}.amount_received: ${value.amount_received} but the shares received ${fromAtomic(received, decimals)}`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+  const expected = groupIdFor({ recipient: value.recipient, token: value.token, totalAtomic: total, shareIds: value.shares.map((share) => share.id) });
+  if (expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of its share ids (expected ${expected})`);
+}
 // W2-D ledger. The request's signature is ed25519 over the message's UTF-8 bytes (what PayBox's
 // request_wallet_sign {op:"solanaMessage"} returns, as hex); the fixture's is checked for real.
 const ED25519_SPKI = Buffer.from("302a300506032b6570032100", "hex");
@@ -304,15 +362,32 @@ function ledgerTotals(value, path, ctx) {
 const totalsEntry = object({ token, outstanding: amount, received_30d: amount, open_count: integer(), paid_count: integer() });
 
 export const shapes = {
+  createGroupReq: object({
+    recipient: pubkey, total: positiveAmount, token, title: string({ min: 1, max: 60 }),
+    people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount) }), { min: 2, max: 20 }),
+    requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"),
+    from_domain: optional(string({ min: 1, max: 253 })),
+  }, peopleFitTotal),
+  groupRes: object({
+    id: groupId, link: httpsUrl, title: untrusted(60), recipient: pubkey, token, total: positiveAmount,
+    requester_name: untrusted(40), created_at: iso, flags: array(flag),
+    from_domain: optional(nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" }))),
+    from_domain_verified_at: optional(nullable(iso)),
+    share_count: integer({ min: 2 }), paid_count: integer(), amount_received: amount,
+    shares: array(object({
+      id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"),
+      link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, paid: nullable(paidInfo),
+    }), { min: 2, max: 20 }),
+  }, groupConsistent),
   createRequestReq: object({
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
     requester_name: optional(string({ max: 40 })), kind: optional(oneOf("single")), group_id: optional(string({ max: 40 })),
-    source: oneOf("plugin", "web"),
+    source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
   }, decimalsFit("amount")),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
-    x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag),
+    x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
   }, (value, path, ctx) => {
     urlMatchesFields(value, path, ctx);
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
@@ -323,9 +398,10 @@ export const shapes = {
     status: oneOf("open", "paid", "underpaid", "cancelled"),
     solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
     paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
-    flags: array(flag),
+    flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   }, (value, path, ctx) => {
     decimalsFit("amount")(value, path, ctx);
+    if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
     urlMatchesFields(value, path, ctx);
     if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);
     if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
@@ -359,6 +435,104 @@ export const fixtureShapes = {
   "status-raw.res.json": "statusRawRes",
   "stats.res.json": "statsRes",
   "error.res.json": "errorRes",
+  "groups.create.req.json": "createGroupReq",
+  "groups.create.res.json": "groupRes",
+  "groups.get.res.json": "groupRes",
   "ledger.req.json": "ledgerReq",
   "ledger.res.json": "ledgerRes",
 };
+
+// ---------------------------------------------------------------------------------------------- invoices
+// Appended with Object.assign so this block merges cleanly next to other wave-2 shapes.
+// An invoice is one request (same id) for its total: the id hashes (recipient, token, total, reference).
+
+/** "2026-10-31" that is a real calendar date. */
+const isRealDate = (text) => {
+  const ms = Date.parse(`${text}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === text;
+};
+const invoiceDate = string({ max: 10, pattern: /^\d{4}-\d{2}-\d{2}$/, test: isRealDate, label: "a real date written YYYY-MM-DD" });
+const QUANTITY_DECIMALS = 4;
+const invoiceQuantity = string({
+  max: 20, label: "a positive quantity with at most 4 decimal places",
+  test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
+});
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+
+/** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
+export function invoiceLineAtomic(quantity, unitPrice, decimals) {
+  const scale = 10n ** BigInt(QUANTITY_DECIMALS);
+  const scaled = toAtomic(unitPrice, decimals) * toAtomic(quantity, QUANTITY_DECIMALS);
+  return scaled % scale === 0n ? scaled / scale : null;
+}
+
+/** Every line's quantity × unit price is a whole number of the token's atomic units. */
+function invoiceItemsFit(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  value.items.forEach((item, index) => {
+    try {
+      if (invoiceLineAtomic(item.quantity ?? "1", item.unit_price, decimals) === null) {
+        ctx.errors.push(`${path}.items[${index}]: ${item.quantity ?? "1"} × ${item.unit_price} is not a whole number of ${value.token} units`);
+      }
+    } catch (error) {
+      ctx.errors.push(`${path}.items[${index}].unit_price: ${error.message}`);
+    }
+  });
+}
+
+/** Lines multiply out and add up to the total, the payment link pays exactly the total, and the id hashes those terms. */
+function invoiceConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (!new URL(value.link).pathname.endsWith(`/i/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /i/${value.id}`);
+  if (!new URL(value.request_link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.request_link: does not end in /r/${value.id}`);
+  if (value.created_at.slice(0, 10) !== value.issue_date) ctx.errors.push(`${path}.issue_date: ${value.issue_date} is not the UTC date of created_at`);
+  if ((value.from_domain === null) !== (value.from_domain_verified_at === null)) ctx.errors.push(`${path}.from_domain: set without from_domain_verified_at, or the reverse`);
+  if ((value.status === "paid" || value.status === "underpaid") && !value.paid) ctx.errors.push(`${path}.paid: status is ${value.status} but paid is ${show(value.paid)}`);
+  if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
+  urlMatchesFields({ id: value.id, recipient: value.recipient, amount: value.total, token: value.token, reference: value.reference, solana_pay_url: value.solana_pay_url }, path, ctx);
+  if (decimals === undefined) return;
+  let total = 0n;
+  value.items.forEach((item, index) => {
+    const at = `${path}.items[${index}]`;
+    try {
+      const line = invoiceLineAtomic(item.quantity, item.unit_price, decimals);
+      if (line === null) return void ctx.errors.push(`${at}: ${item.quantity} × ${item.unit_price} is not a whole number of ${value.token} units`);
+      if (line !== toAtomic(item.amount, decimals)) ctx.errors.push(`${at}.amount: ${item.amount}, but ${item.quantity} × ${item.unit_price} = ${fromAtomic(line, decimals)}`);
+      total += line;
+    } catch (error) {
+      ctx.errors.push(`${at}: ${error.message}`);
+    }
+  });
+  try {
+    if (toAtomic(value.total, decimals) !== total) ctx.errors.push(`${path}.total: ${value.total} but the items add up to ${fromAtomic(total, decimals)}`);
+  } catch (error) {
+    ctx.errors.push(`${path}.total: ${error.message}`);
+  }
+}
+
+Object.assign(shapes, {
+  createInvoiceReq: object({
+    recipient: pubkey, token, business_name: string({ min: 1, max: 60 }), client_name: string({ min: 1, max: 60 }),
+    items: array(object({ description: string({ min: 1, max: 80 }), quantity: optional(invoiceQuantity), unit_price: positiveAmount }), { min: 1, max: 20 }),
+    due_date: invoiceDate, invoice_number: optional(string({ min: 1, max: 20 })), notes: optional(string({ min: 1, max: 280 })),
+    from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
+  }, invoiceItemsFit),
+  invoiceRes: object({
+    id, link: httpsUrl, request_link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
+    x402_url: optional(nullable(httpsUrl)), recipient: pubkey, token,
+    business_name: untrusted(60), client_name: untrusted(60), invoice_number: untrusted(20), notes: untrusted(280),
+    issue_date: invoiceDate, due_date: invoiceDate,
+    items: array(object({ description: untrusted(80), quantity: invoiceQuantity, unit_price: positiveAmount, amount: positiveAmount }), { min: 1, max: 20 }),
+    total: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"), paid: nullable(invoicePaid),
+    created_at: iso, flags: array(flag),
+    from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+    from_domain_verified_at: nullable(iso),
+  }, invoiceConsistent),
+});
+
+Object.assign(fixtureShapes, {
+  "invoices.create.req.json": "createInvoiceReq",
+  "invoices.create.res.json": "invoiceRes",
+  "invoices.get.res.json": "invoiceRes",
+});

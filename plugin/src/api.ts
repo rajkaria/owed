@@ -1,15 +1,17 @@
 import type * as z from "zod/v4";
 import {
-  createRequestResSchema, errorResSchema, getRequestResSchema, statusRawResSchema, statusResSchema,
-  type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type StatusRawRes, type StatusRes,
+  createRequestResSchema, errorResSchema, getRequestResSchema, groupResSchema, statusRawResSchema, statusResSchema,
+  type CreateGroupReq, type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type GroupRes,
+  type StatusRawRes, type StatusRes,
+  invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
+  ledgerResSchema, type LedgerReq, type LedgerRes,
 } from "./contract.js";
-import { ledgerResSchema, type LedgerReq, type LedgerRes } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 export const API_TIMEOUT_MS = 4000;
 
-/** Hosts whose /r/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
-export const KNOWN_OWED_HOSTS = ["owed.link", "www.owed.link", "owed-omega.vercel.app"];
+/** Hosts whose /r/<id>, /i/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
+export const KNOWN_OWED_HOSTS = ["owed.link", "www.owed.link", "owed-omega.vercel.app", "getowed.xyz", "www.getowed.xyz"];
 
 /** `code` mirrors the API's error codes; network errors, timeouts, 5xx and off-contract replies are `upstream_unavailable`. */
 export class ApiError extends Error {
@@ -45,6 +47,8 @@ export interface ApiClient {
   getRequest(id: string): Promise<GetRequestRes>;
   status(ids: string[]): Promise<StatusRes>;
   statusRaw(solanaPayUrl: string): Promise<StatusRawRes>;
+  createGroup(body: CreateGroupReq): Promise<GroupRes>;
+  createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
   ledger(body: LedgerReq): Promise<LedgerRes>;
 }
 
@@ -99,6 +103,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     getRequest: (id) => call("GET", `/requests/${encodeURIComponent(id)}`, getRequestResSchema),
     status: (ids) => call("POST", "/status", statusResSchema, { ids }),
     statusRaw: (solanaPayUrl) => call("POST", "/status-raw", statusRawResSchema, { solana_pay_url: solanaPayUrl }),
+    createGroup: (body) => call("POST", "/groups", groupResSchema, body),
+    createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
   };
 }
