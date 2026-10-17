@@ -324,6 +324,7 @@ const ledgerEntry = object({
   group_id: nullable(string({ max: 40 })), group_title: untrusted(60), group_link: nullable(httpsUrl),
   invoice_number: untrusted(20), due_date: nullable(string({ pattern: /^\d{4}-\d{2}-\d{2}$/, label: "a YYYY-MM-DD date" })),
   from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+  flags: array(flag, { max: 32 }),
   // W3-D: the monthly schedule and month that opened this request; null for one-off requests.
   schedule_id: optional(nullable(string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 schedule id" }))),
   period: optional(nullable(string({ pattern: /^\d{4}-(0[1-9]|1[0-2])$/, label: "a month written YYYY-MM" }))),
@@ -439,7 +440,9 @@ export const shapes = {
     csv: optional(oneOf(true)), // W3-D
   }, ledgerSigned),
   ledgerRes: object({
-    recipient: pubkey, generated_at: iso, chain_checked: oneOf(true, false),
+    // QA-20: the ledger always says its rows may come from anyone (web/lib/ledger.ts LEDGER_CAUTION).
+    recipient: pubkey, caution: string({ max: 400, pattern: /^Anyone can create a request that pays your wallet/, label: "the ledger caution" }),
+    generated_at: iso, chain_checked: oneOf(true, false),
     open: array(ledgerEntry, { max: 100 }), paid_recently: array(ledgerEntry, { max: 100 }),
     totals: array(totalsEntry, { max: 2 }), truncated: oneOf(true, false),
     schedules: optional((value, path, ctx) => array(scheduleSummary, { max: 20 })(value, path, ctx)), // W3-D, shapes below

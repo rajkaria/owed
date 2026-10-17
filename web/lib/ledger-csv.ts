@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { isoUtc, sql } from "./db";
+import { LEDGER_CAUTION, UNVERIFIED_LABEL } from "./ledger";
 import { fromAtomic, type Token } from "./money";
 
 // CSV export of a recipient's ledger (W3-D). who_owes_me asks for it after the same wallet-signature gate as
@@ -96,13 +97,10 @@ export function csvLine(values: ReadonlyArray<string | null | undefined>): strin
 
 /**
  * QA-20: creating a request needs no proof of the recipient, so anyone can add rows that pay your wallet.
- * The export says so on its first line, before the header. Same wording as who_owes_me's caution (W2-D);
- * swap in W2-D's shared caution helper once it lands. No commas, quotes or semicolons, so every
- * spreadsheet keeps it in one cell and tools that skip "#" lines (pandas comment="#") skip it.
+ * The export's first row says so in the ledger's own words (W2-D's LEDGER_CAUTION), before the header,
+ * as one quoted cell so every spreadsheet keeps it whole whatever its separator.
  */
-export const CSV_CAUTION =
-  "# Anyone can create a request that pays your wallet. Owed can't tell which ones you made. " +
-  "Columns marked (unverified) are as each request's creator wrote them. Check names and amounts before chasing anyone.";
+export const CSV_CAUTION = `# ${LEDGER_CAUTION} Columns marked (${UNVERIFIED_LABEL}) are as each request's creator wrote them.`;
 
 export const CSV_COLUMNS = [
   "request_id",
@@ -115,9 +113,9 @@ export const CSV_COLUMNS = [
   "solscan_url",
   "created_at",
   "paid_at",
-  "payer_name (unverified)",
-  "for (unverified)",
-  "invoice_number (unverified)",
+  `payer_name (${UNVERIFIED_LABEL})`,
+  `for (${UNVERIFIED_LABEL})`,
+  `invoice_number (${UNVERIFIED_LABEL})`,
   "link",
   "from_domain",
   "schedule_id",
@@ -144,7 +142,7 @@ export async function ledgerCsv(recipient: string, base: string): Promise<{ text
       limit $2`,
     [recipient, CSV_MAX_ROWS],
   );
-  const lines = [CSV_CAUTION, csvLine(CSV_COLUMNS)];
+  const lines = [csvLine([CSV_CAUTION]), csvLine(CSV_COLUMNS)];
   for (const r of rows) {
     const token = r.token as Token;
     const paid = r.paid_amount_atomic != null && r.paid_signature ? fromAtomic(BigInt(r.paid_amount_atomic), token) : null;

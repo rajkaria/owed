@@ -1,5 +1,6 @@
 {
   "recipient": "GaymdfCkez1C2y7ZTRXg37xrXhwkegzJ4yYqHCR4e3NM",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.",
   "generated_at": "2026-10-17T14:05:02Z",
   "chain_checked": true,
   "open": [
@@ -13,6 +14,7 @@
       "invoice_number": null,
       "due_date": null,
       "from_domain": null,
+      "flags": [],
       "amount": "450",
       "token": "USDC",
       "status": "open",
@@ -33,6 +35,7 @@
       "invoice_number": null,
       "due_date": null,
       "from_domain": null,
+      "flags": [],
       "amount": "0.2",
       "token": "SOL",
       "status": "open",
@@ -55,6 +58,7 @@
       "invoice_number": null,
       "due_date": null,
       "from_domain": null,
+      "flags": [],
       "amount": "450",
       "token": "USDC",
       "status": "paid",

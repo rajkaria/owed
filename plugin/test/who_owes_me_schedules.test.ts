@@ -53,11 +53,11 @@ test("csv: true is sent with the signed call; the link, the schedules and the mo
 
   const text = textOf(result);
   const oct = res.schedules[0].requests[0];
-  assert.ok(text.includes(`Monthly: 450 USDC from "Sam" for "rent" on the 1st (UTC); Oct 2026's request open: ${oct.link}; next opens 2026-11-01`), text);
-  assert.ok(text.includes(`Monthly: 25 USDC from "Priya" for "phone plan" on the 28th (UTC); ended after 1 request`), text);
+  assert.ok(text.includes(`Monthly: 450 USDC from "Sam" for "rent" (unverified) on the 1st (UTC); Oct 2026's request open: ${oct.link}; next opens 2026-11-01`), text);
+  assert.ok(text.includes(`Monthly: 25 USDC from "Priya" for "phone plan" (unverified) on the 28th (UTC); ended after 1 request`), text);
   assert.ok(text.includes(`, monthly request for Oct 2026, waiting`), text);
   assert.ok(text.includes(`CSV of every open and paid request (for accounting): ${res.csv.url} (works until 2026-10-17T14:15:02Z, 10 minutes). ` +
-    "Anyone can create a request that pays this wallet, so columns marked (unverified) are as each request's creator wrote them."), text); // QA-20
+    "Its first row repeats the caution above; columns marked (unverified) are as each request's creator wrote them."), text); // QA-20
 });
 
 test("without csv the call carries no csv flag and shows no link, even if one came back", async () => {
@@ -88,7 +88,7 @@ test("schedule text is the requester's: cleaned and quoted; a stuck month says w
   assert.equal(o.schedules![0]!.for, "rent [link removed]");
   assert.equal(o.schedules![0]!.payer_name, "Sam");
   const text = textOf(result);
-  assert.match(text, /Monthly: 450 USDC from "Sam" for "rent \[link removed\]" on the 1st \(UTC\), as example\.com;/);
+  assert.match(text, /Monthly: 450 USDC from "Sam" for "rent \[link removed\]" \(unverified\) on the 1st \(UTC\), as example\.com;/);
   assert.match(text, /couldn't open this month's request yet \(retried daily\): example\.com: from_domain: example\.com does not publish this recipient/);
 
   // W2-D's ledger without the W3-D fields (an older server): no schedules key at all.

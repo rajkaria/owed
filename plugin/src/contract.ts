@@ -266,6 +266,7 @@ export const ledgerEntrySchema = z.object({
   invoice_number: z.string().max(80).nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   from_domain: z.string().max(253).nullable(),
+  flags: z.array(z.string().max(80)).max(32).optional(),
   // W3-D: the monthly schedule and month that opened this request (null or absent for one-off requests).
   schedule_id: z.string().max(40).nullable().optional(),
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
@@ -296,6 +297,7 @@ export const scheduleSummarySchema = z.object({
 
 export const ledgerResSchema = z.object({
   recipient: addressSchema,
+  caution: z.string().max(400).optional(),
   generated_at: isoTime,
   chain_checked: z.boolean(),
   open: z.array(ledgerEntrySchema).max(100),

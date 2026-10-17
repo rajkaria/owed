@@ -256,6 +256,7 @@ const LedgerEntry = z.object({
   invoice_number: z.string().nullable(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   from_domain: z.string().nullable(),
+  flags: z.array(z.string()),
   // W3-D: the monthly schedule and month ("YYYY-MM") that opened this request; null for one-off requests.
   schedule_id: z.string().nullable().optional(),
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
@@ -263,6 +264,7 @@ const LedgerEntry = z.object({
 
 export const LedgerResponse = z.object({
   recipient: base58Key,
+  caution: z.string(),
   generated_at: isoTime,
   chain_checked: z.boolean(),
   open: z.array(LedgerEntry),

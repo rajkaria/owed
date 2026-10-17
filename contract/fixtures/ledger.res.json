@@ -1,5 +1,6 @@
 {
   "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.",
   "generated_at": "2026-10-17T10:30:02Z",
   "chain_checked": true,
   "open": [
@@ -19,7 +20,8 @@
       "group_link": null,
       "invoice_number": "2026-114",
       "due_date": "2026-10-30",
-      "from_domain": "getowed.xyz"
+      "from_domain": "getowed.xyz",
+      "flags": []
     },
     {
       "id": "Bq3wL8mNc2",
@@ -37,7 +39,8 @@
       "group_link": null,
       "invoice_number": null,
       "due_date": null,
-      "from_domain": "getowed.xyz"
+      "from_domain": "getowed.xyz",
+      "flags": []
     },
     {
       "id": "Dq3wL8mNc2",
@@ -59,7 +62,8 @@
       "group_link": "https://www.getowed.xyz/g/nmPSzN1D1KEn",
       "invoice_number": null,
       "due_date": null,
-      "from_domain": null
+      "from_domain": null,
+      "flags": []
     }
   ],
   "paid_recently": [
@@ -82,7 +86,8 @@
       "group_link": null,
       "invoice_number": null,
       "due_date": null,
-      "from_domain": null
+      "from_domain": null,
+      "flags": []
     }
   ],
   "totals": [

@@ -208,7 +208,7 @@ await step("the CSV downloads: header, the request's row, quoted cells, formula 
   const bytes = Buffer.from(await r.arrayBuffer());
   assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
   const lines = bytes.subarray(3).toString("utf8").split("\r\n");
-  assert.match(lines[0], /^# Anyone can create a request that pays your wallet\./); // QA-20 caution
+  assert.match(lines[0], /^"# Anyone can create a request that pays your wallet; /); // QA-20 caution
   assert.match(lines[1], /^"request_id","kind","status","amount","token",.*"payer_name \(unverified\)","for \(unverified\)"/);
   const row = lines.find((l) => l.startsWith(`"${throwawayRequest}"`));
   assert.ok(row, "the request's row");
