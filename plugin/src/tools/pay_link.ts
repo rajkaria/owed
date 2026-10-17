@@ -7,6 +7,9 @@ import { USDC_MINT, type Token } from "../money.js";
 import { proposeSolana, solanaOutputSchema } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
+// W2-H verified payee start
+import { PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
+// W2-H verified payee end
 import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
 
 export const inputSchema = z.object({
@@ -14,6 +17,9 @@ export const inputSchema = z.object({
   sender: addressSchema.describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id."),
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
+  // W2-H verified payee start
+  allow_unverified: z.boolean().optional().describe("Only when the user explicitly accepts it: pay a request that names a domain even though DNS can't be checked right now. Never pays a domain that doesn't publish the wallet."),
+  // W2-H verified payee end
 }).strict();
 
 export const outputSchema = solanaOutputSchema;
@@ -31,6 +37,9 @@ const DESCRIPTION = [
   "sender is the user's own PayBox Solana wallet address (from list_credentials). The tool checks the request is still open and that the wallet has the funds plus about 0.003 SOL for fees, then returns an unsigned Solana transaction for the user to approve in PayBox.",
   "It refuses checkout links (Solana Pay transaction requests), paid requests and amounts above max_amount.",
   "Show the user the text preview: it quotes the requester's words as unverified and adds a caution if they mention a brand. Nothing is sent until the user approves in PayBox.",
+  // W2-H verified payee start
+  "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
+  // W2-H verified payee end
 ].join(" ");
 
 interface Resolved {
@@ -40,6 +49,10 @@ interface Resolved {
   name?: string | null;
   notes: Array<string | null | undefined>;
   flags: string[];
+  // W2-H verified payee start
+  /** The domain the request claims to come from (server-supplied, untrusted until DNS says so). */
+  fromDomain?: string | null;
+  // W2-H verified payee end
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -105,6 +118,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     }
   }
 
+  // W2-H verified payee start
+  const payeeCheck = payeeForPayment(resolved.fromDomain, request.recipient, args.allow_unverified === true, deps,
+    Math.min(PAYEE_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
+  // W2-H verified payee end
   let readiness;
   try {
     readiness = await within(
@@ -114,6 +131,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   } catch {
     readiness = null;
   }
+  // W2-H verified payee start
+  const payee = await payeeCheck;
+  if (!payee.ok) return refusal(payee.refuse);
+  // W2-H verified payee end
   if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   if (!readiness.ok) return refusal(readiness.reason ?? "Your wallet can't cover this payment and its fees.");
 
@@ -130,13 +151,17 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);
   const preview = [
-    `Pay ${amount} ${token} to ${shortAddress(request.recipient)}.`,
+    // W2-H verified payee start
+    `Pay ${amount} ${token} to ${payee.lead ?? shortAddress(request.recipient)}.`,
+    // W2-H verified payee end
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
     createRecipientAta ? "This also opens the recipient's USDC account (about 0.002 SOL, paid by you)." : "",
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
-  const text = [caution, preview, `Recipient: ${request.recipient}`].filter(Boolean).join("\n");
+  // W2-H verified payee start
+  const text = [caution, preview, `Recipient: ${request.recipient}`, ...payee.lines].filter(Boolean).join("\n");
+  // W2-H verified payee end
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 
@@ -188,6 +213,9 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
   return {
     request: parsed.request, token,
     name: rq.requester_name, notes: [rq.for, rq.note], flags: rq.flags,
+    // W2-H verified payee start
+    fromDomain: rq.from_domain,
+    // W2-H verified payee end
   };
 }
 
