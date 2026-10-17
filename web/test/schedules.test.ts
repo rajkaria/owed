@@ -117,7 +117,7 @@ test("CSV cells are quoted, quotes doubled, and formula starts neutralised", () 
   assert.equal(csvCell("a=1"), '"a=1"'); // only a leading character is a formula
   assert.equal(csvCell("line\nbreak, comma"), '"line\nbreak, comma"');
   assert.equal(csvLine(["a", null, "=b"]), '"a","","\'=b"');
-  assert.equal(CSV_COLUMNS.length, 17);
+  assert.equal(CSV_COLUMNS.length, 21); // 17 + the local-currency quote (currency, amount, rate, locked at)
 });
 
 test("QA-20: the export opens with the ledger's caution in one cell, and requester-written columns say unverified", () => {
@@ -546,11 +546,12 @@ it("csv: true returns a link that downloads open + paid as escaped CSV, and refu
   assert.equal(paidLine, csvLine([
     paidId, "single", "paid", "2.5", "USDC", "2.5", "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", `https://solscan.io/tx/${sig}`,
     (await getRequest(paidId))!.createdAt, "2026-10-16T19:00:00Z", "-Priya", 'dinner, "Friday"', null, `${BASE}/r/${paidId}`, null, null, null,
+    null, null, null, null, // no local-currency quote
   ]));
   assert.ok(paidLine.includes(`"'-Priya","dinner, ""Friday"""`)); // formula start neutralised, quotes doubled
   const openLine = lines.find((x) => x.startsWith(`"${requestId}"`))!;
   assert.ok(openLine.includes(`"'@Sam","'=1+2 rent"`));
-  assert.ok(openLine.endsWith(`"${s.id}","2026-10"`));
+  assert.ok(openLine.endsWith(`"${s.id}","2026-10","","","",""`));
 
   // The same link after 10 minutes: refused. (Minted as if 10 min 1 s ago.)
   const stale = csvLink(ME, BASE, Date.now() - 10 * 60_000 - 1000)!;

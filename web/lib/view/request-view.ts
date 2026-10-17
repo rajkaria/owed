@@ -93,7 +93,8 @@ export function fiatView(fiat: FiatQuote | null | undefined, amount: string | nu
     usdc: formatAmount(amount, "USDC"),
     rate: formatRate(fiat.rate, fiat.currency),
     lockedAt: lockedAt(fiat.quoted_at),
-    source: cleanText(fiat.rate_source, 120) ?? "",
+    // Written by Owed's server (lib/fx.ts), never by the requester: hostnames, commas and brackets only.
+    source: /^[A-Za-z0-9 .,()-]{1,120}$/.test(fiat.rate_source) ? fiat.rate_source : "",
     currencyName: FIAT_CURRENCIES[fiat.currency].name,
   };
 }

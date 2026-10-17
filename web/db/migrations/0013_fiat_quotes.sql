@@ -22,12 +22,13 @@ alter table requests
 
 alter table requests drop constraint if exists requests_fiat_shape;
 alter table requests add constraint requests_fiat_shape check (
-  (fiat_currency is null and fiat_amount is null and fiat_rate is null and fiat_rate_source is null and fiat_quoted_at is null)
-  or (fiat_currency ~ '^[A-Z]{3}$' and fiat_currency <> 'USD'
+  -- All five or none. (A null inside the second branch would make the whole check null, which Postgres accepts.)
+  num_nonnulls(fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at) = 0
+  or (num_nonnulls(fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at) = 5
+      and fiat_currency ~ '^[A-Z]{3}$' and fiat_currency <> 'USD'
       and fiat_amount ~ '^(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$' and length(fiat_amount) <= 40
       and fiat_rate ~ '^(0|[1-9][0-9]*)(\.[0-9]{0,11}[1-9])?$' and length(fiat_rate) <= 40 and fiat_rate !~ '^0(\.0*)?$'
       and length(fiat_rate_source) between 1 and 120
-      and fiat_quoted_at is not null
       and token = 'USDC')
 );
 
@@ -40,12 +41,12 @@ alter table groups
 
 alter table groups drop constraint if exists groups_fiat_shape;
 alter table groups add constraint groups_fiat_shape check (
-  (fiat_currency is null and fiat_total is null and fiat_rate is null and fiat_rate_source is null and fiat_quoted_at is null)
-  or (fiat_currency ~ '^[A-Z]{3}$' and fiat_currency <> 'USD'
+  num_nonnulls(fiat_currency, fiat_total, fiat_rate, fiat_rate_source, fiat_quoted_at) = 0
+  or (num_nonnulls(fiat_currency, fiat_total, fiat_rate, fiat_rate_source, fiat_quoted_at) = 5
+      and fiat_currency ~ '^[A-Z]{3}$' and fiat_currency <> 'USD'
       and fiat_total ~ '^(0|[1-9][0-9]*)(\.[0-9]*[1-9])?$' and length(fiat_total) <= 40
-      and fiat_rate ~ '^(0|[1-9][0-9]*)(\.[0-9]{0,11}[1-9])?$' and length(fiat_rate) <= 40
+      and fiat_rate ~ '^(0|[1-9][0-9]*)(\.[0-9]{0,11}[1-9])?$' and length(fiat_rate) <= 40 and fiat_rate !~ '^0(\.0*)?$'
       and length(fiat_rate_source) between 1 and 120
-      and fiat_quoted_at is not null
       and token = 'USDC')
 );
 

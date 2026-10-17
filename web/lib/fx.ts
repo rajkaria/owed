@@ -53,7 +53,12 @@ export interface FxOptions {
   now?: () => number;
 }
 
-const cache = new WeakMap<Fetch, Map<string, Table>>();
+let cache = new WeakMap<Fetch, Map<string, Table>>();
+
+/** Tests only: forget every fetched table. */
+export function resetFxCache(): void {
+  cache = new WeakMap();
+}
 
 async function getText(doFetch: Fetch, url: string): Promise<string> {
   const res = await doFetch(url, {
