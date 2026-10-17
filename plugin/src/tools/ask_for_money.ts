@@ -9,8 +9,12 @@ import { askForMoneyOnBase, BASE_DESCRIPTION } from "../base-request.js";
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
+// W2-E sanctions screen start
+import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
+// W2-E sanctions screen end
 import type { TransferRequest } from "../solana-pay.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText, shortAddress } from "../text.js";
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 // W2-H verified payee start
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
@@ -50,6 +54,9 @@ export const outputSchema = z.object({
   // W2-H verified payee start
   from_domain: z.string().optional().describe("The verified domain payers see on the request (lower-case ASCII). Absent offline: offline links carry no domain."),
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  screening: z.enum(["clear", "unavailable", "skipped"]).describe("Recipient sanctions screen (Chainalysis): clear = on no sanctions list; unavailable = the screen couldn't be reached, so the address wasn't screened."),
+  // W2-E sanctions screen end
   expires_at: z.string().optional().describe("When the link stops taking payments (set by Owed's server). Absent offline or without expires_in_days."), // W3-C
   // W3-B Base requests start
   chain: chainSchema.optional().describe('"base" for a Base request (absent means Solana).'),
@@ -73,6 +80,9 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the user has a domain that publishes their wallet in DNS (_owed.<domain> TXT owed-pay=<wallet>), pass it as from_domain: Owed checks it first and payers see the request as verified from that domain.",
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  "The recipient is screened against sanctions lists (Chainalysis) first: a listed address is refused, and if the screen can't be reached the request is still made and says so.",
+  // W2-E sanctions screen end
   "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
   BASE_DESCRIPTION, // W3-B
 ].join(" ");
@@ -98,14 +108,31 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
+  // QA-18: a SOL request to a never-used wallet must reach Solana's minimum; read alongside the DNS check.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
+  // W2-E sanctions screen start
+  // The screen (≤2.5 s) runs beside the DNS check (≤4 s), never before it, so the API keeps its 4 s of PayBox's 10 s.
+  const [screening, check] = await Promise.all([
+    deps.screenRecipient(args.recipient, deps),
+    // W2-H verified payee start
+    args.from_domain !== undefined ? checkFromDomain(args.from_domain, args.recipient, deps, ASK_PAYEE_BUDGET_MS) : undefined,
+    // W2-H verified payee end
+  ]);
+  if (!screening.ok) return refusal(screening.message);
+  // W2-E sanctions screen end
+
   // W2-H verified payee start
   let fromDomain: { domain: string; lines: string[] } | undefined;
-  if (args.from_domain !== undefined) {
-    const check = await checkFromDomain(args.from_domain, args.recipient, deps, ASK_PAYEE_BUDGET_MS);
+  if (check) {
     if (!check.ok) return refusal(check.message);
     fromDomain = { domain: check.from_domain, lines: check.lines };
   }
   // W2-H verified payee end
+
+  const minimum = await solMinimum;
+  if (minimum !== null && atomic < minimum) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${amount} SOL request`));
+  }
 
   let ctx: CallContext;
   try {
@@ -161,6 +188,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain.domain }),
     // W2-H verified payee end
+    // W2-E sanctions screen start
+    screening: screening.screening,
+    // W2-E sanctions screen end
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
@@ -178,6 +208,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     lines.push(`Offline links can't carry a domain, so payers will see this one as unverified, not as from ${fromDomain.domain}.`);
   }
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  if (screening.screening === "unavailable") lines.push(SCREENING_UNAVAILABLE_LINE);
+  // W2-E sanctions screen end
   // W3-C expiry
   if (expiresAt && args.expires_in_days !== undefined) lines.push(expiryLine(expiresAt, args.expires_in_days));
   if (created.mode === "offline" && args.expires_in_days !== undefined) lines.push(OFFLINE_NO_EXPIRY);
@@ -227,7 +260,7 @@ function buildOffline(
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now. Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message); // W2-E (QA-07)
     case "blocked": return `Owed can't create a request for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the request: ${error.message}`;
     default: return `Owed couldn't create the request: ${error.message}`;

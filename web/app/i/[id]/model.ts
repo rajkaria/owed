@@ -76,8 +76,10 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
   const token: Token = isToken(inv.token) ? inv.token : "USDC";
   const brandWords = [
     ...new Set([
-      ...brandWordsFromFlags(inv.flags),
-      ...detectBrandWords([inv.business_name, inv.client_name, inv.invoice_number, inv.notes, ...inv.items.map((i) => i.description)]),
+      // W2-E: a brand word the server-verified from_domain owns isn't a caution.
+      ...brandWordsFromFlags(inv.flags, inv.from_domain_verified_at ? inv.from_domain : null),
+      ...detectBrandWords([inv.business_name, inv.client_name, inv.invoice_number, inv.notes, ...inv.items.map((i) => i.description)],
+        inv.from_domain_verified_at ? inv.from_domain : null),
     ]),
   ];
   // stateFromRequest reads only status, amount, token and paid.

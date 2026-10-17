@@ -3,9 +3,10 @@
 // web/test/safety-invisible.test.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { brandFlags, cautionLine, clean, quote } from "../src/text.ts";
+import { brandFlags, cautionLine, clean, quote, withoutOwnBrandFlags } from "../src/text.ts";
 import { inputSchema as payInput, payLink } from "../src/tools/pay_link.ts";
-import { makeDeps, RECIPIENT, REFERENCE, SENDER, textOf, USDC_MINT } from "./helpers.ts";
+import { fixture, json, makeDeps, RECIPIENT, REFERENCE, SENDER, textOf, USDC_MINT, type Route } from "./helpers.ts";
+import { dohFixture, dohRoutes } from "./payee-helpers.ts";
 
 /** Every code point both sanitizers must drop: invisible, or rendering as a blank. */
 export const INVISIBLE_CODE_POINTS: Array<[string, number]> = [
@@ -67,4 +68,36 @@ test("QA-06: Owed's own name and Anthropic are brand words; the ordinary word 'o
     assert.deepEqual(brandFlags(text), [], text);
   }
   assert.equal(cautionLine(brandFlags("Owed Support")), 'Caution: this request mentions "Owed Support". Owed can\'t confirm who sent it.');
+});
+
+// ---- QA-06 follow-up (LEAD): a brand word is cleared only by the brand's own DNS-verified domain.
+
+const owedRequest = { ...fixture("get-request.res.json"), status: "open", paid: null, requester_name: "Owed Support", note: null };
+const payOwed = (extra: Record<string, unknown>, routes: Record<string, Route> = {}) => {
+  const { deps } = makeDeps({ routes: { [`GET /api/v1/requests/${owedRequest.id}`]: () => json(200, { ...owedRequest, ...extra }), ...routes } });
+  return payLink(payInput.parse({ link: `https://owed.link/r/${owedRequest.id}`, sender: SENDER }), deps);
+};
+
+test("pay_link: 'Owed Support' with no domain → caution", async () => {
+  assert.match(textOf(await payOwed({ from_domain: null })), /^Caution: this request mentions "Owed Support"/);
+});
+
+test("pay_link: 'Owed Support' from getowed.xyz, verified by this call's own DNS read (real capture) → no caution", async () => {
+  const text = textOf(await payOwed({ from_domain: "getowed.xyz", from_domain_verified_at: "2026-10-17T11:19:12Z" }, dohRoutes(dohFixture("published-record"))));
+  assert.match(text, /^Pay 15 USDC to getowed\.xyz \(verified by DNS\)/);
+  assert.doesNotMatch(text, /Caution/);
+});
+
+test("pay_link: getowed.xyz claimed but DNS unreadable and allow_unverified → the caution stays (a claim clears nothing)", async () => {
+  const { deps } = makeDeps({ routes: { [`GET /api/v1/requests/${owedRequest.id}`]: () => json(200, { ...owedRequest, from_domain: "getowed.xyz" }) } });
+  const text = textOf(await payLink(payInput.parse({ link: `https://owed.link/r/${owedRequest.id}`, sender: SENDER, allow_unverified: true }), deps));
+  assert.match(text, /Caution: this request mentions "Owed Support"/);
+});
+
+test("withoutOwnBrandFlags: 'Owed' + paybox-support.com keeps the PayBox flag; own domains and subdomains clear only their brand", () => {
+  assert.deepEqual(withoutOwnBrandFlags(["brand_word:paybox", "brand_word:owed support"], "paybox-support.com"), ["brand_word:paybox", "brand_word:owed support"]);
+  assert.deepEqual(withoutOwnBrandFlags(["brand_word:paybox", "brand_word:owed support"], "getowed.xyz"), ["brand_word:paybox"]);
+  assert.deepEqual(withoutOwnBrandFlags(["brand_word:paybox"], "app.paybox.sh"), []);
+  assert.deepEqual(withoutOwnBrandFlags(["brand_word:owed support"], "getowed.xyz.evil.example"), ["brand_word:owed support"]);
+  assert.deepEqual(withoutOwnBrandFlags(["brand_word:refund"], "getowed.xyz"), ["brand_word:refund"], "words with no owner never clear");
 });

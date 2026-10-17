@@ -4,8 +4,9 @@ import { createGroup, GROUP_TEXT_LIMITS, planShares, toPublicGroup } from "@/lib
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
-import { takeCreateSlot } from "@/lib/ratelimit";
-import { brandFlags, sanitizeText } from "@/lib/safety";
+import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
+import { brandFlags, sanitizeText, withoutOwnBrandFlags } from "@/lib/safety";
+import { requireSolMinimum } from "@/lib/sol-minimum";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export async function POST(req: Request): Promise<Response> {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
       throw e;
     }
+    // QA-18: every SOL share to a never-used wallet must reach Solana's minimum, or that share could never be paid.
+    if (body.token === "SOL") await requireSolMinimum(body.recipient, amounts.reduce((a, b) => (b < a ? b : a)), "the smallest share");
 
     const title = sanitizeText(body.title, GROUP_TEXT_LIMITS.title);
     const requesterName = sanitizeText(body.requester_name, GROUP_TEXT_LIMITS.requester_name);
@@ -43,31 +46,23 @@ export async function POST(req: Request): Promise<Response> {
 
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // createGroup stores it on the group and on every share.
+    // W2-E: DNS lookups are capped per client IP and per domain.
+    if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
     // W2-H (QA-02): a brand word in the verified domain flags the group and every share, like one in the text.
     const domainFlags = domainBrandFlags(fromDomain);
-    for (const share of shares) share.flags = [...new Set([...share.flags, ...domainFlags])];
+    // W2-E: a brand word the verified domain owns isn't a caution.
+    for (const share of shares) share.flags = withoutOwnBrandFlags([...new Set([...share.flags, ...domainFlags])], fromDomain);
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
-    for (let i = 0; i < shares.length; i++) {
-      const slot = await takeCreateSlot(body.recipient);
-      if (!slot.allowed) {
-        throw new ApiError(
-          "rate_limited",
-          slot.scope === "recipient"
-            ? "too many requests for this recipient in the last hour, try again later"
-            : "Owed is handling too many new requests right now, try again later",
-          { "Retry-After": String(slot.retryAfterSeconds ?? 60) },
-        );
-      }
-    }
+    for (let i = 0; i < shares.length; i++) await requireCreateSlot(req, body.recipient);
 
     const created = await createGroup({
       recipient: body.recipient,
       token: body.token,
       title,
       requesterName,
-      flags: [...new Set([...flags, ...domainFlags])],
+      flags: withoutOwnBrandFlags([...new Set([...flags, ...domainFlags])], fromDomain),
       shares,
       source: body.source,
       fromDomain,

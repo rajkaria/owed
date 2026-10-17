@@ -5,9 +5,14 @@
 // on stderr as one line `OWED_E2E_NET {json}` for the harness to collect. Hosts in `down` are refused as a simulated
 // outage (golden-path row 8). Policy comes from this module's own URL so nothing is added to the plugin's environment.
 //
+// `broker` (JSON [{host, header, file}]) mimics PayBox's brokered secrets: the guard reads each value from its file
+// and adds the header to the plugin's fetch() calls to that exact host over HTTPS, reporting `OWED_E2E_BROKER {json}`
+// (host, header, method, path; never the value). The plugin's code and environment never see the value.
+//
 // It also probes, at the plugin's first stdout write (its top level has run by then), that reading an error's .stack
 // still works: a dependency that leaves Error.prepareStackTrace broken (bigint-buffer's `bindings` reading __filename
 // in an ESM bundle) makes every later error path crash the plugin. Reported as `OWED_E2E_STACK {json}`.
+import { readFileSync } from "node:fs";
 import net from "node:net";
 import tls from "node:tls";
 
@@ -16,6 +21,7 @@ const policy = params.get("policy") ?? "none"; // none | allow | any
 const list = (name) => new Set((params.get(name) ?? "").split(",").filter(Boolean).map((host) => host.toLowerCase()));
 const hosts = list("hosts");
 const down = list("down");
+const brokers = JSON.parse(params.get("broker") ?? "[]").map((b) => ({ host: String(b.host).toLowerCase(), header: String(b.header), value: readFileSync(b.file, "utf8").trim() }));
 const connect = net.Socket.prototype.connect;
 
 function target(args) {
@@ -47,6 +53,23 @@ process.stdout.write = function probedWrite(...args) {
   }
   return write.apply(this, args);
 };
+
+if (brokers.length) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = function brokeredFetch(input, init) {
+    let url;
+    try { url = new URL(input instanceof Request ? input.url : String(input)); } catch { return realFetch.call(this, input, init); }
+    const matching = url.protocol === "https:" ? brokers.filter((b) => b.host === url.hostname.toLowerCase()) : [];
+    if (!matching.length) return realFetch.call(this, input, init);
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+    for (const b of matching) {
+      headers.set(b.header, b.value);
+      report({ host: url.hostname, header: b.header, method: init?.method ?? (input instanceof Request ? input.method : "GET"), path: url.pathname }, "BROKER");
+    }
+    return realFetch.call(this, input, { ...init, headers });
+  };
+}
 
 net.Socket.prototype.connect = function guardedConnect(...args) {
   const where = target(args);

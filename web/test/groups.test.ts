@@ -105,9 +105,11 @@ function result(fields: string[], rows: Array<Array<string | null>>) {
 
 function runQuery(text: string, params: Array<string | null>) {
   if (text.startsWith("delete from rate_events")) return result([], []); // ratelimit.ts trims old events now and then
-  if (text.includes("from rate_events")) {
+  if (text.includes("pg_advisory_xact_lock")) return result(["pg_advisory_xact_lock"], []); // W2-E: ratelimit.ts serializes each key
+  if (text.includes("rate_events")) {
     db.rateEvents += 1;
-    return result(["allowed", "recipient_ok", "retry_recipient", "retry_global", "recorded"], [["t", "t", "1", "1", "2"]]);
+    // W2-E: one row per rule (scope, ok, allowed, retry_after, recorded), after an advisory-lock statement.
+    return result(["scope", "ok", "allowed", "retry_after", "recorded"], [["recipient", "t", "t", "1", "2"], ["global", "t", "t", "1", "2"]]);
   }
   if (text.startsWith("insert into groups")) {
     const [id, title, recipient, token, total, requester, flags, source, fromDomain] = params;

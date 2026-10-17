@@ -26,6 +26,8 @@ export interface X402Deps {
   store: Store;
   waitForSettlement(signature: string, t: Terms, deadline: number): Promise<SettlementCheck>;
   now(): number;
+  // W2-E: payments that reach the facilitator are capped per request and per client IP.
+  limitAttempt?(requestId: string): Promise<{ allowed: boolean; retryAfterSeconds?: number }>;
 }
 
 const REFRESH_BUDGET_MS = 2000;
@@ -136,6 +138,17 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
   // The requirements we hand the facilitator are ours, with the fee payer the payer signed for.
   const requirements = parsed.version === 2 ? requirementsV2(t, tx.feePayer) : requirementsV1(t, resourceUrl, tx.feePayer);
   const network = parsed.version === 2 ? NETWORK_V2 : NETWORK_V1;
+
+  // W2-E start: cap the attempts that reach /verify and /settle.
+  if (deps.limitAttempt) {
+    const slot = await deps.limitAttempt(row.id);
+    if (!slot.allowed) {
+      return errorResponse("rate_limited", "too many payment attempts for this request, try again shortly", {
+        ...BASE_HEADERS, "Retry-After": String(slot.retryAfterSeconds ?? 60),
+      });
+    }
+  }
+  // W2-E end
 
   let verified;
   try {

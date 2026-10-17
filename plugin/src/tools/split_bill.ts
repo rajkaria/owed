@@ -9,11 +9,12 @@ import {
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { MAX_SPLIT, splitEvenly, USDC_MINT, type Token } from "../money.js";
 import { idMatchesTerms } from "../request-id.js";
-import { screenRecipient, type Screening } from "../screen.js";
+import type { Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText, shortAddress } from "../text.js";
 import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -127,7 +128,9 @@ function remainderNote(plan: Plan, names: string[], token: Token, fromAtomic: De
 export async function splitBill(
   args: SplitInput,
   deps: Deps = defaultDeps,
-  screen: (addr: string) => Promise<Screening> = screenRecipient,
+  // W2-E sanctions screen start
+  screen: (addr: string) => Promise<Screening> = (addr) => deps.screenRecipient(addr, deps),
+  // W2-E sanctions screen end
   checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();
@@ -167,18 +170,30 @@ export async function splitBill(
   const total = deps.fromAtomic(totalAtomic, token);
   const amounts = plan.amounts.map((a) => deps.fromAtomic(a, token));
 
-  const screening = await screen(args.recipient);
+  // QA-18: every SOL share to a never-used wallet must reach Solana's minimum; read alongside screening and DNS.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
+  // W2-E sanctions screen start
+  // The screen runs beside the DNS check, never before it: together with the API call they must fit 10 s.
+  if (args.from_domain !== undefined && !checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
+  const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
+  const [screening, check] = await Promise.all([
+    screen(args.recipient),
+    args.from_domain !== undefined && checkDomain ? checkDomain(args.from_domain, args.recipient, deps, budget) : undefined,
+  ]);
   if (!screening.ok) return refusal(screening.message);
+  // W2-E sanctions screen end
 
   let fromDomain: string | undefined;
   let domainLines: string[] = [];
-  if (args.from_domain !== undefined) {
-    if (!checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
-    const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
-    const check = await checkDomain(args.from_domain, args.recipient, deps, budget);
+  if (check) {
     if (!check.ok) return refusal(check.message);
     fromDomain = check.from_domain;
     domainLines = check.lines;
+  }
+  const minimum = await solMinimum;
+  const tooSmall = minimum === null ? -1 : plan.amounts.findIndex((a) => a < minimum);
+  if (minimum !== null && tooSmall !== -1) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `the ${amounts[tooSmall]} SOL share for ${quote(names[tooSmall], LIMITS.name)}`));
   }
 
   let ctx: CallContext;
@@ -300,7 +315,7 @@ function buildOffline(recipient: string, amount: string, token: Token, title: st
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now (every share counts as one). Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message, "In a split, every share counts as one request."); // W2-E (QA-07)
     case "blocked": return `Owed can't create requests for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the split: ${error.message}`;
     default: return `Owed couldn't create the split: ${error.message}`;

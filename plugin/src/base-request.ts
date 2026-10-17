@@ -7,6 +7,7 @@ import { proposeX402 } from "./paybox.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "./request-id.js";
 import { brandFlags, cautionLine, clean, quote, shortAddress } from "./text.js";
 import { expiryLine, expiryProblem } from "./expiry.js"; // W3-C on Base
+import { SCREENING_UNAVAILABLE_LINE } from "./screen.js"; // W2-E on Base
 
 // W3-B Base requests, plugin side. USDC on Base (eip155:8453):
 // - ask_for_money with chain "base" creates a hosted request whose link opens an EIP-681 USDC
@@ -69,9 +70,14 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
+  // W2-E: the sanctions screen (Chainalysis takes 0x addresses too) runs beside the DNS check, as on Solana.
+  const [screening, check] = await Promise.all([
+    deps.screenRecipient(recipient, deps),
+    args.from_domain !== undefined ? checkFromDomain(args.from_domain, recipient, deps, 4000) : undefined,
+  ]);
+  if (!screening.ok) return refusal(screening.message);
   let fromDomain: { domain: string; lines: string[] } | undefined;
-  if (args.from_domain !== undefined) {
-    const check = await checkFromDomain(args.from_domain, recipient, deps, 4000);
+  if (check) {
     if (!check.ok) return refusal(check.message);
     fromDomain = { domain: check.from_domain, lines: check.lines };
   }
@@ -128,6 +134,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     ...(text.payerName && { payer_name: text.payerName }),
     ...(text.forText && { for: text.forText }),
     share_text, status: "open" as const,
+    screening: screening.screening,
     ...(fromDomain && { from_domain: fromDomain.domain }),
     chain: "base" as const, pay_url: payUrl,
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
@@ -140,6 +147,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     `It pays ${shortAddress(recipient)} on Base (USDC ${shortAddress(BASE_USDC)}). check_payments reads it from Base.`,
     ...(fromDomain ? fromDomain.lines : []),
     ...(expiresAt && args.expires_in_days !== undefined ? [expiryLine(expiresAt, args.expires_in_days)] : []), // W3-C
+    ...(screening.screening === "unavailable" ? [SCREENING_UNAVAILABLE_LINE] : []), // W2-E
   ];
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
@@ -248,10 +256,12 @@ export async function payBaseRequest(rq: GetRequestRes, id: string, args: BasePa
 
   const remaining = () => budgetMs - (deps.now() - started);
   const x402Url = `${ctx.base}/x/${encodeURIComponent(id)}`;
-  const [payee, challenge] = await Promise.all([
+  const [payee, challenge, screening] = await Promise.all([
     payeeForPayment(rq.from_domain, recipient, args.allow_unverified === true, deps, Math.min(PAYEE_BUDGET_MS, remaining())),
     checkBaseX402Challenge(x402Url, { recipient, amountAtomic }, deps, Math.min(3000, remaining())),
+    deps.screenRecipient(recipient, deps), // W2-E: a listed recipient is refused before any proposal
   ]);
+  if (!screening.ok) return refusal(`${screening.message} Nothing was sent.`);
   if (!payee.ok) return refusal(payee.refuse);
   if (challenge === "paid") return refusal("This request is already paid.");
   if (challenge === "mismatch") {
@@ -276,6 +286,7 @@ export async function payBaseRequest(rq: GetRequestRes, id: string, args: BasePa
     `PayBox pays from your Base wallet, which needs ${amount} USDC on Base; the x402 facilitator pays the gas.`,
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
-  const text = [caution, payee.caution, preview, `Recipient: ${recipient} (Base)`, ...payee.lines].filter(Boolean).join("\n");
+  const text = [caution, payee.caution, preview, `Recipient: ${recipient} (Base)`, ...payee.lines,
+    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : ""].filter(Boolean).join("\n");
   return { content: [{ type: "text" as const, text }], structuredContent };
 }

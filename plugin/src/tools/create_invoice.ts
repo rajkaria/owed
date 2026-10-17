@@ -9,9 +9,10 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { USDC_MINT, type Token } from "../money.js";
 import { checkFromDomain } from "../payee.js";
 import { idMatchesTerms } from "../request-id.js";
-import { screenRecipient, type Screening } from "../screen.js";
-import { cautionLine, clean, quote } from "../text.js";
+import type { Screening } from "../screen.js";
+import { cautionLine, clean, quote, rateLimitedText, shortAddress } from "../text.js";
 import { DAY_MS as EXPIRY_DAY_MS, expiresInDaysInput, expiryLine, expiryProblem } from "../expiry.js"; // W3-C
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -201,7 +202,9 @@ export function invoiceShareText(i: InvoiceShareInput): string {
 export async function createInvoice(
   args: InvoiceInput,
   deps: Deps = defaultDeps,
-  screen: (addr: string) => Promise<Screening> = screenRecipient,
+  // W2-E sanctions screen start
+  screen: (addr: string) => Promise<Screening> = (addr) => deps.screenRecipient(addr, deps),
+  // W2-E sanctions screen end
   checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();
@@ -244,12 +247,17 @@ export async function createInvoice(
     return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Create the invoice without from_domain.");
   }
   const domainBudget = Math.max(0, budgetLeft() - API_TIMEOUT_MS - 500);
-  const [screening, domain] = await Promise.all([
+  const [screening, domain, minimum] = await Promise.all([
     screen(args.recipient),
     args.from_domain !== undefined && checkDomain ? checkDomain(args.from_domain, args.recipient, deps, domainBudget) : Promise.resolve(null),
+    // QA-18: a SOL invoice to a never-used wallet must reach Solana's minimum.
+    token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null),
   ]);
   if (!screening.ok) return refusal(screening.message);
   if (domain && !domain.ok) return refusal(domain.message);
+  if (minimum !== null && priced.totalAtomic < minimum) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${total} SOL invoice`));
+  }
 
   const body: CreateInvoiceReq = {
     recipient: args.recipient,
@@ -370,7 +378,7 @@ function checkInvoice(res: InvoiceRes, body: CreateInvoiceReq, priced: ReturnTyp
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now. Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message); // W2-E (QA-07)
     case "blocked": return `Owed can't create an invoice for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the invoice: ${error.message}`;
     case "upstream_unavailable":

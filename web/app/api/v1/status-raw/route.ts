@@ -2,6 +2,7 @@ import { StatusRawBody, type StatusRawResponse } from "@/lib/contract";
 import { ApiError, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, fromAtomic, toAtomic, USDC_MINT, type Token } from "@/lib/money";
 import { parseTransferUrl, SolanaPayError } from "@/lib/solana-pay";
+import { requireStatusRawSlot } from "@/lib/ratelimit";
 import { findPayments } from "@/lib/validate";
 
 export const runtime = "nodejs";
@@ -40,6 +41,8 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
 
+    // W2-E: every call reads the chain for a link of the caller's choosing; capped per client IP.
+    await requireStatusRawSlot(req);
     const [check] = await findPayments(
       [{ reference: link.references[0], recipient: link.recipient, token, amountAtomic }],
       { deadline: Date.now() + CHAIN_BUDGET_MS },

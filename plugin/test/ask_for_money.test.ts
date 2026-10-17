@@ -25,7 +25,7 @@ test("hosted: creates the request through the API and returns the SPEC text and 
     solana_pay_url: created.solana_pay_url, qr_url: created.qr_url, reference: created.reference,
     recipient: RECIPIENT, amount: "15", token: "USDC", payer_name: "Priya", for: "dinner",
     share_text: `Hey Priya, it's Raj. Your share for "dinner" is 15 USDC. Pay with any Solana wallet here: https://owed.link/r/JArQ6g9JvoWr`,
-    status: "open",
+    status: "open", screening: "clear",
   });
   assert.equal(textOf(result).split("\n")[0], 'Request ready: 15 USDC from Priya for "dinner". Send this link: https://owed.link/r/JArQ6g9JvoWr');
   assert.match(textOf(result), /Message to send: Hey Priya/);
@@ -126,6 +126,20 @@ test("API refusals are not turned into offline links", async () => {
     assert.equal((result as { isError?: boolean }).isError, true, code);
     assert.match(textOf(result), expected);
   }
+});
+
+test("W2-E (QA-07): a rate-limit refusal says which limit the server applied, never 'this wallet' by guess", async () => {
+  for (const message of [
+    "too many requests for this recipient in the last hour, try again later",
+    "too many new requests from this client in the last hour, try again later",
+    "Owed is handling too many new requests right now, try again later",
+  ]) {
+    const { deps } = makeDeps({ routes: { "POST /api/v1/requests": () => json(429, { error: { code: "rate_limited", message } }) } });
+    const text = textOf(await askForMoney(input(), deps));
+    assert.equal(text, `Owed is limiting new requests: ${message}. Nothing was created.`);
+  }
+  const { deps } = makeDeps({ routes: { "POST /api/v1/requests": () => json(429, { error: { code: "rate_limited", message: "see https://evil.example now" } }) } });
+  assert.doesNotMatch(textOf(await askForMoney(input(), deps)), /evil\.example/);
 });
 
 test("refuses a hosted link that pays someone else or a different amount", async () => {
