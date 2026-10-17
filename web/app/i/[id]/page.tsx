@@ -26,6 +26,8 @@ const PRINT_CSS = `
   }
   html { font-size: 11px; color-scheme: light; }
   html:has([data-print-dense]) { font-size: 9.5px; }
+  [data-print-dense] td { line-height: 1.25; }
+  html:has([data-print-dense]) [data-invoice-footer] { display: none; }
   html, body { background: #ffffff !important; }
   a { color: inherit; text-decoration: none; }
 }`;
@@ -61,7 +63,7 @@ function Head({ model }: { model: InvoiceModel }) {
         ) : (
           <>
             <span className="sr-only">Invoice number </span>
-            <q>{model.number}</q>
+            <q><bdi>{model.number}</bdi></q>
           </>
         )}
       </h1>
@@ -71,21 +73,21 @@ function Head({ model }: { model: InvoiceModel }) {
 
 function Parties({ model }: { model: InvoiceModel }) {
   return (
-    <div className="mt-7 grid gap-5 sm:grid-cols-2 print:mt-5 print:grid-cols-2">
-      <div>
+    <div className="mt-7 grid grid-cols-1 gap-5 sm:grid-cols-2 print:mt-5 print:grid-cols-2">
+      <div className="min-w-0">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">From</h2>
-        <p className="mt-1 text-lg font-semibold leading-snug break-words">
-          <q>{model.businessName}</q>
+        <p className="mt-1 text-lg font-semibold leading-snug wrap-anywhere">
+          <q><bdi>{model.businessName}</bdi></q>
         </p>
         <VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />
         <p className="mt-2 text-sm text-muted">
           Paid to <span className="font-mono">{model.recipientShort}</span>
         </p>
       </div>
-      <div>
+      <div className="min-w-0">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Bill to</h2>
-        <p className="mt-1 text-lg font-semibold leading-snug break-words">
-          <q>{model.clientName}</q>
+        <p className="mt-1 text-lg font-semibold leading-snug wrap-anywhere">
+          <q><bdi>{model.clientName}</bdi></q>
         </p>
       </div>
     </div>
@@ -115,30 +117,42 @@ function Dates({ model }: { model: InvoiceModel }) {
 function Items({ model }: { model: InvoiceModel }) {
   return (
     <div className="mt-7 print:mt-4" data-print-dense={model.lines.length > 10 ? "" : undefined}>
+      {/* Sender text uses overflow-wrap:anywhere: unlike break-word it lowers a cell's min-content width, so a
+          long unbroken word wraps inside the card instead of widening the table (QA-11). */}
       <table className="w-full border-collapse text-left text-sm">
         <caption className="sr-only">Line items, written by the sender</caption>
         <thead>
           <tr className="border-b border-line text-xs uppercase tracking-wider text-muted">
-            <th scope="col" className="py-2 pr-3 font-medium">Description</th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Description<span className="hidden print:inline"> · amounts in {model.token}</span>
+            </th>
             <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">Qty</th>
-            <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">Unit price</th>
-            <th scope="col" className="py-2 text-right font-medium">Amount</th>
+            <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">
+              Unit price
+            </th>
+            <th scope="col" className="py-2 text-right font-medium">
+              Amount
+            </th>
           </tr>
         </thead>
         <tbody>
           {model.lines.map((line, i) => (
             <tr key={i} className="border-b border-line align-top print:break-inside-avoid">
-              <td className="py-3 pr-3 break-words print:py-1">
-                <q>{line.description}</q>
+              <td className="py-3 pr-3 wrap-anywhere print:py-1">
+                <q><bdi>{line.description}</bdi></q>
                 <span className="mt-0.5 block text-xs text-muted tabular-nums sm:hidden print:hidden">
                   {line.quantity} × {line.unitPrice}
                 </span>
               </td>
               <td className="hidden py-3 pr-3 text-right tabular-nums sm:table-cell print:table-cell print:py-1">{line.quantity}</td>
               <td className="hidden py-3 pr-3 text-right whitespace-nowrap tabular-nums sm:table-cell print:table-cell print:py-1">
-                {line.unitPrice}
+                <span className="print:hidden">{line.unitPrice}</span>
+                <span className="hidden print:inline">{line.unitPriceValue}</span>
               </td>
-              <td className="py-3 text-right font-medium whitespace-nowrap tabular-nums print:py-1">{line.amount}</td>
+              <td className="py-3 text-right font-medium whitespace-nowrap tabular-nums print:py-1">
+                <span className="print:hidden">{line.amount}</span>
+                <span className="hidden print:inline">{line.amountValue}</span>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -166,8 +180,8 @@ function Notes({ model }: { model: InvoiceModel }) {
       {model.notes && (
         <div className="print:break-inside-avoid">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Notes</h2>
-          <blockquote className="mt-1 leading-relaxed break-words">
-            <q>{model.notes}</q>
+          <blockquote className="mt-1 leading-relaxed wrap-anywhere">
+            <q><bdi>{model.notes}</bdi></q>
           </blockquote>
         </div>
       )}
@@ -319,7 +333,7 @@ export default async function InvoicePage({ params }: PageProps<"/i/[id]">) {
         </div>
       </main>
 
-      <footer className="mt-12 border-t border-line pt-5 text-sm leading-relaxed text-muted print:mt-4 print:pt-2 print:text-[0.8rem]">
+      <footer data-invoice-footer className="mt-12 border-t border-line pt-5 text-sm leading-relaxed text-muted print:mt-4 print:pt-2 print:text-[0.8rem]">
         <p>
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Owed never holds
           money: you pay the sender directly, in one Solana transaction.{" "}

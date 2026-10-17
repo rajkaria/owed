@@ -198,6 +198,10 @@ export async function splitBill(
     const res = await ctx.api.createGroup(body);
     const mismatch = checkHosted(res, args.recipient, token, totalAtomic, plan.amounts, ctx, deps);
     if (mismatch) return refusal(mismatch);
+    // Payers' agents only see the domain if the server stored it on the board and on every share they pay.
+    if (fromDomain && (res.from_domain !== fromDomain || res.shares.some((s) => s.from_domain !== fromDomain))) {
+      return refusal(`Owed's server didn't attach ${fromDomain} to every share, so the links weren't used. Try again, or split without from_domain.`);
+    }
     created = {
       groupId: res.id, groupLink: res.link, mode: "hosted",
       shares: res.shares.map((s) => ({ id: s.id, link: s.link, solana_pay_url: s.solana_pay_url, reference: s.reference })),
@@ -231,7 +235,7 @@ export async function splitBill(
     ...shares.map((s) => `- ${s.name}: ${s.amount} ${token} ${s.link}`),
   ];
   if (note) lines.push(note);
-  lines.push(...domainLines);
+  if (created.mode === "hosted") lines.push(...domainLines);
   lines.push("Send each person their own link (each share has a ready share_text). check_payments takes the share ids or links to see who has paid.");
   if (created.mode === "offline") {
     lines.push("Owed's server didn't answer, so these are self-contained links with no short ids and no board. Each works with any Solana wallet, and check_payments can verify them with the same links.");

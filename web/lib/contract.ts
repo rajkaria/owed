@@ -134,6 +134,7 @@ export const GroupShare = z.object({
   solana_pay_url: z.string().startsWith("solana:"),
   reference: base58Key,
   paid: PaidInfo.nullable(),
+  from_domain: z.string().nullable().optional(), // W2-H: each share carries the group's verified domain
 });
 
 export const GroupResponse = z.object({

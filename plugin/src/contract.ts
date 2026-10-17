@@ -144,6 +144,7 @@ export const groupShareSchema = z.object({
   solana_pay_url: solanaPayUrl,
   reference: addressSchema,
   paid: paidInfoSchema.nullable().optional(),
+  from_domain: z.string().max(253).nullable().optional(), // W2-H: split_bill checks every share echoes the domain
 });
 
 export const groupResSchema = z.object({
