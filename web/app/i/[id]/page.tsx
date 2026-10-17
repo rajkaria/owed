@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/copy-button";
-import { AgentIcon, AlertIcon, CheckIcon, CopyIcon, ExternalIcon, LinkIcon, WalletIcon } from "@/components/icons";
+import { AgentIcon, AlertIcon, CopyIcon, ExternalIcon, LinkIcon, WalletIcon } from "@/components/icons";
 import { QrCode } from "@/components/qr-code";
+import { VerifiedBadge } from "@/components/verified-badge";
 import { Wordmark } from "@/components/wordmark";
 import { solscanAccount } from "@/lib/view/format";
 import { InvoiceLive } from "./invoice-live";
@@ -76,18 +77,7 @@ function Parties({ model }: { model: InvoiceModel }) {
         <p className="mt-1 text-lg font-semibold leading-snug break-words">
           <q>{model.businessName}</q>
         </p>
-        {/* TODO(W2-H): replace this block with
-              <VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />
-            from @/components/verified-badge. Until then the API refuses from_domain, so it never renders. */}
-        {model.fromDomain && model.fromDomainVerifiedAt && (
-          <p className="mt-2 flex items-start gap-2 text-sm">
-            <CheckIcon className="mt-0.5 shrink-0 text-paid" width={16} height={16} />
-            <span>
-              From <span className="font-semibold break-all">{model.fromDomain}</span>
-              <span className="text-muted"> · verified by DNS</span>
-            </span>
-          </p>
-        )}
+        <VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />
         <p className="mt-2 text-sm text-muted">
           Paid to <span className="font-mono">{model.recipientShort}</span>
         </p>

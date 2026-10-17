@@ -318,6 +318,8 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
         paidRail: null,
         source: input.source,
         createdAt: results[0][0].created_at!,
+        fromDomain,
+        fromDomainVerifiedAt: invoice.fromDomainVerifiedAt,
       };
       return { invoice, request };
     } catch (e) {

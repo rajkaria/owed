@@ -6,6 +6,7 @@ import {
 } from "../src/tools/create_invoice.ts";
 import { requestIdFor } from "../src/request-id.ts";
 import { fixture, html, json, makeDeps, RECIPIENT, textOf, USDC_MINT } from "./helpers.ts";
+import { dohFixture, dohRoutes } from "./payee-helpers.ts";
 
 const created = fixture("invoices.create.res.json");
 const request = fixture("invoices.create.req.json");
@@ -248,14 +249,15 @@ test("screening: a hit refuses before anything is created; unavailable is said o
   }
 });
 
-test("from_domain: refused until verified payee is wired, checked over DNS once it is, and echoed by the server", async () => {
-  {
-    const { deps, rec } = makeDeps({ routes: ok });
-    const result = await createInvoice(input({ from_domain: "northwind.example" }), deps);
-    assert.ok(isRefusal(result));
-    assert.match(textOf(result), /can't verify from_domain yet/);
-    assert.equal(rec.calls.length, 0);
-  }
+test("from_domain uses W2-H's checkFromDomain by default: a domain without the record is refused before creating", async () => {
+  const { deps, rec } = makeDeps({ routes: { ...dohRoutes(dohFixture("nodata-signed")), ...ok } });
+  const result = await createInvoice(input({ from_domain: "example.com" }), deps);
+  assert.ok(isRefusal(result));
+  assert.match(textOf(result), new RegExp(`add a DNS TXT record named _owed\\.example\\.com with the value owed-pay=${RECIPIENT}`));
+  assert.deepEqual(rec.calls.map((c) => c.url), ["https://cloudflare-dns.com/dns-query?name=_owed.example.com&type=TXT"]);
+});
+
+test("from_domain: checked over DNS before creating, and echoed by the server", async () => {
   const verified: CheckFromDomain = async (domain, recipient) =>
     domain === "northwind.example" && recipient === RECIPIENT
       ? { ok: true, from_domain: "northwind.example", lines: ["Verified: northwind.example publishes this wallet (DNSSEC)."] }

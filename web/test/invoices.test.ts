@@ -109,7 +109,10 @@ test("toPublicInvoice produces exactly the contract fixtures (open and paid)", (
 // ---- the routes against an in-memory Neon endpoint and an empty chain ----
 
 interface Stored { [column: string]: string | null }
-const db = { invoices: new Map<string, Stored>(), requests: new Map<string, Stored>(), rateEvents: 0, batches: 0 };
+const db = { invoices: new Map<string, Stored>(), requests: new Map<string, Stored>(), rateEvents: 0, batches: 0, dohTxt: null as string[] | null };
+// A real recorded DoH answer (W2-H's plugin/test/fixtures/doh/nodata-signed.json: example.com, DNSSEC-signed, no _owed record).
+// Tests that need a published record add a TXT answer to it here, in the test: that answer is constructed, not captured.
+const dohRecorded = JSON.parse(JSON.parse(readFileSync(new URL("../../plugin/test/fixtures/doh/nodata-signed.json", import.meta.url), "utf8")).responses[0].body);
 const realFetch = globalThis.fetch;
 const realEnv = { DATABASE_URL: process.env.DATABASE_URL, OWED_BASE_URL: process.env.OWED_BASE_URL };
 const CREATED = "2026-10-17T07:30:00Z";
@@ -131,8 +134,10 @@ function runQuery(text: string, params: Array<string | null>) {
   }
   if (text.startsWith("insert into requests")) {
     assert.match(text, /values \(\$1, 'invoice', \$1,/);
-    const [id, recipient, token, mint, decimals, amount, reference, payerName, forText, requesterName, flags, source] = params;
+    const [id, recipient, token, mint, decimals, amount, reference, payerName, forText, requesterName, flags, source, fromDomain = null] = params;
+    if (fromDomain !== null) assert.match(text, /from_domain, from_domain_verified_at\)/);
     db.requests.set(id!, {
+      from_domain: fromDomain,
       id, kind: "invoice", invoice_id: id, recipient, token, mint, decimals, amount_atomic: amount, reference, payer_name: payerName,
       for_text: forText, note: null, requester_name: requesterName, flags, status: "open", paid_signature: null, paid_payer: null,
       paid_amount_atomic: null, paid_at: null, paid_rail: null, source, created_at: CREATED,
@@ -165,6 +170,7 @@ beforeEach(() => {
   db.requests.clear();
   db.rateEvents = 0;
   db.batches = 0;
+  db.dohTxt = null;
   process.env.DATABASE_URL = "postgresql://u:p@ep-test-pooler.us-east-1.aws.neon.tech/neondb";
   process.env.OWED_BASE_URL = "https://owed-omega.vercel.app";
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -176,6 +182,11 @@ beforeEach(() => {
         return Response.json({ results: body.queries.map((q: { query: string; params: Array<string | null> }) => runQuery(q.query.trim(), q.params)) });
       }
       return Response.json(runQuery(body.query.trim(), body.params));
+    }
+    if (url.host === "cloudflare-dns.com" || url.host === "dns.google") {
+      const answer = db.dohTxt === null ? dohRecorded
+        : { ...dohRecorded, Answer: db.dohTxt.map((t) => ({ name: "_owed.example.com", type: 16, TTL: 300, data: `"${t}"` })) };
+      return Response.json(answer);
     }
     // Solana RPC: nothing references this invoice yet.
     const calls = Array.isArray(body) ? body : [body];
@@ -251,7 +262,8 @@ test("POST /invoices: invalid input is a 400 that names the problem, and spends 
     [request({ items: [] }), /items/],
     [request({ items: Array(21).fill({ description: "x", unit_price: "1" }) }), /items/],
     [request({ business_name: "https://only-a-link.example" }), /business_name is empty/],
-    [request({ from_domain: "northwind.example" }), /from_domain can't be verified by this server yet/],
+    // W2-H's requireVerifiedDomain: a malformed domain is a 400 before any DNS lookup (DNS-backed cases: test/payee*.test.ts).
+    [request({ from_domain: "https://northwind.example/pay" }), /from_domain must be a domain name/],
     [request({ token: "BONK" }), /token/],
     ["{not json", /must be JSON/],
   ];
@@ -292,4 +304,20 @@ test("GET /invoices/:id: a paid invoice carries the payment; rows that disagree 
   assert.deepEqual(check(contractShapes.invoiceRes, paid).errors, []);
   row.amount_atomic = "2000000";
   assert.equal((await get(created.id)).status, 404);
+});
+
+test("POST /invoices with from_domain (W2-H): verified over DNS, stored on the invoice and its request; unpublished → 400 with the record to add", async () => {
+  db.dohTxt = [`owed-pay=${RECIPIENT}`];
+  const res = await post(request({ from_domain: "Example.com" }));
+  assert.equal(res.status, 201);
+  const body = await res.json();
+  assert.equal(body.from_domain, "example.com");
+  assert.equal(body.from_domain_verified_at, CREATED);
+  assert.deepEqual(check(contractShapes.invoiceRes, body).errors, []);
+  assert.equal(db.requests.get(body.id)!.from_domain, "example.com", "pay_link reads the domain from the request");
+
+  db.dohTxt = null;
+  const refused = await post(request({ from_domain: "example.com" }));
+  assert.equal(refused.status, 400);
+  assert.match((await refused.json()).error.message, new RegExp(`_owed\\.example\\.com.*owed-pay=${RECIPIENT}`));
 });

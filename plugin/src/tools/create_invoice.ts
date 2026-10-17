@@ -7,6 +7,7 @@ import {
 } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { USDC_MINT, type Token } from "../money.js";
+import { checkFromDomain } from "../payee.js";
 import { idMatchesTerms } from "../request-id.js";
 import { screenRecipient, type Screening } from "../screen.js";
 import { cautionLine, clean, quote } from "../text.js";
@@ -186,8 +187,7 @@ export async function createInvoice(
   args: InvoiceInput,
   deps: Deps = defaultDeps,
   screen: (addr: string) => Promise<Screening> = screenRecipient,
-  // TODO(W2-H): default to `checkFromDomain` imported from ../payee.js once verified payee merges.
-  checkDomain: CheckFromDomain | null = null,
+  checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");

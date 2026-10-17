@@ -3,6 +3,7 @@ import { CreateInvoiceBody, type InvoiceResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { createInvoice, prepareInvoice, toPublicInvoice } from "@/lib/invoices";
 import { AmountError } from "@/lib/money";
+import { requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -36,13 +37,8 @@ export async function POST(req: Request): Promise<Response> {
       throw e;
     }
 
-    // TODO(W2-H): replace this refusal with
-    //   fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
-    // (web/lib/payee.ts). createInvoice already stores it on the invoice and on its request.
-    const fromDomain: string | null = null;
-    if (body.from_domain != null) {
-      throw new ApiError("invalid_input", "from_domain can't be verified by this server yet; create the invoice without it");
-    }
+    // Verified payee (W2-H): the domain must publish this recipient in DNS now; stored on the invoice and its request.
+    const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
 
     const slot = await takeCreateSlot(body.recipient);
     if (!slot.allowed) {
