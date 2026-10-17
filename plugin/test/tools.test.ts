@@ -64,6 +64,18 @@ test("schemas convert to strict JSON Schema; pay_link outputs the starter's Sola
   assert.deepEqual(askInput.required?.sort(), ["amount", "recipient"]);
 });
 
+test("tool text names the sanctions screen the code runs: OFAC's SDN list, local, never unreachable", () => {
+  const seen = registerAll();
+  for (const [name, { config }] of seen) {
+    const text = [config.description, JSON.stringify(z.toJSONSchema(config.inputSchema, { io: "input" })), JSON.stringify(z.toJSONSchema(config.outputSchema, { io: "output" }))].join(" ");
+    assert.doesNotMatch(text, /chainalysis/i, `${name} still names Chainalysis; src/screen.ts checks OFAC's SDN list`);
+    assert.doesNotMatch(text, /screen (can't|couldn't) be reached/i, `${name} says the screen can be unreachable; it is a local list`);
+  }
+  for (const name of ["ask_for_money", "pay_link"]) assert.match(seen.get(name)!.config.description, /U\.S\. Treasury's OFAC sanctions list \(SDN.*no network/);
+  const screening = (z.toJSONSchema(seen.get("ask_for_money")!.config.outputSchema, { io: "output" }) as { properties: Record<string, { description?: string }> }).properties.screening;
+  assert.match(screening!.description!, /OFAC SDN list .*no network/);
+});
+
 test("registering tools touches no network and no clock", () => {
   const realFetch = globalThis.fetch;
   const realNow = Date.now;

@@ -61,7 +61,7 @@ const DESCRIPTION = [
   "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
   // W2-H verified payee end
   // W2-E sanctions screen start
-  "It also screens the recipient against sanctions lists (Chainalysis) and refuses a listed address before proposing anything.",
+  "It also checks the recipient against the U.S. Treasury's OFAC sanctions list (SDN, built into Owed; no network) and refuses a listed address before proposing anything.",
   // W2-E sanctions screen end
   "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
   "To pay an SNS name (\"pay example.sns 2 USDC\"), pass the name as link with amount (and token for SOL): the tool resolves it on Solana itself and proposes a transfer to the wallet it names. A request made for an SNS name is paid only if the name still points to its wallet. .sol names are refused (SNS moved to .sns).", // W3-S
