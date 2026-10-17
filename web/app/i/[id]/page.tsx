@@ -24,6 +24,7 @@ const PRINT_CSS = `
     --warn: #8a3b0a; --warn-soft: #ffffff; --warn-line: #d9a441;
   }
   html { font-size: 11px; color-scheme: light; }
+  html:has([data-print-dense]) { font-size: 9.5px; }
   html, body { background: #ffffff !important; }
   a { color: inherit; text-decoration: none; }
 }`;
@@ -123,7 +124,7 @@ function Dates({ model }: { model: InvoiceModel }) {
 
 function Items({ model }: { model: InvoiceModel }) {
   return (
-    <div className="mt-7 print:mt-4">
+    <div className="mt-7 print:mt-4" data-print-dense={model.lines.length > 10 ? "" : undefined}>
       <table className="w-full border-collapse text-left text-sm">
         <caption className="sr-only">Line items, written by the sender</caption>
         <thead>
@@ -137,17 +138,17 @@ function Items({ model }: { model: InvoiceModel }) {
         <tbody>
           {model.lines.map((line, i) => (
             <tr key={i} className="border-b border-line align-top print:break-inside-avoid">
-              <td className="py-3 pr-3 break-words print:py-1.5">
+              <td className="py-3 pr-3 break-words print:py-1">
                 <q>{line.description}</q>
                 <span className="mt-0.5 block text-xs text-muted tabular-nums sm:hidden print:hidden">
                   {line.quantity} × {line.unitPrice}
                 </span>
               </td>
-              <td className="hidden py-3 pr-3 text-right tabular-nums sm:table-cell print:table-cell print:py-1.5">{line.quantity}</td>
-              <td className="hidden py-3 pr-3 text-right whitespace-nowrap tabular-nums sm:table-cell print:table-cell print:py-1.5">
+              <td className="hidden py-3 pr-3 text-right tabular-nums sm:table-cell print:table-cell print:py-1">{line.quantity}</td>
+              <td className="hidden py-3 pr-3 text-right whitespace-nowrap tabular-nums sm:table-cell print:table-cell print:py-1">
                 {line.unitPrice}
               </td>
-              <td className="py-3 text-right font-medium whitespace-nowrap tabular-nums print:py-1.5">{line.amount}</td>
+              <td className="py-3 text-right font-medium whitespace-nowrap tabular-nums print:py-1">{line.amount}</td>
             </tr>
           ))}
         </tbody>
