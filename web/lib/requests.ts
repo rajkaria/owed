@@ -63,8 +63,8 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   paid_signature, paid_payer, paid_amount_atomic::text as paid_amount_atomic, ${isoUtc("paid_at")} as paid_at,
   paid_rail, source, ${isoUtc("created_at")} as created_at,
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
-  ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature`;
-  chain, chain_cursor::text as chain_cursor`;
+  ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
+  chain, chain_cursor::text as chain_cursor`; // W3-B: chain, chain_cursor
 
 export function fromRow(r: Row): RequestRow {
   return {
