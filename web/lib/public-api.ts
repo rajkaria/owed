@@ -37,6 +37,10 @@ export interface PublicRequest {
   // Optional in the type so rows built by hand elsewhere (tests, other sprints) still compile; toPublic always sets both.
   chain?: "solana" | "base";
   pay_url?: string;
+  // W3-S: the SNS name that pointed to recipient at creation (lib/sns.ts). Optional for rows built by hand.
+  sns_name?: string | null;
+  sns_source?: "sol_record_v2" | "sol_record_v1" | "owner" | null;
+  sns_resolved_at?: string | null;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */
