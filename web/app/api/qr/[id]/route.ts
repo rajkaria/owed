@@ -4,7 +4,7 @@ import { getRequest, solanaPayUrl } from "@/lib/requests";
 
 export const runtime = "nodejs";
 
-const FILE = /^([1-9A-HJ-NP-Za-km-z]{10})\.(png|svg)$/;
+const FILE = /^([1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?)\.(png|svg)$/;
 const MIN_SIZE = 128;
 const MAX_SIZE = 1024;
 const DEFAULT_SIZE = 512;

@@ -13,7 +13,7 @@ export const CHECK_BUDGET_MS = 8500;
 
 export const inputSchema = z.object({
   requests: z.array(z.string().min(1).max(2048)).min(1).max(20)
-    .describe("1 to 20 requests to check: Owed request ids (e.g. \"7Gh2kQpXa9\"), Owed links, or Solana Pay transfer URLs that carry a reference."),
+    .describe("1 to 20 requests to check: Owed request ids (e.g. \"JArQ6g9JvoWr\"), Owed links, or Solana Pay transfer URLs that carry a reference."),
 }).strict();
 
 const resultStatus = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid", "unknown"]);

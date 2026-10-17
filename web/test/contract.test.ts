@@ -50,6 +50,6 @@ test("create body defaults token, kind and source", () => {
 
 test("status body allows 1 to 20 ids", () => {
   assert.equal(StatusBody.safeParse({ ids: [] }).success, false);
-  assert.equal(StatusBody.safeParse({ ids: Array(21).fill("7Gh2kQpXa9") }).success, false);
-  assert.equal(StatusBody.safeParse({ ids: Array(20).fill("7Gh2kQpXa9") }).success, true);
+  assert.equal(StatusBody.safeParse({ ids: Array(21).fill("JArQ6g9JvoWr") }).success, false);
+  assert.equal(StatusBody.safeParse({ ids: Array(20).fill("JArQ6g9JvoWr") }).success, true);
 });

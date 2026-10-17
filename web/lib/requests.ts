@@ -1,6 +1,6 @@
 import "server-only";
 import { isoUtc, isUniqueViolation, sql, type Row } from "./db";
-import { newReference, newRequestId } from "./ids";
+import { newReference, requestIdFor } from "./ids";
 import { fromAtomic, TOKENS, type Token } from "./money";
 import { buildTransferUrl } from "./solana-pay";
 import { findPayments, type PaymentCheck } from "./validate";
@@ -133,6 +133,9 @@ export interface CreateInput {
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
   const { mint, decimals } = TOKENS[input.token];
   for (let attempt = 0; ; attempt++) {
+    // The id is derived from the terms (see lib/ids.ts), so it changes whenever the reference does.
+    const reference = newReference();
+    const id = requestIdFor({ recipient: input.recipient, token: input.token, amountAtomic: input.amountAtomic, reference });
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
@@ -140,13 +143,13 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13)
          returning ${COLUMNS}`,
         [
-          newRequestId(),
+          id,
           input.recipient,
           input.token,
           mint,
           decimals,
           input.amountAtomic,
-          newReference(),
+          reference,
           input.payerName,
           input.forText,
           input.note,
@@ -157,7 +160,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
       );
       return fromRow(rows[0]);
     } catch (e) {
-      // A 58-bit id or 256-bit reference collision is astronomically rare; retry with fresh ones.
+      // A 256-bit reference (and so a 70-bit id) collision is astronomically rare; retry with a fresh one.
       if (attempt < 2 && (isUniqueViolation(e, "requests_pkey") || isUniqueViolation(e, "requests_reference_key"))) continue;
       throw e;
     }

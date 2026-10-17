@@ -17,7 +17,7 @@ test("builds the exact URL in the create-request fixture", () => {
     references: [REFERENCE],
     label: "Raj",
     message: "dinner",
-    memo: "owed:7Gh2kQpXa9",
+    memo: "owed:JArQ6g9JvoWr",
   });
   assert.equal(url, fixture("create-request.res.json").solana_pay_url);
 });

@@ -26,7 +26,7 @@ export const MAX_REFERENCES = 5;
 /** Longest link accepted or produced. Fits an Owed `/p?u=` link whose texts are all at their caps. */
 export const MAX_LINK_CHARS = 4096;
 
-const OWED_ID_RE = /^[1-9A-HJ-NP-Za-km-z]{10}$/;
+const OWED_ID_RE = /^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/;
 const SCHEME_RE = /^([a-z][a-z0-9+.-]*):/i;
 const SINGLE_PARAMS = { amount: "amount", "spl-token": "token", label: "label", message: "message", memo: "memo" } as const;
 const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;

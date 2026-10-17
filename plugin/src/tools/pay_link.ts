@@ -6,6 +6,7 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { USDC_MINT, type Token } from "../money.js";
 import { proposeSolana, solanaOutputSchema } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
+import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
 import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
 
 export const inputSchema = z.object({
@@ -139,12 +140,16 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 
+export const REFUSE_UNVERIFIABLE = "This is an older Owed link whose payment details can't be checked against its id, so Owed won't pay it. Ask the requester for a new link.";
+export const REFUSE_TAMPERED = "This link's payment details don't match its id: the recipient or amount may have been changed after the link was made. Nothing was sent; ask the requester for a new link.";
+
 function tokenOf(r: TransferRequest): Token | null {
   if (r.splToken === undefined) return "SOL";
   return r.splToken === USDC_MINT ? "USDC" : null;
 }
 
 async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Resolved | string> {
+  if (id.length !== VERIFIED_ID_LENGTH) return REFUSE_UNVERIFIABLE;
   let rq: GetRequestRes;
   try {
     rq = await ctx.api.getRequest(id);
@@ -173,6 +178,12 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
   if (parsed.kind !== "transfer" || token !== rq.token || parsed.request.recipient !== rq.recipient
     || parsed.request.amount === undefined || deps.toAtomic(parsed.request.amount, token) !== deps.toAtomic(rq.amount, token)) {
     return "Owed's server returned a payment link that doesn't match the request. Nothing was sent.";
+  }
+  // The id is a hash of the payment terms, so the server can't swap the recipient or amount
+  // behind a link someone already shared: different terms would need a different id.
+  if (rq.id !== id || !parsed.request.references.includes(rq.reference)
+    || !idMatchesTerms(id, { recipient: rq.recipient, token, amountAtomic: deps.toAtomic(rq.amount, token), reference: rq.reference })) {
+    return REFUSE_TAMPERED;
   }
   return {
     request: parsed.request, token,

@@ -112,7 +112,7 @@ function buildTransferTxDouble(): ReturnType<typeof tx.buildTransferTx> {
 const real = {
   toAtomic: implemented(() => money.toAtomic("1", "USDC")),
   fromAtomic: implemented(() => money.fromAtomic(1n, "USDC")),
-  parseLink: implemented(() => solanaPay.parseLink("7Gh2kQpXa9", ["owed.link"])),
+  parseLink: implemented(() => solanaPay.parseLink("JArQ6g9JvoWr", ["owed.link"])),
   buildTransferUrl: implemented(() => solanaPay.buildTransferUrl({ recipient: RECIPIENT, references: [] })),
   newReference: implemented(() => solanaPay.newReference()),
   isSolanaAddress: implemented(() => solanaPay.isSolanaAddress(RECIPIENT)),

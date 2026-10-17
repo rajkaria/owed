@@ -32,12 +32,12 @@ test("array-mode results become objects of text values", () => {
       { name: "paid_at", dataTypeID: 25 },
     ],
     rows: [
-      ["7Gh2kQpXa9", "15000000", null],
+      ["JArQ6g9JvoWr", "15000000", null],
       ["Bq3wL8mNc2", "4500000", "2026-10-17T05:00:09Z"],
     ],
   });
   assert.deepEqual(rows, [
-    { id: "7Gh2kQpXa9", amount_atomic: "15000000", paid_at: null },
+    { id: "JArQ6g9JvoWr", amount_atomic: "15000000", paid_at: null },
     { id: "Bq3wL8mNc2", amount_atomic: "4500000", paid_at: "2026-10-17T05:00:09Z" },
   ]);
 });

@@ -21,13 +21,13 @@ test("hosted: creates the request through the API and returns the SPEC text and 
   const result = await askForMoney(input(), deps);
   const out = structured(result);
   assert.deepEqual(out, {
-    id: "7Gh2kQpXa9", mode: "hosted", link: "https://owed.link/r/7Gh2kQpXa9",
+    id: "JArQ6g9JvoWr", mode: "hosted", link: "https://owed.link/r/JArQ6g9JvoWr",
     solana_pay_url: created.solana_pay_url, qr_url: created.qr_url, reference: created.reference,
     recipient: RECIPIENT, amount: "15", token: "USDC", payer_name: "Priya", for: "dinner",
-    share_text: `Hey Priya, it's Raj. Your share for "dinner" is 15 USDC. Pay with any Solana wallet here: https://owed.link/r/7Gh2kQpXa9`,
+    share_text: `Hey Priya, it's Raj. Your share for "dinner" is 15 USDC. Pay with any Solana wallet here: https://owed.link/r/JArQ6g9JvoWr`,
     status: "open",
   });
-  assert.equal(textOf(result).split("\n")[0], 'Request ready: 15 USDC from Priya for "dinner". Send this link: https://owed.link/r/7Gh2kQpXa9');
+  assert.equal(textOf(result).split("\n")[0], 'Request ready: 15 USDC from Priya for "dinner". Send this link: https://owed.link/r/JArQ6g9JvoWr');
   assert.match(textOf(result), /Message to send: Hey Priya/);
   assert.equal(rec.calls.length, 1);
   assert.equal(rec.calls[0]!.url, `${BASE}/api/v1/requests`);
@@ -136,6 +136,9 @@ test("refuses a hosted link that pays someone else or a different amount", async
     { ...created, solana_pay_url: created.solana_pay_url.replace(`&spl-token=${USDC_MINT}`, "") },
     { ...created, reference: other },
     { ...created, solana_pay_url: "solana:https%3A%2F%2Fevil.example%2Fcheckout" },
+    // Right terms, but an id that doesn't hash them: a payer's pay_link would refuse this link.
+    { ...created, id: "JArQ6g9JvoWx", link: created.link.replace("JArQ6g9JvoWr", "JArQ6g9JvoWx") },
+    { ...created, id: "7Gh2kQpXa9", link: created.link.replace("JArQ6g9JvoWr", "7Gh2kQpXa9") },
   ];
   for (const body of tampered) {
     const { deps } = makeDeps({ routes: { "POST /api/v1/requests": () => json(201, body) } });
@@ -146,9 +149,9 @@ test("refuses a hosted link that pays someone else or a different amount", async
 });
 
 test("accepts a hosted link on a domain the plugin doesn't know yet (domain switch)", async () => {
-  const moved = { ...created, link: "https://getowed.xyz/r/7Gh2kQpXa9", qr_url: "https://getowed.xyz/api/qr/7Gh2kQpXa9.png" };
+  const moved = { ...created, link: "https://getowed.xyz/r/JArQ6g9JvoWr", qr_url: "https://getowed.xyz/api/qr/JArQ6g9JvoWr.png" };
   const { deps } = makeDeps({ routes: { "POST /api/v1/requests": () => json(201, moved) } });
-  assert.equal(structured(await askForMoney(input(), deps)).link, "https://getowed.xyz/r/7Gh2kQpXa9");
+  assert.equal(structured(await askForMoney(input(), deps)).link, "https://getowed.xyz/r/JArQ6g9JvoWr");
 });
 
 test("rejects bad recipients, amounts and misconfiguration", async () => {

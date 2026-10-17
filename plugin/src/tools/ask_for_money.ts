@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 import { ApiError } from "../api.js";
 import { addressSchema, decimalSchema, requestIdSchema, tokenSchema, type CreateRequestReq, type CreateRequestRes } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
+import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { clean, quote, shareText } from "../text.js";
@@ -124,6 +125,8 @@ function checkHosted(res: CreateRequestRes, recipient: string, token: "USDC" | "
     const expectedMint = token === "USDC" ? USDC_MINT : undefined;
     if (r.recipient !== recipient || r.splToken !== expectedMint || !r.references.includes(res.reference)) return bad;
     if (r.amount === undefined || deps.toAtomic(r.amount, token) !== atomic) return bad;
+    // The id must commit to these exact terms, or a payer's pay_link would refuse the link.
+    if (!idMatchesTerms(res.id, { recipient, token, amountAtomic: atomic, reference: res.reference })) return bad;
     return null;
   } catch {
     return bad;

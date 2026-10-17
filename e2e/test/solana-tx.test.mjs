@@ -19,7 +19,7 @@ const reference = new PublicKey("8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e");
 const mint = new PublicKey(USDC_MINT);
 const ataFor = (owner, mintAddress) => spl.getAssociatedTokenAddressSync(new PublicKey(mintAddress), new PublicKey(owner)).toBase58();
 
-function usdcTx({ amount = 10_000n, createAta = true, memo = "owed:7Gh2kQpXa9", referenceWritable = false } = {}) {
+function usdcTx({ amount = 10_000n, createAta = true, memo = "owed:JArQ6g9JvoWr", referenceWritable = false } = {}) {
   const source = spl.getAssociatedTokenAddressSync(mint, sender);
   const destination = spl.getAssociatedTokenAddressSync(mint, recipient);
   const tx = new Transaction({ feePayer: sender, recentBlockhash: PLACEHOLDER_BLOCKHASH });
@@ -35,7 +35,7 @@ const serialize = (tx) => tx.serialize({ requireAllSignatures: false, verifySign
 const proposalOf = (bytes, expiresAt = new Date(Date.now() + 240_000).toISOString().replace(/\.\d{3}Z$/, "Z")) => ({
   [PROPOSAL_KEY]: { version: "1", expiresAt, kind: "solana", chain: "solana:mainnet", transaction: { transactionBase64: Buffer.from(bytes).toString("base64") } },
 });
-const expected = { recipient: recipient.toBase58(), amount: "0.01", token: "USDC", splToken: USDC_MINT, references: [reference.toBase58()], memo: "owed:7Gh2kQpXa9" };
+const expected = { recipient: recipient.toBase58(), amount: "0.01", token: "USDC", splToken: USDC_MINT, references: [reference.toBase58()], memo: "owed:JArQ6g9JvoWr" };
 
 test("decoder agrees with web3.js on keys, flags, blockhash and instructions", () => {
   const tx = usdcTx();
@@ -68,7 +68,7 @@ test("a correct USDC proposal passes and summarizes what it pays", () => {
   assert.equal(summary.transfer.atomic, "10000");
   assert.equal(summary.transfer.destinationOwner, recipient.toBase58());
   assert.deepEqual(summary.transfer.references, [reference.toBase58()]);
-  assert.equal(summary.memo, "owed:7Gh2kQpXa9");
+  assert.equal(summary.memo, "owed:JArQ6g9JvoWr");
   assert.deepEqual(summary.instructions, ["ata_create_idempotent", "memo", "spl_transfer_checked"]);
 });
 
@@ -84,7 +84,7 @@ test("wrong amount, wrong payer, writable reference, missing memo and stale expi
   assert.match(run(usdcTx({ amount: 20_000n })), /pays 0\.02 USDC, request is for 0\.01/);
   assert.match(run(usdcTx(), { sender: recipient.toBase58() }), /fee payer .* expected the sender/);
   assert.match(run(usdcTx({ referenceWritable: true })), /must be a read-only non-signer/);
-  assert.match(run(usdcTx({ memo: null })), /memo null, request memo is "owed:7Gh2kQpXa9"/);
+  assert.match(run(usdcTx({ memo: null })), /memo null, request memo is "owed:JArQ6g9JvoWr"/);
   assert.match(run(usdcTx(), { expiresAt: "2020-01-01T00:00:00Z" }), /not within the next 5 minutes/);
   assert.match(run(usdcTx(), { expected: { ...expected, recipient: TEAM_WALLET } }), /token account owner/);
 });

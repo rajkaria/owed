@@ -7,7 +7,7 @@ import { TEXT_LIMITS } from "./safety";
 export const DECIMAL = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 const decimal = z.string().regex(DECIMAL, "must be a decimal string");
 const base58Key = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "must be a base58 Solana address");
-const requestId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}$/, "must be a 10-character Owed id");
+const requestId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/, "must be a 12-character Owed id");
 const isoTime = z.iso.datetime();
 const token = z.enum(["USDC", "SOL"]);
 
