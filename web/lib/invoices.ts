@@ -7,6 +7,7 @@ import { getRequest, settleFromChain, solanaPayUrl, toPublic, type RequestRow } 
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "./safety";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
+import { watchSoon } from "./notify/helius"; // W3-A
 
 // Invoices. An invoice is one ordinary request row (kind 'invoice') for the total plus an
 // `invoices` row with the same id, so its pay page, /status, check_payments and pay_link all
@@ -298,6 +299,7 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
     ];
     try {
       const results = await transaction(queries);
+      watchSoon(); // W3-A: Helius watches the invoice's reference key
       const invoice = invoiceFromRow(results[1][0]);
       // Exactly the request row just written (same columns lib/requests.ts reads back).
       const request: RequestRow = {
