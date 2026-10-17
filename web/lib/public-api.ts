@@ -24,6 +24,9 @@ export interface PublicRequest {
   created_at: string;
   paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" };
   flags: string[];
+  // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
+  from_domain: string | null;
+  from_domain_verified_at: string | null;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */

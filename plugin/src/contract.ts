@@ -31,6 +31,7 @@ export const createRequestReqSchema = z.object({
   kind: z.literal("single").optional(),
   group_id: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
+  from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -42,6 +43,7 @@ export const createRequestResSchema = z.object({
   x402_url: httpsUrl.nullable().optional(),
   created_at: isoTime,
   flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(), // W2-H verified payee
 });
 
 export const paidInfoSchema = z.object({
@@ -69,6 +71,9 @@ export const getRequestResSchema = z.object({
   created_at: isoTime,
   paid: paidInfoSchema.nullable().optional(),
   flags: z.array(z.string().max(80)).max(32),
+  // W2-H verified payee: display copy only. pay_link re-checks the domain's DNS itself.
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();

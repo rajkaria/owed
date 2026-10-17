@@ -7,6 +7,9 @@ import { USDC_MINT, type Token } from "../money.js";
 import { proposeSolana, proposeX402, solanaOutputSchema, x402OutputSchema } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
+// W2-H verified payee start
+import { PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
+// W2-H verified payee end
 import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
 
 export const inputSchema = z.object({
@@ -15,6 +18,9 @@ export const inputSchema = z.object({
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
   rail: z.enum(["solana_pay", "x402"]).optional().describe("How to pay. solana_pay (default): an unsigned Solana transaction from the user's wallet. x402: pay an Owed USDC request at its x402 URL; PayBox pays it over x402 and the facilitator covers the network fee, so no SOL is needed."),
+  // W2-H verified payee start
+  allow_unverified: z.boolean().optional().describe("Only when the user explicitly accepts it: pay a request that names a domain even though DNS can't be checked right now. Never pays a domain that doesn't publish the wallet."),
+  // W2-H verified payee end
 }).strict();
 
 const PROPOSAL_KEY = "io.paybox/transactionProposal";
@@ -37,6 +43,9 @@ const DESCRIPTION = [
   "It refuses checkout links (Solana Pay transaction requests), paid requests and amounts above max_amount.",
   "With rail \"x402\" (Owed USDC requests only) it checks the request's live x402 challenge pays exactly the same recipient and amount, then returns an x402 payment proposal instead; use it when the user asks to pay over x402 or has no SOL for fees.",
   "Show the user the text preview: it quotes the requester's words as unverified and adds a caution if they mention a brand. Nothing is sent until the user approves in PayBox.",
+  // W2-H verified payee start
+  "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
+  // W2-H verified payee end
 ].join(" ");
 
 interface Resolved {
@@ -48,6 +57,10 @@ interface Resolved {
   name?: string | null;
   notes: Array<string | null | undefined>;
   flags: string[];
+  // W2-H verified payee start
+  /** The domain the request claims to come from (server-supplied, untrusted until DNS says so). */
+  fromDomain?: string | null;
+  // W2-H verified payee end
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -122,6 +135,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const challengeCheck = x402Url
     ? checkX402Challenge(x402Url, { recipient: request.recipient, amountAtomic }, deps, Math.min(X402_CHALLENGE_TIMEOUT_MS, remaining()))
     : null;
+  // W2-H verified payee start
+  const payeeCheck = payeeForPayment(resolved.fromDomain, request.recipient, args.allow_unverified === true, deps,
+    Math.min(PAYEE_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
+  // W2-H verified payee end
   let readiness;
   try {
     readiness = await within(
@@ -131,6 +148,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   } catch {
     readiness = null;
   }
+  // W2-H verified payee start
+  const payee = await payeeCheck;
+  if (!payee.ok) return refusal(payee.refuse);
+  // W2-H verified payee end
   if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   // Over x402 the facilitator pays the network fee, so a wallet without SOL can still pay.
   const feeOnly = x402 && readiness.reason !== undefined && FEE_SHORTFALL.test(readiness.reason);
@@ -161,14 +182,18 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);
   const preview = [
-    x402 ? `Pay ${amount} ${token} to ${shortAddress(request.recipient)} over x402.` : `Pay ${amount} ${token} to ${shortAddress(request.recipient)}.`,
+    // W2-H verified payee start
+    `Pay ${amount} ${token} to ${payee.lead ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`,
+    // W2-H verified payee end
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
     createRecipientAta ? "This also opens the recipient's USDC account (about 0.002 SOL, paid by you)." : "",
     x402 ? "The x402 facilitator pays the network fee." : "",
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
-  const text = [caution, preview, `Recipient: ${request.recipient}`].filter(Boolean).join("\n");
+  // W2-H verified payee start
+  const text = [caution, preview, `Recipient: ${request.recipient}`, ...payee.lines].filter(Boolean).join("\n");
+  // W2-H verified payee end
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 
@@ -220,6 +245,9 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
   return {
     id, request: parsed.request, token,
     name: rq.requester_name, notes: [rq.for, rq.note], flags: rq.flags,
+    // W2-H verified payee start
+    fromDomain: rq.from_domain,
+    // W2-H verified payee end
   };
 }
 

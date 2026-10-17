@@ -33,12 +33,16 @@ export interface RequestRow {
   paidRail: "solana_pay" | "x402" | null;
   source: "plugin" | "web";
   createdAt: string;
+  // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
+  fromDomain?: string | null;
+  fromDomainVerifiedAt?: string | null;
 }
 
 const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomic::text as amount_atomic, reference,
   payer_name, for_text, note, requester_name, array_to_json(flags)::text as flags, status,
   paid_signature, paid_payer, paid_amount_atomic::text as paid_amount_atomic, ${isoUtc("paid_at")} as paid_at,
-  paid_rail, source, ${isoUtc("created_at")} as created_at`;
+  paid_rail, source, ${isoUtc("created_at")} as created_at,
+  from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at`;
 
 function fromRow(r: Row): RequestRow {
   return {
@@ -63,6 +67,8 @@ function fromRow(r: Row): RequestRow {
     paidRail: r.paid_rail as RequestRow["paidRail"],
     source: r.source as RequestRow["source"],
     createdAt: r.created_at!,
+    fromDomain: r.from_domain ?? null,
+    fromDomainVerifiedAt: r.from_domain_verified_at ?? null,
   };
 }
 
@@ -107,6 +113,8 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
         }
       : null,
     flags: row.flags,
+    from_domain: row.fromDomain ?? null,
+    from_domain_verified_at: row.fromDomainVerifiedAt ?? null,
   };
 }
 
@@ -131,6 +139,8 @@ export interface CreateInput {
   requesterName: string | null;
   flags: string[];
   source: "plugin" | "web";
+  /** W2-H: only a value returned by requireVerifiedDomain (lib/payee.ts); stamps from_domain_verified_at. */
+  fromDomain?: string | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
@@ -142,8 +152,9 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
-           payer_name, for_text, note, requester_name, flags, source)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13)
+           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
+           $14, case when $14::text is null then null else now() end)
          returning ${COLUMNS}`,
         [
           id,
@@ -159,6 +170,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.requesterName,
           input.flags,
           input.source,
+          input.fromDomain ?? null,
         ],
       );
       return fromRow(rows[0]);
