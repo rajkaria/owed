@@ -1,0 +1,26 @@
+{
+ "name": "idn-nxdomain",
+ "note": "münchen.de (xn--mnchen-3ya.de) has no _owed name: NXDOMAIN.",
+ "captured_at": "2026-10-17T06:59:39.814Z",
+ "query": {
+  "domain": "xn--mnchen-3ya.de",
+  "qname": "_owed.xn--mnchen-3ya.de",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=_owed.xn--mnchen-3ya.de&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":3,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.xn--mnchen-3ya.de\",\"type\":16}],\"Authority\":[{\"name\":\"xn--mnchen-3ya.de\",\"type\":6,\"TTL\":86400,\"data\":\"ns01e.muenchen.de. lhm-zone-c.muenchen.de. 2020063025 10800 1800 604800 86400\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=_owed.xn--mnchen-3ya.de&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":3,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.xn--mnchen-3ya.de.\",\"type\":16}],\"Authority\":[{\"name\":\"xn--mnchen-3ya.de.\",\"type\":6,\"TTL\":1800,\"data\":\"ns01e.muenchen.de. lhm-zone-c.muenchen.de. 2020063025 10800 1800 604800 86400\"}],\"Comment\":\"Response from 194.246.140.219.\"}"
+  }
+ ]
+}

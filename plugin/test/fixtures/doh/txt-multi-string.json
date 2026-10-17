@@ -1,0 +1,25 @@
+{
+ "name": "txt-multi-string",
+ "note": "A 2048-bit DKIM key: Cloudflare splits it into quoted strings, dns.google joins it.",
+ "captured_at": "2026-10-17T06:59:41.293Z",
+ "query": {
+  "qname": "google._domainkey.github.com",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=google._domainkey.github.com&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"google._domainkey.github.com\",\"type\":16}],\"Answer\":[{\"name\":\"google._domainkey.github.com\",\"type\":16,\"TTL\":3600,\"data\":\"\\\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAj6T5sl/RwdSqGoYWaWaFbS2UAeyPrEmd0gogocmRfS441qwR8/0KB81Hw89P0l4YiFRrXYk7NVIGfyCRHAYYZUzCkGeOysI2EjgzLFhd/NEsbRzOEc/kWkK/RO6JFq/5lOn6M9AZw/ap9tds4JG9ApgNNdSpPxp9DmvpsOSgNMVflRxQFrk3kdS4RNAPKu/\\\" \\\"OPoA7dlR/A/pECryjRoYgENtDXzdnK70HgCekems6UDzxDj61cjyoKoXtEMF/QsaHEQ1Gjfv014rDJBsubk/kT5VqHkWHa/ia68Z5r228Ety/wFfQNjXTx/J7KGZ9GkZlKED659eiJcLnWcKDSiQlhwIDAQAB\\\"\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=google._domainkey.github.com&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"google._domainkey.github.com.\",\"type\":16}],\"Answer\":[{\"name\":\"google._domainkey.github.com.\",\"type\":16,\"TTL\":3600,\"data\":\"v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAj6T5sl/RwdSqGoYWaWaFbS2UAeyPrEmd0gogocmRfS441qwR8/0KB81Hw89P0l4YiFRrXYk7NVIGfyCRHAYYZUzCkGeOysI2EjgzLFhd/NEsbRzOEc/kWkK/RO6JFq/5lOn6M9AZw/ap9tds4JG9ApgNNdSpPxp9DmvpsOSgNMVflRxQFrk3kdS4RNAPKu/OPoA7dlR/A/pECryjRoYgENtDXzdnK70HgCekems6UDzxDj61cjyoKoXtEMF/QsaHEQ1Gjfv014rDJBsubk/kT5VqHkWHa/ia68Z5r228Ety/wFfQNjXTx/J7KGZ9GkZlKED659eiJcLnWcKDSiQlhwIDAQAB\"}],\"Comment\":\"Response from 198.51.45.72.\"}"
+  }
+ ]
+}

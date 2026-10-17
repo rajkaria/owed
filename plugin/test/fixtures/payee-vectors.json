@@ -1,0 +1,224 @@
+{
+ "note": "Domain rules shared by plugin/test/payee.test.ts and web/test/payee.test.ts: normalization to lower-case ASCII (punycode), Unicode display form, and the exact warning sentences. Regenerate only after reviewing every change.",
+ "domains": [
+  {
+   "input": "GetOwed.XYZ",
+   "ascii": "getowed.xyz",
+   "unicode": "getowed.xyz",
+   "warnings": []
+  },
+  {
+   "input": "getowed.xyz.",
+   "ascii": "getowed.xyz",
+   "unicode": "getowed.xyz",
+   "warnings": []
+  },
+  {
+   "input": "_owed.getowed.xyz",
+   "ascii": "getowed.xyz",
+   "unicode": "getowed.xyz",
+   "warnings": []
+  },
+  {
+   "input": "owed-omega.vercel.app",
+   "ascii": "owed-omega.vercel.app",
+   "unicode": "owed-omega.vercel.app",
+   "warnings": []
+  },
+  {
+   "input": "web3.io",
+   "ascii": "web3.io",
+   "unicode": "web3.io",
+   "warnings": []
+  },
+  {
+   "input": "münchen.de",
+   "ascii": "xn--mnchen-3ya.de",
+   "unicode": "münchen.de",
+   "warnings": [
+    "münchen.de is an internationalized domain name; in DNS it is xn--mnchen-3ya.de.",
+    "It can pass for munchen.de: letters from other alphabets, or with accents, can look like plain ones.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "xn--mnchen-3ya.de",
+   "ascii": "xn--mnchen-3ya.de",
+   "unicode": "münchen.de",
+   "warnings": [
+    "münchen.de is an internationalized domain name; in DNS it is xn--mnchen-3ya.de.",
+    "It can pass for munchen.de: letters from other alphabets, or with accents, can look like plain ones.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "café.fr",
+   "ascii": "xn--caf-dma.fr",
+   "unicode": "café.fr",
+   "warnings": [
+    "café.fr is an internationalized domain name; in DNS it is xn--caf-dma.fr.",
+    "It can pass for cafe.fr: letters from other alphabets, or with accents, can look like plain ones.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "ɡetowed.xyz",
+   "ascii": "xn--etowed-h0c.xyz",
+   "unicode": "ɡetowed.xyz",
+   "warnings": [
+    "ɡetowed.xyz is an internationalized domain name; in DNS it is xn--etowed-h0c.xyz.",
+    "It can pass for getowed.xyz: letters from other alphabets, or with accents, can look like plain ones.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "раураl.com",
+   "ascii": "xn--l-7sba6dbr.com",
+   "unicode": "раураl.com",
+   "warnings": [
+    "раураl.com is an internationalized domain name; in DNS it is xn--l-7sba6dbr.com.",
+    "It can pass for paypal.com: letters from other alphabets, or with accents, can look like plain ones.",
+    "\"раураl\" mixes Cyrillic and Latin letters, a common trick in lookalike domains.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "pаypal.com",
+   "ascii": "xn--pypal-4ve.com",
+   "unicode": "pаypal.com",
+   "warnings": [
+    "pаypal.com is an internationalized domain name; in DNS it is xn--pypal-4ve.com.",
+    "It can pass for paypal.com: letters from other alphabets, or with accents, can look like plain ones.",
+    "\"pаypal\" mixes Latin and Cyrillic letters, a common trick in lookalike domains.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "exаmple.com",
+   "ascii": "xn--exmple-4nf.com",
+   "unicode": "exаmple.com",
+   "warnings": [
+    "exаmple.com is an internationalized domain name; in DNS it is xn--exmple-4nf.com.",
+    "It can pass for example.com: letters from other alphabets, or with accents, can look like plain ones.",
+    "\"exаmple\" mixes Latin and Cyrillic letters, a common trick in lookalike domains.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "αpple.com",
+   "ascii": "xn--pple-zld.com",
+   "unicode": "αpple.com",
+   "warnings": [
+    "αpple.com is an internationalized domain name; in DNS it is xn--pple-zld.com.",
+    "It can pass for apple.com: letters from other alphabets, or with accents, can look like plain ones.",
+    "\"αpple\" mixes Greek and Latin letters, a common trick in lookalike domains.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "g0towed.xyz",
+   "ascii": "g0towed.xyz",
+   "unicode": "g0towed.xyz",
+   "warnings": [
+    "g0towed.xyz has characters that can pass for others: \"0\" (zero) for \"o\".",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "paypa1.com",
+   "ascii": "paypa1.com",
+   "unicode": "paypa1.com",
+   "warnings": [
+    "paypa1.com has characters that can pass for others: \"1\" (one) for \"l\".",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "rnoonpay.com",
+   "ascii": "rnoonpay.com",
+   "unicode": "rnoonpay.com",
+   "warnings": [
+    "rnoonpay.com has characters that can pass for others: \"rn\" for \"m\".",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "vvallet.com",
+   "ascii": "vvallet.com",
+   "unicode": "vvallet.com",
+   "warnings": [
+    "vvallet.com has characters that can pass for others: \"vv\" for \"w\".",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "1password.com",
+   "ascii": "1password.com",
+   "unicode": "1password.com",
+   "warnings": [
+    "1password.com has characters that can pass for others: \"1\" (one) for \"l\".",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "ＧＥＴＯＷＥＤ.xyz",
+   "ascii": "getowed.xyz",
+   "unicode": "getowed.xyz",
+   "warnings": [
+    "The domain was given with non-ASCII characters and was checked as getowed.xyz.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "例え.テスト",
+   "ascii": "xn--r8jz45g.xn--zckzah",
+   "unicode": "例え.テスト",
+   "warnings": [
+    "例え.テスト is an internationalized domain name; in DNS it is xn--r8jz45g.xn--zckzah.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "日本語abc.jp",
+   "ascii": "xn--abc-s08fl0dtz6h.jp",
+   "unicode": "日本語abc.jp",
+   "warnings": [
+    "日本語abc.jp is an internationalized domain name; in DNS it is xn--abc-s08fl0dtz6h.jp.",
+    "Check the spelling letter by letter."
+   ]
+  },
+  {
+   "input": "xn--ls8h.la",
+   "ascii": "xn--ls8h.la",
+   "unicode": "💩.la",
+   "warnings": [
+    "💩.la is an internationalized domain name; in DNS it is xn--ls8h.la.",
+    "Check the spelling letter by letter."
+   ]
+  }
+ ],
+ "invalid": [
+  "",
+  ".",
+  " ",
+  "localhost",
+  "1.2.3.4",
+  "a.123",
+  "ex/ample.com",
+  "ex%41mple.com",
+  "exa mple.com",
+  "https://getowed.xyz",
+  "user@getowed.xyz",
+  "getowed.xyz:443",
+  "getowed.xyz/pay",
+  "a..b.com",
+  "-a.com",
+  "a-.com",
+  "a_b.com",
+  "xn--zz.de",
+  "xn--a.com",
+  "get​owed.xyz",
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.com",
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com"
+ ]
+}

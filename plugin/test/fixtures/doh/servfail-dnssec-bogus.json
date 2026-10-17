@@ -1,0 +1,26 @@
+{
+ "name": "servfail-dnssec-bogus",
+ "note": "Broken DNSSEC: both resolvers answer SERVFAIL (Status 2), so the record can't be read.",
+ "captured_at": "2026-10-17T06:59:41.160Z",
+ "query": {
+  "domain": "dnssec-failed.org",
+  "qname": "_owed.dnssec-failed.org",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=_owed.dnssec-failed.org&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":2,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.dnssec-failed.org\",\"type\":16}],\"Comment\":[\"EDE(9): DNSKEY Missing no SEP matching the DS found for dnssec-failed.org.\"]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=_owed.dnssec-failed.org&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":2,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.dnssec-failed.org.\",\"type\":16}],\"Comment\":\"DNSSEC validation failure. Check http://dnsviz.net/d/_owed.dnssec-failed.org/dnssec/ and http://dnssec-debugger.verisignlabs.com/_owed.dnssec-failed.org for errors\",\"extended_dns_errors\":[{\"info_code\":9,\"extra_text\":\"No DNSKEY matches DS RRs of dnssec-failed.org\"}]}"
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+ "name": "nodata-signed",
+ "note": "example.com publishes nothing at _owed; DNSSEC-signed zone (AD true).",
+ "captured_at": "2026-10-17T06:59:38.520Z",
+ "query": {
+  "domain": "example.com",
+  "qname": "_owed.example.com",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=_owed.example.com&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":true,\"CD\":false,\"Question\":[{\"name\":\"_owed.example.com\",\"type\":16}],\"Authority\":[{\"name\":\"example.com\",\"type\":6,\"TTL\":1383,\"data\":\"elliott.ns.cloudflare.com. dns.cloudflare.com. 2416374680 10000 2400 604800 1800\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=_owed.example.com&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":true,\"CD\":false,\"Question\":[{\"name\":\"_owed.example.com.\",\"type\":16}],\"Authority\":[{\"name\":\"example.com.\",\"type\":6,\"TTL\":1800,\"data\":\"elliott.ns.cloudflare.com. dns.cloudflare.com. 2416374680 10000 2400 604800 1800\"}],\"Comment\":\"Response from 108.162.195.228.\"}"
+  }
+ ]
+}
