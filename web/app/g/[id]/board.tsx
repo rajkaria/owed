@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { CopyButton } from "@/components/copy-button";
-import { AlertIcon, CheckIcon, CopyIcon, ExternalIcon, LinkIcon } from "@/components/icons";
+import { AlertIcon, CheckIcon, ExternalIcon, LinkIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
 import { formatUtc, shortAddress, solscanAccount, solscanTx } from "@/lib/view/format";
 import { formatAmount, type Token } from "@/lib/view/money";
@@ -287,14 +287,8 @@ export function GroupBoard({ initial, badge }: { initial: BoardModel; badge?: Re
           Every share pays
         </h2>
         <p className="mt-1.5 font-mono text-[0.9rem] leading-relaxed break-all">{model.recipient}</p>
+        <p className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to any share.</p>
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <CopyButton
-            text={model.recipient}
-            label="Copy address"
-            copiedLabel="Address copied"
-            icon={<CopyIcon className="shrink-0" width={16} height={16} />}
-            className="inline-flex items-center gap-1.5 font-medium text-accent"
-          />
           <a href={solscanAccount(model.recipient)} target="_blank" rel="noopener noreferrer" className={textLink}>
             View on Solscan
             <ExternalIcon width={16} height={16} />

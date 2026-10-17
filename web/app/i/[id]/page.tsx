@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CopyButton } from "@/components/copy-button";
-import { AgentIcon, AlertIcon, CopyIcon, ExternalIcon, LinkIcon, WalletIcon } from "@/components/icons";
+import { AgentIcon, AlertIcon, ExternalIcon, LinkIcon, WalletIcon } from "@/components/icons";
 import { QrCode } from "@/components/qr-code";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { Wordmark } from "@/components/wordmark";
@@ -248,14 +248,8 @@ async function PayPanel({ model }: { model: InvoiceModel }) {
           <div className="mt-4 print:mt-2">
             <h3 className="text-xs font-medium uppercase tracking-wider text-muted">Paying to</h3>
             <p className="mt-1 font-mono text-[0.85rem] leading-relaxed break-all">{model.recipient}</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted print:hidden">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to this invoice.</p>
             <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm print:hidden">
-              <CopyButton
-                text={model.recipient}
-                label="Copy address"
-                copiedLabel="Address copied"
-                icon={<CopyIcon className="shrink-0" width={16} height={16} />}
-                className="inline-flex items-center gap-1.5 font-medium text-accent"
-              />
               <a
                 href={solscanAccount(model.recipient)}
                 target="_blank"
