@@ -15,7 +15,9 @@ function registerAll(): Map<string, Registered> {
 }
 
 test("index registers the Owed tools", () => {
-  assert.deepEqual([...registerAll().keys()], ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice"]);
+  assert.deepEqual([...registerAll().keys()], [
+    "ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me",
+  ]);
 });
 
 test("annotations are exactly the SPEC §5.1 hints", () => {
@@ -26,18 +28,21 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("verify_payee")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   assert.deepEqual(seen.get("split_bill")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
   assert.deepEqual(seen.get("create_invoice")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  assert.deepEqual(seen.get("write_reminder")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  // Not idempotent: each signed message unlocks the ledger once.
+  assert.deepEqual(seen.get("who_owes_me")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);
     const output = z.toJSONSchema(config.outputSchema, { io: "output" });
     assert.ok(Buffer.byteLength(JSON.stringify(input)) + Buffer.byteLength(JSON.stringify(output)) < 64 * 1024);
     assert.ok(config.title && config.description.length > 80, `${name} needs a description that speaks to the agent`);
-    assert.match(config.description, /list_credentials|check_payments|ask_for_money|pay_link/);
+    assert.match(config.description, /list_credentials|check_payments|ask_for_money|pay_link|request_wallet_sign/);
   }
   // rail solana_pay proposes a Solana transaction, rail x402 an x402 payment (SPEC §5.2): exactly the starter's two shapes.
   const payOutput = seen.get("pay_link")!.config.outputSchema;
