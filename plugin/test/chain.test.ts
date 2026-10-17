@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { findPayment, makeRpc, payerReadiness, RpcError, type Rpc } from "../src/chain.ts";
+import { findPayment, makeRpc, MAX_TX_READS, payerReadiness, RpcError, type Rpc } from "../src/chain.ts";
 
 // ---------------------------------------------------------------------------------------------
 // Replay of real mainnet JSON-RPC exchanges captured by test/fixtures/capture.mjs.
@@ -30,11 +30,20 @@ function replay(...calls: Call[]): Rpc & { log: string[] } {
   };
 }
 
+function widened(f: Fixture): Fixture {
+  const calls = f.calls.map((c) => c.method === "getSignaturesForAddress"
+    ? { ...c, params: [c.params[0], { ...(c.params[1] as object), limit: 1000 }] }
+    : c);
+  return { ...f, calls };
+}
+
 const sigsCall = (f: Fixture) => f.calls.find((c) => c.method === "getSignaturesForAddress")!;
 const txCall = (f: Fixture, sig: string) => f.calls.find((c) => c.method === "getTransaction" && c.params[0] === sig)!;
 
 const SOL_PAY = fixture("sol-reference-payment");
-const USDC_KEY = fixture("usdc-appended-key-transfers");
+// Its recorded list is the reference's newest 10 (captured with limit 10). These tests treat those
+// 10 as the reference's whole history, asked for with today's limit (QA-04: 1000).
+const USDC_KEY = widened(fixture("usdc-appended-key-transfers"));
 const FAILED = fixture("failed-usdc-transfer");
 const UNUSED = fixture("unused-reference");
 
@@ -126,7 +135,47 @@ test("USDC: references on transfers that never credit the recipient leave the re
   const rpc = replay(...USDC_KEY.calls);
   const r = await findPayment(rpc, { reference: USDC_REF, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 1n });
   assert.deepEqual(r, { status: "open" });
-  assert.equal(rpc.log.length, 11); // the list plus all ten transactions
+  assert.equal(rpc.log.length, 1 + MAX_TX_READS); // the list plus the oldest MAX_TX_READS transactions
+});
+
+// QA-04: a public reference can be spammed. The window is the reference's whole history, failed
+// transactions don't count, and the oldest successful transactions are read first.
+function spammed(payment: Call, spam: number, failedSpam = false): Rpc & { log: string[]; asked: unknown[] } {
+  const log: string[] = [];
+  const asked: unknown[] = [];
+  const paySig = payment.params[0] as string;
+  const list = [
+    ...Array.from({ length: spam }, (_, i) => ({ signature: `spam${i}`.padEnd(88, "1"), err: failedSpam ? { InstructionError: [0, "Custom"] } : null, blockTime: 1792300000 + i })).reverse(),
+    { signature: paySig, err: null, blockTime: 1792200000 },
+  ]; // newest first, like the node
+  return {
+    log, asked,
+    async call<T>(method: string, params: unknown[]): Promise<T> {
+      log.push(method === "getTransaction" ? String(params[0]).slice(0, 6) : method);
+      if (method === "getSignaturesForAddress") { asked.push(params[1]); return structuredClone(list) as T; }
+      if (params[0] === paySig) return structuredClone(payment.result) as T;
+      // Spam: a successful transaction that mentions the reference but credits nobody.
+      return structuredClone({ ...(SOL_PAY.calls.find((c) => c.method === "getTransaction")!.result as object), meta: { err: null, preBalances: [], postBalances: [], preTokenBalances: [], postTokenBalances: [] } }) as T;
+    },
+  };
+}
+
+test("QA-04: ten (or 500) spam transactions after the payment don't hide it", async () => {
+  for (const n of [10, 500]) {
+    const rpc = spammed(txCall(SOL_PAY, SOL_SIG), n);
+    const r = await findPayment(rpc, { reference: SOL_REF, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 3_027_000n });
+    assert.equal(r.status, "paid", `${n} spam transactions`);
+    assert.equal(r.signature, SOL_SIG);
+    assert.deepEqual(rpc.asked, [{ limit: 1000, commitment: "confirmed" }]);
+    assert.deepEqual(rpc.log, ["getSignaturesForAddress", SOL_SIG.slice(0, 6)], "the oldest is the payment: one read");
+  }
+});
+
+test("QA-04: failed spam transactions are dropped before any read", async () => {
+  const rpc = spammed(txCall(SOL_PAY, SOL_SIG), 50, true);
+  const r = await findPayment(rpc, { reference: SOL_REF, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 3_027_000n });
+  assert.equal(r.status, "paid");
+  assert.equal(rpc.log.length, 2);
 });
 
 test("an unused reference is open after one call", async () => {
@@ -147,7 +196,7 @@ test("a fetched transaction with meta.err (real failed USDC transfer) is skipped
   const failedSig = FAILED.query.signature as string;
   const list: Call = {
     method: "getSignaturesForAddress",
-    params: [SOL_REF, { limit: 10, commitment: "confirmed" }],
+    params: [SOL_REF, { limit: 1000, commitment: "confirmed" }],
     // The list can lag the transaction status; only meta.err is authoritative.
     result: [{ signature: failedSig, err: null, blockTime: 1792211975, slot: 0 }],
   };

@@ -21,7 +21,7 @@ const OUT = join(dirname(fileURLToPath(import.meta.url)), "chain");
 const USDC = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 // Must match src/chain.ts.
-const SIGNATURES_OPTS = { limit: 10, commitment: "confirmed" };
+const SIGNATURES_OPTS = { limit: 1000, commitment: "confirmed" }; // same as src/chain.ts (QA-04)
 const TX_OPTS = { maxSupportedTransactionVersion: 1, commitment: "confirmed", encoding: "jsonParsed" };
 const ACCOUNTS_OPTS = { encoding: "jsonParsed", commitment: "confirmed" };
 
