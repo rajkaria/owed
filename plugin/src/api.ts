@@ -7,6 +7,7 @@ import {
   ledgerResSchema, type LedgerReq, type LedgerRes,
   cancelResSchema, type CancelReq, type CancelRes,
   scheduleResSchema, type CreateScheduleReq, type ScheduleRes, // W3-D
+  matchResSchema, restResSchema, attributedResSchema, type MatchReq, type MatchRes, type RestReq, type RestRes, type AttributedReq, type AttributedRes, // 0012
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -57,6 +58,12 @@ export interface ApiClient {
   /** W3-C: cancel a request with the recipient's signed message. */
   cancelRequest(id: string, body: CancelReq): Promise<CancelRes>;
   createSchedule(body: CreateScheduleReq): Promise<ScheduleRes>; // W3-D
+  /** 0012: attribute a payment without the reference to a request, with the recipient's signed message. */
+  matchPayment(id: string, body: MatchReq): Promise<MatchRes>;
+  /** 0012: ask for the rest of an underpaid request (one linked request for exactly the remainder). */
+  askForRest(id: string, body: RestReq): Promise<RestRes>;
+  /** 0012: which transactions already settle a request, which keys are Owed references. */
+  attributed(body: AttributedReq): Promise<AttributedRes>;
 }
 
 export interface ApiOptions {
@@ -117,5 +124,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     getInvoice: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceResSchema),
     cancelRequest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/cancel`, cancelResSchema, body), // W3-C
     createSchedule: (body) => call("POST", "/schedules", scheduleResSchema, body), // W3-D
+    matchPayment: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/match`, matchResSchema, body), // 0012
+    askForRest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/rest`, restResSchema, body),
+    attributed: (body) => call("POST", "/attributed", attributedResSchema, body),
   };
 }

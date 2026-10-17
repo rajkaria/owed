@@ -19,6 +19,7 @@ test("index registers the Owed tools", () => {
     "ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me",
     "cancel_request", // W3-C
     "ask_every_month", // W3-D
+    "match_payments", // 0012
   ]);
 });
 
@@ -37,11 +38,13 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("cancel_request")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true });
   // W3-D: creates a schedule (and maybe this month's request) each call, like ask_for_money.
   assert.deepEqual(seen.get("ask_every_month")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  // 0012: confirm records a match and ask_for_rest makes a request (not read-only); doing either twice changes nothing more.
+  assert.deepEqual(seen.get("match_payments")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month", "match_payments"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);
