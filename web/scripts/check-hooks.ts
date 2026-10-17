@@ -4,6 +4,7 @@
 //   cd web
 //   node --import ./test/setup.mjs --env-file=<env file of the target's database> scripts/check-hooks.ts <base-url> --create
 //   node --import ./test/setup.mjs --env-file=<…> scripts/check-hooks.ts <base-url> --watch <id> [--minutes 10]
+//   node --import ./test/setup.mjs --env-file=<…> scripts/check-hooks.ts <base-url> --remove
 //
 // --create  POST <base>/api/v1/requests (0.01 USDC to the team wallet), then checks the deployment
 //           registered its webhook with the new reference (notify_webhooks when DATABASE_URL is set, and
@@ -11,6 +12,9 @@
 //           Authorization header. Writes one real open request, so production needs --allow-production.
 // --watch   waits for the request to be paid, printing the row and the webhook's delivery log each time
 //           either changes. Pass = paid, and a delivery lists the request in marked_paid.
+// --remove  deletes the deployment's webhook at Helius (found by its URL) and its notify_webhooks row:
+//           for a rollback of W3-A, or to clean up after a preview. Needs HELIUS_API_KEY. The next
+//           request created by a deployment that still runs W3-A registers a fresh one.
 // Protected previews: VERCEL_BYPASS=<automation bypass secret>. Nothing here signs or sends funds.
 import { sql } from "../lib/db";
 
@@ -19,10 +23,11 @@ const base = (args[0] ?? "").replace(/\/+$/, "");
 const watchFlag = args.indexOf("--watch");
 const watchId = watchFlag === -1 ? null : args[watchFlag + 1];
 const create = args.includes("--create");
+const remove = args.includes("--remove");
 const minutesFlag = args.indexOf("--minutes");
 const minutes = minutesFlag === -1 ? 10 : Number(args[minutesFlag + 1]);
-if (!/^https:\/\//.test(base) || create === (watchId !== null) || !(minutes > 0)) {
-  console.error("usage: scripts/check-hooks.ts <https-base-url> (--create | --watch <id> [--minutes N]) [--allow-production]");
+if (!/^https:\/\//.test(base) || [create, watchId !== null, remove].filter(Boolean).length !== 1 || !(minutes > 0)) {
+  console.error("usage: scripts/check-hooks.ts <https-base-url> (--create | --watch <id> [--minutes N] | --remove) [--allow-production]");
   process.exit(2);
 }
 const PRODUCTION_HOSTS = ["www.getowed.xyz", "getowed.xyz", "owed-omega.vercel.app"];
@@ -145,6 +150,27 @@ if (watchId) {
       break;
     }
     await sleep(2000);
+  }
+}
+
+if (remove) {
+  const apiKey = process.env.HELIUS_API_KEY?.trim();
+  if (!apiKey) {
+    console.error("--remove needs HELIUS_API_KEY in the env file");
+    process.exit(2);
+  }
+  const api = "https://api-mainnet.helius-rpc.com/v0/webhooks";
+  const list = await fetch(`${api}?api-key=${encodeURIComponent(apiKey)}`);
+  const all = (await list.json().catch(() => [])) as { webhookID: string; webhookURL?: string }[];
+  const mine = (Array.isArray(all) ? all : []).filter((w) => (w.webhookURL ?? "").split("?")[0] === HOOK_KEY);
+  report(list.ok, "list Helius webhooks", `HTTP ${list.status}, ${mine.length} for ${HOOK_KEY}`);
+  for (const w of mine) {
+    const del = await fetch(`${api}/${w.webhookID}?api-key=${encodeURIComponent(apiKey)}`, { method: "DELETE" });
+    report(del.ok, `delete webhook ${w.webhookID}`, `HTTP ${del.status}`);
+  }
+  if (hasDb) {
+    const rows = await sql(`delete from notify_webhooks where url = $1 returning helius_id`, [HOOK_KEY]);
+    report(true, "notify_webhooks rows removed", String(rows.length));
   }
 }
 
