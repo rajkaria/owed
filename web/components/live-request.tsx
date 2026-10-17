@@ -1,0 +1,307 @@
+"use client";
+
+import { useEffect, useState, type ReactNode } from "react";
+import { formatAmount, type Token } from "@/lib/view/money";
+import { formatUtc, shortAddress, solscanTx } from "@/lib/view/format";
+import {
+  pickStatusResult,
+  stateFromStatus,
+  type Headline,
+  type LiveState,
+  type PollTarget,
+} from "@/lib/view/request-view";
+import { AlertIcon, CheckIcon, ExternalIcon } from "./icons";
+import { LocalTime } from "./local-time";
+
+const POLL_MS = 4000;
+const MAX_BACKOFF_MS = 30000;
+
+/**
+ * Polls the status API every 4 s while the request is open and the tab is
+ * visible. Stops for good once the request is paid, underpaid or cancelled.
+ * What shows on screen always comes from the API, so a hard refresh after a
+ * flip shows the same thing.
+ */
+function useLiveState(initial: LiveState, poll: PollTarget | null, requested: string | null, token: Token) {
+  const [state, setState] = useState<LiveState>(initial);
+  const active = poll !== null && state.status === "open";
+  const endpoint = poll?.endpoint;
+  const subject = poll ? (poll.endpoint === "/api/v1/status" ? poll.id : poll.solanaPayUrl) : null;
+
+  useEffect(() => {
+    if (!active || !endpoint || subject === null) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | null = null;
+    let delay = POLL_MS;
+    let disposed = false;
+
+    const body = JSON.stringify(endpoint === "/api/v1/status" ? { ids: [subject] } : { solana_pay_url: subject });
+
+    async function tick() {
+      timer = undefined;
+      if (disposed || document.visibilityState === "hidden") return;
+      controller = new AbortController();
+      try {
+        const res = await fetch(endpoint!, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (res.ok) {
+          const json: unknown = await res.json();
+          const result = endpoint === "/api/v1/status" ? pickStatusResult(json, subject!) : json;
+          const next = stateFromStatus(result, requested, token);
+          if (next && next.status !== "open") {
+            setState(next);
+            return;
+          }
+          delay = POLL_MS;
+        } else {
+          delay = Math.min(delay * 2, MAX_BACKOFF_MS);
+        }
+      } catch {
+        if (disposed) return;
+        delay = Math.min(delay * 2, MAX_BACKOFF_MS);
+      } finally {
+        controller = null;
+      }
+      if (!disposed) timer = setTimeout(tick, delay);
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible" && timer === undefined && controller === null) {
+        delay = POLL_MS;
+        void tick();
+      }
+    }
+
+    timer = setTimeout(tick, POLL_MS);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      controller?.abort();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [active, endpoint, subject, requested, token]);
+
+  return state;
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2.5">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className="min-w-0 text-right text-sm font-medium">{children}</dd>
+    </div>
+  );
+}
+
+function SolscanLink({ signature }: { signature: string }) {
+  return (
+    <a
+      href={solscanTx(signature)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 font-medium text-accent underline-offset-4 hover:underline"
+    >
+      View transaction on Solscan
+      <ExternalIcon width={16} height={16} />
+    </a>
+  );
+}
+
+function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid" }>; token: Token }) {
+  const when = state.at ? formatUtc(state.at) : null;
+  return (
+    <section aria-labelledby="receipt-title" className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
+      <div className="flex items-center gap-3">
+        <span className="grid size-11 place-items-center rounded-full bg-paid-soft text-paid">
+          <CheckIcon width={24} height={24} strokeWidth={2.5} />
+        </span>
+        <div>
+          <h2 id="receipt-title" className="text-xl font-semibold tracking-tight text-paid">
+            Paid
+          </h2>
+          <p className="text-sm text-muted">Confirmed on Solana</p>
+        </div>
+      </div>
+      {state.amount && (
+        <p className="mt-5 text-4xl font-semibold tracking-tight tabular-nums">{formatAmount(state.amount, token)}</p>
+      )}
+      <dl className="mt-4 divide-y divide-line border-y border-line">
+        {state.payer && (
+          <Row label="From">
+            <span className="font-mono" title={state.payer}>
+              {shortAddress(state.payer)}
+            </span>
+          </Row>
+        )}
+        {state.at && when && (
+          <Row label="When">
+            <LocalTime iso={state.at} fallback={when} />
+          </Row>
+        )}
+        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : "Solana Pay"}</Row>}
+      </dl>
+      {state.signature && (
+        <p className="mt-4">
+          <SolscanLink signature={state.signature} />
+        </p>
+      )}
+    </section>
+  );
+}
+
+function UnderpaidCard({
+  state,
+  token,
+  requested,
+  asker,
+}: {
+  state: Extract<LiveState, { status: "underpaid" }>;
+  token: Token;
+  requested: string | null;
+  asker: string;
+}) {
+  return (
+    <section
+      aria-labelledby="underpaid-title"
+      className="rounded-2xl border border-warn-line bg-warn-soft p-5 text-fg sm:p-6"
+    >
+      <div className="flex items-center gap-3 text-warn">
+        <AlertIcon width={24} height={24} />
+        <h2 id="underpaid-title" className="text-xl font-semibold tracking-tight">
+          Partly paid
+        </h2>
+      </div>
+      <p className="mt-4 text-lg">
+        {state.amountPaid && requested ? (
+          <>
+            <strong className="whitespace-nowrap tabular-nums">{formatAmount(state.amountPaid, token)}</strong> of{" "}
+            <span className="whitespace-nowrap tabular-nums">{formatAmount(requested, token)}</span> arrived.
+          </>
+        ) : (
+          <>Less than the requested amount arrived.</>
+        )}
+        {state.remaining && (
+          <>
+            {" "}
+            <strong className="whitespace-nowrap tabular-nums">{formatAmount(state.remaining, token)}</strong> is still owed.
+          </>
+        )}
+      </p>
+      <p className="mt-3 text-sm text-muted">
+        Ask {asker} for a new link for the rest. Paying this link again would send the full amount.
+      </p>
+      {state.signature && (
+        <p className="mt-4">
+          <SolscanLink signature={state.signature} />
+        </p>
+      )}
+    </section>
+  );
+}
+
+function CancelledCard() {
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
+      <h2 className="text-xl font-semibold tracking-tight">This request was cancelled</h2>
+      <p className="mt-2 text-muted">Don&apos;t send money to this link.</p>
+    </section>
+  );
+}
+
+function Waiting({ tracking }: { tracking: boolean }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-sunken px-4 py-3">
+      <span className="relative mt-1.5 flex size-2.5 shrink-0" aria-hidden="true">
+        {tracking && <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />}
+        <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
+      </span>
+      <p className="text-sm">
+        <span className="font-medium">{tracking ? "Waiting for payment." : "No live status for this link."}</span>{" "}
+        <span className="text-muted">
+          {tracking
+            ? "This page updates on its own when the money lands."
+            : "It has no tracking reference, so this page can't confirm the payment. Check your wallet history instead."}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+const OPEN_AREAS =
+  "[grid-template-areas:'info'_'status'_'actions'_'side'_'recipient'] md:[grid-template-areas:'info_side'_'status_side'_'actions_side'_'recipient_side'] md:grid-rows-[auto_auto_auto_1fr]";
+const DONE_AREAS =
+  "[grid-template-areas:'info'_'side'_'recipient'] md:[grid-template-areas:'info_side'_'recipient_side'] md:grid-rows-[auto_1fr]";
+
+export function LiveRequest({
+  initial,
+  poll,
+  requested,
+  token,
+  asker,
+  heading,
+  info,
+  actions,
+  qr,
+  recipient,
+}: {
+  initial: LiveState;
+  poll: PollTarget | null;
+  requested: string | null;
+  token: Token;
+  asker: string;
+  heading: Headline & { mono: boolean };
+  info: ReactNode;
+  actions: ReactNode;
+  qr: ReactNode;
+  recipient: ReactNode;
+}) {
+  const state = useLiveState(initial, poll, requested, token);
+  const open = state.status === "open";
+  const flipped = initial.status === "open" && !open;
+
+  return (
+    <div
+      className={`grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:gap-x-12 md:gap-y-6 lg:gap-x-16 ${open ? OPEN_AREAS : DONE_AREAS}`}
+    >
+      <div className="[grid-area:info]">
+        <h1>
+          <span className={`block text-lg text-muted sm:text-xl ${heading.mono ? "font-mono text-base sm:text-lg" : ""}`}>
+            {open ? heading.lead : heading.past}
+          </span>
+          <span className="mt-1 block text-5xl font-semibold tracking-tight tabular-nums break-words sm:text-6xl">
+            {heading.amount}
+          </span>
+        </h1>
+        {info}
+      </div>
+      {open ? (
+        <>
+          <div className="[grid-area:status]">
+            <Waiting tracking={poll !== null} />
+          </div>
+          <div className="[grid-area:actions]">{actions}</div>
+          <div className="[grid-area:side]">{qr}</div>
+        </>
+      ) : (
+        <div className="[grid-area:side]">
+          {state.status === "paid" && <PaidCard state={state} token={token} />}
+          {state.status === "underpaid" && (
+            <UnderpaidCard state={state} token={token} requested={requested} asker={asker} />
+          )}
+          {state.status === "cancelled" && <CancelledCard />}
+        </div>
+      )}
+      <div className="[grid-area:recipient]">{recipient}</div>
+      <p className="sr-only" aria-live="assertive">
+        {flipped && state.status === "paid" ? "Payment received." : ""}
+        {flipped && state.status === "underpaid" ? "A partial payment arrived." : ""}
+      </p>
+    </div>
+  );
+}
