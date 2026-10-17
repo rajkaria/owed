@@ -2,6 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { ApiError } from "../api.js";
 import { addressSchema, decimalSchema, requestIdSchema, tokenSchema, type CreateRequestReq, type CreateRequestRes } from "../contract.js";
+// W3-B Base requests start
+import { chainSchema, evmAddressSchema } from "../contract.js";
+import { askForMoneyOnBase, BASE_DESCRIPTION } from "../base-request.js";
+// W3-B Base requests end
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
@@ -17,7 +21,7 @@ import { checkFromDomain, fromDomainSchema } from "../payee.js";
 import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
 
 export const inputSchema = z.object({
-  recipient: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials). The money is paid to this address."),
+  recipient: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address."), // W3-B: 0x with chain base
   amount: decimalSchema.describe('Amount in whole token units as a decimal string, e.g. "15" or "2.5". Not atomic units.'),
   token: tokenSchema.default("USDC").describe('"USDC" (default) or "SOL".'),
   payer_name: z.string().min(1).max(40).optional().describe("First name of the person who owes the money, e.g. \"Priya\"."),
@@ -28,13 +32,16 @@ export const inputSchema = z.object({
   from_domain: fromDomainSchema.optional(),
   // W2-H verified payee end
   expires_in_days: expiresInDaysInput.optional(), // W3-C
+  // W3-B Base requests start
+  chain: chainSchema.default("solana").describe('"solana" (default) or "base": USDC on Base, paid from any Base wallet or over x402.'),
+  // W3-B Base requests end
 }).strict();
 
 export const outputSchema = z.object({
   id: requestIdSchema.nullable().describe("Owed request id; null when the link was built offline."),
   mode: z.enum(["hosted", "offline"]),
   link: z.string().describe("The link to send to the payer."),
-  solana_pay_url: z.string(),
+  solana_pay_url: z.string().nullable(), // W3-B: null on Base requests (see pay_url)
   qr_url: z.string().nullable().describe("QR image URL; null offline (the link's page shows the QR)."),
   reference: z.string().describe("Solana Pay reference key that identifies the payment on-chain."),
   recipient: z.string(),
@@ -51,6 +58,10 @@ export const outputSchema = z.object({
   screening: z.enum(["clear", "unavailable", "skipped"]).describe("Recipient sanctions screen (Chainalysis): clear = on no sanctions list; unavailable = the screen couldn't be reached, so the address wasn't screened."),
   // W2-E sanctions screen end
   expires_at: z.string().optional().describe("When the link stops taking payments (set by Owed's server). Absent offline or without expires_in_days."), // W3-C
+  // W3-B Base requests start
+  chain: chainSchema.optional().describe('"base" for a Base request (absent means Solana).'),
+  pay_url: z.string().optional().describe("Base requests: the EIP-681 link a Base wallet opens (USDC transfer on chain 8453)."),
+  // W3-B Base requests end
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -73,9 +84,14 @@ const DESCRIPTION = [
   "The recipient is screened against sanctions lists (Chainalysis) first: a listed address is refused, and if the screen can't be reached the request is still made and says so.",
   // W2-E sanctions screen end
   "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
+  BASE_DESCRIPTION, // W3-B
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
+  // W3-B Base requests start
+  if (args.chain === "base") return askForMoneyOnBase(args, deps);
+  if (args.recipient.startsWith("0x")) return refusal('That is a Base (0x) address. To ask for USDC on Base, pass chain: "base"; for Solana, use the user\'s Solana wallet address.');
+  // W3-B Base requests end
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
   let atomic: bigint;
@@ -152,7 +168,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
     if (expiry) return refusal(expiry);
     if (args.expires_in_days !== undefined && res.expires_at) expiresAt = res.expires_at;
-    created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url, qr_url: res.qr_url, reference: res.reference };
+    created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url as string /* W3-B: checkHosted refuses null */, qr_url: res.qr_url, reference: res.reference };
   } catch (error) {
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the request."));
     if (error.code !== "upstream_unavailable") return refusal(apiRefusal(error));
@@ -209,6 +225,7 @@ function checkHosted(res: CreateRequestRes, recipient: string, token: "USDC" | "
   const bad = "Owed's server returned a payment link that doesn't match this request, so it wasn't used. Nothing was created on your side; try again.";
   try {
     if (new URL(res.link).protocol !== "https:") return bad;
+    if (res.solana_pay_url === null) return bad; // W3-B: a Base reply to a Solana ask
     const parsed = deps.parseLink(res.solana_pay_url, ctx.hosts);
     if (parsed.kind !== "transfer") return bad;
     const r = parsed.request;

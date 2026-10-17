@@ -1,0 +1,10 @@
+{
+  "recipient": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+  "amount": "0.5",
+  "token": "USDC",
+  "chain": "base",
+  "payer_name": "Priya",
+  "for": "coffee",
+  "requester_name": "Raj",
+  "source": "plugin"
+}

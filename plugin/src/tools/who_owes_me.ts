@@ -271,7 +271,7 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   // Lower-case ASCII (punycode for IDN), as W2-H stores it; anything else is dropped, never shown.
   if (e.from_domain && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(e.from_domain) && e.from_domain.includes(".")) out.from_domain = e.from_domain;
   const brands = brandWordsFromFlags(e.flags ?? []);
-  if (brands.length > 0) out.caution = `Mentions ${brands.map((w) => `"${w}"`).join(", ")}, a word scams use to look official; write_reminder won't chase it.`;
+  if (brands.length > 0) out.caution = `This request mentions ${brands.map((w) => `"${w}"`).join(", ")}, a word scams use to look official; write_reminder won't chase it.`;
   // W3-D
   if (e.schedule_id) out.schedule_id = e.schedule_id;
   if (e.period) out.period = e.period;
@@ -346,13 +346,12 @@ function dueText(dueDate: string, unpaid: boolean, now: number): string {
 /** Who and what, by kind. Every requester-written value is quoted and labelled unverified (QA-20). */
 function who(e: z.output<typeof entrySchema>, now: number): string {
   const domain = e.from_domain ? `, as ${e.from_domain} (DNS-verified at creation)` : "";
-  const caution = e.caution ? `. Caution: ${e.caution}` : "";
   if (e.kind === "invoice") {
     const number = e.invoice_number ? ` ${quote(e.invoice_number, 20)}` : "";
     const client = e.payer_name ? ` to ${quote(e.payer_name, 40)}` : "";
     const label = number || client ? " (unverified)" : "";
     const due = e.due_date ? `, ${dueText(e.due_date, e.status !== "paid", now)}` : "";
-    return `, invoice${number}${client}${label}${due}${domain}${caution}`;
+    return `, invoice${number}${client}${label}${due}${domain}`;
   }
   const name = e.payer_name ? ` from ${quote(e.payer_name, 40)}` : "";
   if (e.kind === "split_share") {
@@ -360,12 +359,12 @@ function who(e: z.output<typeof entrySchema>, now: number): string {
     const bill = title ? `, share of ${quote(title, 60)}` : ", share of a split bill";
     const label = name || title ? " (unverified)" : "";
     const board = e.group_link && e.status !== "paid" ? `, board: ${e.group_link}` : "";
-    return `${name}${bill}${label}${board}${domain}${caution}`;
+    return `${name}${bill}${label}${board}${domain}`;
   }
   const forPart = e.for ? ` for ${quote(e.for, 80)}` : "";
   const label = name || forPart ? " (unverified)" : "";
   const monthly = e.period ? `, monthly request for ${monthLabel(e.period)}` : ""; // W3-D
-  return `${name}${forPart}${label}${monthly}${domain}${caution}`;
+  return `${name}${forPart}${label}${monthly}${domain}`;
 }
 
 function render(ledger: LedgerRes, now: number, csvAsked = false) {
@@ -385,11 +384,11 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   const detail: string[] = [];
   for (const e of open) {
     const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
-    detail.push(`Owed: ${due}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}`);
+    detail.push(`Owed: ${due}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
-    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}`);
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);

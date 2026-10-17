@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { formatAmount, type Token } from "@/lib/view/money";
-import { formatUtc, shortAddress, solscanTx } from "@/lib/view/format";
+import { explorerTx, formatUtc, shortAddress } from "@/lib/view/format";
 import {
   pickStatusResult,
   stateFromStatus,
@@ -101,15 +101,17 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+// W3-B: a Base payment (0x hash) links to Basescan, a Solana one to Solscan.
 function SolscanLink({ signature }: { signature: string }) {
+  const explorer = explorerTx(signature);
   return (
     <a
-      href={solscanTx(signature)}
+      href={explorer.href}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1.5 font-medium text-accent underline-offset-4 hover:underline"
     >
-      View transaction on Solscan
+      View transaction on {explorer.name}
       <ExternalIcon width={16} height={16} />
     </a>
   );
@@ -127,7 +129,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
           <h2 id="receipt-title" className="text-xl font-semibold tracking-tight text-paid">
             Paid
           </h2>
-          <p className="text-sm text-muted">Confirmed on Solana</p>
+          <p className="text-sm text-muted">Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</p>
         </div>
       </div>
       {state.amount && (
@@ -146,7 +148,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
             <LocalTime iso={state.at} fallback={when} />
           </Row>
         )}
-        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : "Solana Pay"}</Row>}
+        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : state.rail === "base_transfer" ? "USDC transfer on Base" : "Solana Pay"}</Row>}
       </dl>
       {state.signature && (
         <p className="mt-4">

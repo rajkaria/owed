@@ -201,10 +201,11 @@ test("QA-20: a stranger's brand-word row is shown with a caution, and every ledg
   const result = await whoOwesMe({ recipient: ME.address, signed_message: message, signature }, deps);
   const o = out(result);
   assert.equal(o.caution, "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.");
-  assert.equal(o.open![0]!.caution, 'Mentions "IRS", a word scams use to look official; write_reminder won\'t chase it.');
+  assert.equal(o.open![0]!.caution, 'This request mentions "IRS", a word scams use to look official; write_reminder won\'t chase it.');
   const lines = textOf(result).split("\n");
   assert.match(lines[0]!, /5000 USDC outstanding .* Totals include requests anyone could have made\.$/);
   assert.equal(lines[1], o.caution);
   assert.ok(lines[2]!.includes('from "Priya" for "IRS penalty, call +1 555 0100" (unverified)'), lines[2]);
-  assert.ok(lines[2]!.includes('Caution: Mentions "IRS"'), lines[2]);
+  // The caution ends the line, after the link, so the line still reads "…, waiting 2d 1h: <link>".
+  assert.match(lines[2]!, /, waiting \S+( \S+)?: https:\/\/\S+ Caution: This request mentions "IRS", a word scams use to look official; write_reminder won't chase it\.$/);
 });

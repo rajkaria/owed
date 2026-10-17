@@ -61,6 +61,8 @@ const TRY = [
   { say: "Split 45 USDC for pizza between Priya, Sam and Alex", tool: "split_bill" },
   { say: "Invoice Acme for 3 hours of consulting at 40 USDC, due Friday", tool: "create_invoice" },
   { say: "Did Priya pay?", tool: "check_payments" },
+  { say: "Who still owes me?", tool: "who_owes_me" },
+  { say: "Remind Priya about dinner, keep it friendly", tool: "write_reminder" },
   { say: "Pay this link", tool: "pay_link" },
   { say: `Is this request really from ${DEMO_DOMAIN}?`, tool: "verify_payee" },
 ];
