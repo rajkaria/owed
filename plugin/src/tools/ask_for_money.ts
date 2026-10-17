@@ -9,7 +9,8 @@ import { USDC_MINT } from "../money.js";
 import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
 // W2-E sanctions screen end
 import type { TransferRequest } from "../solana-pay.js";
-import { clean, quote, rateLimitedText, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText, shortAddress } from "../text.js";
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 // W2-H verified payee start
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
@@ -91,6 +92,8 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
+  // QA-18: a SOL request to a never-used wallet must reach Solana's minimum; read alongside the DNS check.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
   // W2-E sanctions screen start
   // The screen (≤2.5 s) runs beside the DNS check (≤4 s), never before it, so the API keeps its 4 s of PayBox's 10 s.
   const [screening, check] = await Promise.all([
@@ -109,6 +112,11 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     fromDomain = { domain: check.from_domain, lines: check.lines };
   }
   // W2-H verified payee end
+
+  const minimum = await solMinimum;
+  if (minimum !== null && atomic < minimum) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${amount} SOL request`));
+  }
 
   let ctx: CallContext;
   try {

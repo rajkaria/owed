@@ -12,8 +12,9 @@ import { idMatchesTerms } from "../request-id.js";
 import type { Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
-import { clean, quote, rateLimitedText, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText, shortAddress } from "../text.js";
 import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -169,6 +170,8 @@ export async function splitBill(
   const total = deps.fromAtomic(totalAtomic, token);
   const amounts = plan.amounts.map((a) => deps.fromAtomic(a, token));
 
+  // QA-18: every SOL share to a never-used wallet must reach Solana's minimum; read alongside screening and DNS.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
   // W2-E sanctions screen start
   // The screen runs beside the DNS check, never before it: together with the API call they must fit 10 s.
   if (args.from_domain !== undefined && !checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
@@ -186,6 +189,11 @@ export async function splitBill(
     if (!check.ok) return refusal(check.message);
     fromDomain = check.from_domain;
     domainLines = check.lines;
+  }
+  const minimum = await solMinimum;
+  const tooSmall = minimum === null ? -1 : plan.amounts.findIndex((a) => a < minimum);
+  if (minimum !== null && tooSmall !== -1) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `the ${amounts[tooSmall]} SOL share for ${quote(names[tooSmall], LIMITS.name)}`));
   }
 
   let ctx: CallContext;
