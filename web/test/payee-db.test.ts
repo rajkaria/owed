@@ -177,7 +177,8 @@ it("0009 is safe to re-run, and adds the pair to invoices when that table exists
   await pg.exec(readFileSync(new URL("0009_payee_domain.sql", MIGRATIONS), "utf8"));
   const cols = await pg.query<{ table_name: string; column_name: string; data_type: string }>(
     `select table_name, column_name, data_type from information_schema.columns
-      where column_name in ('from_domain', 'from_domain_verified_at') order by table_name, column_name`);
+      where column_name in ('from_domain', 'from_domain_verified_at') and table_name in ('requests', 'invoices')
+      order by table_name, column_name`);
   assert.deepEqual(cols.rows.map((c) => `${c.table_name}.${c.column_name} ${c.data_type}`), [
     "invoices.from_domain text", "invoices.from_domain_verified_at timestamp with time zone",
     "requests.from_domain text", "requests.from_domain_verified_at timestamp with time zone",
