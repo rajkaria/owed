@@ -177,7 +177,7 @@ for (const [name, tamper] of [
   ["a missing share", (r: GroupRes) => { r.shares.pop(); r.share_count = 2; }],
   ["another recipient", (r: GroupRes) => { r.recipient = "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"; }],
   ["another total", (r: GroupRes) => { r.total = "15"; }],
-  ["a board link to another group", (r: GroupRes) => { r.link = r.link.replace(r.id, "TompKg61uDGV"); }],
+  ["a board link to another group", (r: GroupRes) => { r.link = r.link.replace(r.id, "HHHHHHHHHHHH"); }],
 ] as const) {
   test(`refuses a reply with ${name}`, async () => {
     const { deps } = makeDeps({ routes: { "POST /api/v1/groups": server(tamper) } });
