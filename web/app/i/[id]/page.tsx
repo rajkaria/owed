@@ -300,6 +300,7 @@ export default async function InvoicePage({ params }: PageProps<"/i/[id]">) {
           sender={`“${model.businessName}”`}
           head={<Head model={model} />}
           pay={<PayPanel model={model} />}
+          expiresAt={model.expiresAt}
         >
           <Parties model={model} />
           <Dates model={model} />
