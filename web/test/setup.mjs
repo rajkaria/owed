@@ -8,6 +8,7 @@ const EMPTY = "data:text/javascript,export {}";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === "server-only") return { url: EMPTY, shortCircuit: true };
+    if (specifier === "next/server") return nextResolve("next/server.js", context); // W3-A: no exports map in next
     const spec = specifier.startsWith("@/") ? new URL(specifier.slice(2), root).href : specifier;
     const local = spec.startsWith(".") || spec.startsWith("file:");
     if (!local || /\.(?:[cm]?[jt]sx?|json)$/.test(spec)) return nextResolve(spec, context);
