@@ -106,6 +106,55 @@ export const StatsResponse = z.object({
   since: isoTime,
 });
 
+// Split bills: POST /api/v1/groups, GET /api/v1/groups/:id (one response shape for both).
+const groupId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed group id");
+const requestStatus = z.enum(["open", "paid", "underpaid", "cancelled"]);
+
+export const CreateGroupBody = z.object({
+  recipient: base58Key,
+  total: z.string().max(40),
+  token: token.default("USDC"),
+  title: z.string().min(1).max(60 * 4),
+  people: z
+    .array(z.object({ name: z.string().min(1).max(TEXT_LIMITS.payer_name * 4), amount: z.string().max(40).nullish() }))
+    .min(2, "a split needs at least 2 people")
+    .max(20, "a split takes at most 20 people"),
+  requester_name: untrusted(TEXT_LIMITS.requester_name),
+  source: z.enum(["plugin", "web"]).default("web"),
+  from_domain: z.string().min(1).max(253).nullish(),
+});
+export type CreateGroupBody = z.infer<typeof CreateGroupBody>;
+
+export const GroupShare = z.object({
+  id: requestId,
+  name: z.string().nullable(),
+  amount: decimal,
+  status: requestStatus,
+  link: z.url(),
+  solana_pay_url: z.string().startsWith("solana:"),
+  reference: base58Key,
+  paid: PaidInfo.nullable(),
+});
+
+export const GroupResponse = z.object({
+  id: groupId,
+  link: z.url(),
+  title: z.string().nullable(),
+  recipient: base58Key,
+  token,
+  total: decimal,
+  requester_name: z.string().nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string()),
+  from_domain: z.string().nullable(),
+  from_domain_verified_at: isoTime.nullable(),
+  share_count: z.number().int().min(2).max(20),
+  paid_count: z.number().int().nonnegative(),
+  amount_received: decimal,
+  shares: z.array(GroupShare).min(2).max(20),
+});
+export type GroupResponse = z.infer<typeof GroupResponse>;
+
 export const ErrorCode = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
