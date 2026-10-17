@@ -179,7 +179,10 @@ test("input schema is strict and bounded", () => {
   rejects({ ...base, note: "x".repeat(141) });
   rejects({ ...base, requester_name: "x".repeat(41) });
   rejects({ ...base, payer_name: "" });
-  rejects({ ...base, recipient: "0x3806c85df527e5336f05277ab8cc3932b9abe42a" });
+  // W3-B: a 0x recipient parses (chain "base"); askForMoney refuses it on Solana (base_tools.test.ts). Malformed ones never parse.
+  assert.equal(inputSchema.safeParse({ ...base, recipient: "0x3806c85df527e5336f05277ab8cc3932b9abe42a", chain: "base" }).success, true);
+  rejects({ ...base, recipient: "0x3806c85df527e5336f05277ab8cc3932b9abe42" });
+  rejects({ ...base, chain: "ethereum" });
   rejects({ amount: "15" });
   assert.equal(inputSchema.safeParse({ ...base, for: "x".repeat(80), note: "y".repeat(140) }).success, true);
 });
