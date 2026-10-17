@@ -77,6 +77,23 @@ test("unlisted hosts and plain HTTP are blocked during a call", async () => {
   assert.match(none.failures.join("\n"), /no network is allowed/);
 });
 
+test("a bundle that leaves Error.stack broken after startup fails discovery", async () => {
+  // What bigint-buffer's \`bindings\` does inside an ESM bundle without __filename: swaps prepareStackTrace, throws, never restores.
+  const startup = "Error.prepareStackTrace = () => { throw new ReferenceError('__filename is not defined'); };";
+  const report = await runE2E({ artifact: await fakePlugin({ startup }) });
+  assert.match(report.failures.join(), /reading an error's \.stack throws ReferenceError: __filename is not defined.*define them in the bundle banner/);
+});
+
+test("--down simulates an outage without failing the run", async () => {
+  const call = `
+    try { await fetch("https://owed-omega.vercel.app/api/v1/requests"); return { content: [{ type: "text", text: "reached" }], structuredContent: { ok: false } }; }
+    catch (error) { return { content: [{ type: "text", text: error.cause?.code ?? error.message }], structuredContent: { ok: true } }; }`;
+  const report = await runE2E({ artifact: await fakePlugin({ call }), tool: "probe", arguments: {}, down: ["owed-omega.vercel.app"], expects: ["ok=true"] });
+  assert.deepEqual(report.failures, []);
+  assert.equal(report.call.text, "ECONNREFUSED");
+  assert.deepEqual(report.call.network.map(({ host, simulated }) => ({ host, simulated })), [{ host: "owed-omega.vercel.app", simulated: true }]);
+});
+
 test("stdout noise, bad structuredContent, slow and chatty plugins fail", async () => {
   const noisy = await runE2E({ artifact: await fakePlugin({ startup: "console.log('booting');" }) });
   assert.match(noisy.failures.join(), /non-JSON to stdout: "booting"/);
@@ -110,6 +127,7 @@ test("CLI parsing", () => {
   assert.deepEqual(options.env, { K: "a=b" });
   assert.equal(options.maxMs, 3000);
   assert.equal(parseArgs(["x", "--hosts", "none"]).hosts, "none");
+  assert.deepEqual(parseArgs(["x", "--down", "Owed-Omega.vercel.app"]).down, ["owed-omega.vercel.app"]);
   assert.throws(() => parseArgs(["x", "--expect", "nope"]), /PATH=VALUE/);
   assert.throws(() => parseArgs(["x", "--bogus"]), /unknown option/);
 });

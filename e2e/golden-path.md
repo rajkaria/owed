@@ -67,12 +67,11 @@ Pass: no `io.paybox/transactionProposal` in the result, the text is the SPEC §5
 
 ## Row 8: API down → offline link that still works
 
-8a, API refuses connections (the Owed host is left out of the allowed hosts; RPC hosts stay allowed):
+8a, API refuses connections (`--down` refuses the Owed host as a simulated outage; RPC hosts stay allowed):
 
 ```bash
 OFFLINE=$(e2e ask_for_money "{\"recipient\":\"$TEAM\",\"amount\":\"1\",\"token\":\"USDC\",\"for\":\"coffee\"}" \
-  --hosts solana-rpc.publicnode.com,api.mainnet-beta.solana.com \
-  --expect mode=offline --expect id=null --print link)
+  --down owed-omega.vercel.app --expect mode=offline --expect id=null --print link)
 command node web/scripts/smoke.mjs $OWED --page "$OFFLINE"     # the /p?u= page renders
 ```
 
@@ -83,8 +82,10 @@ e2e ask_for_money "{\"recipient\":\"$TEAM\",\"amount\":\"1\",\"token\":\"USDC\"}
   --base-url https://10.255.255.1 --hosts 10.255.255.1 --expect mode=offline --max-ms 6000
 ```
 
-Pass: both return `mode: "offline"`, `id: null`, a `link` of the form `<base>/p?u=<encoded solana: URL>`; 8a's page
-loads with 0 fail. In 8b the link's host is the dead base URL by construction; open the same `/p?u=…` path on `$OWED`.
+Pass: both return `mode: "offline"`, `id: null`, a `link` of the form `<base>/p?u=<encoded solana: URL>`, exit 0
+(8b in about 4.3 s: the plugin's 4 s API timeout); 8a's page loads with 0 fail. In 8b the link's host is the dead base
+URL by construction; open the same `/p?u=…` path on `$OWED`. A bundle without `__filename` in its banner fails both
+rows (crash, no response): step 0's `tools/list` already reports that.
 
 ## Then
 

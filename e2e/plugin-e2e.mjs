@@ -32,7 +32,8 @@ const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-arg
   --base-url URL       OWED_BASE_URL for the plugin (default: $OWED_BASE_URL, else unset → plugin default)
   --hosts LIST         hosts the call may reach over HTTPS, comma-separated, or "none" / "any"
                        (default: the Owed host + ${RPC_HOSTS.join(", ")})
-  --no-guard           launch without the network guard (pure PayBox launch, no host enforcement)
+  --down LIST          hosts to refuse as a simulated outage (not a failure), e.g. the Owed host for row 8
+  --no-guard           launch without the network guard or stack probe (pure PayBox launch)
   --env KEY=VALUE      extra plugin env var (repeatable)
   --budget-ms N        per-process budget (default ${LIMITS.budgetMs}, the PayBox limit)
   --max-ms N           fail if tools/call takes longer than N ms
@@ -103,8 +104,9 @@ function matches(actual, raw) {
 async function runOperation(artifact, operation, { env, guard, budgetMs, protocolVersion, version }) {
   const { withProcess } = await import(pathToFileURL(join(PLUGIN_DIR, "scripts/process.mjs")).href);
   const home = await mkdtemp(join(tmpdir(), "owed-e2e-"));
-  const args = guard ? ["--import", `${NET_GUARD.href}?policy=${guard.policy}&hosts=${encodeURIComponent(guard.hosts.join(","))}`, artifact] : [artifact];
-  const trace = { network: [], stderr: "", stdoutBytes: 0, stderrBytes: 0, ms: 0 };
+  const query = guard && `policy=${guard.policy}&hosts=${encodeURIComponent(guard.hosts.join(","))}&down=${encodeURIComponent(guard.down.join(","))}`;
+  const args = guard ? ["--import", `${NET_GUARD.href}?${query}`, artifact] : [artifact];
+  const trace = { network: [], stack: null, stderr: "", stdoutBytes: 0, stderrBytes: 0, ms: 0 };
   const started = performance.now();
   try {
     const message = await withProcess(process.execPath, args, {
@@ -123,6 +125,10 @@ async function runOperation(artifact, operation, { env, guard, budgetMs, protoco
         for (const line of lines) {
           if (line.startsWith("OWED_E2E_NET ")) {
             try { trace.network.push(JSON.parse(line.slice(13))); } catch { /* partial line from a killed process */ }
+            continue;
+          }
+          if (line.startsWith("OWED_E2E_STACK ")) {
+            try { trace.stack = JSON.parse(line.slice(15)); } catch { /* partial line from a killed process */ }
             continue;
           }
           trace.stderr += `${line}\n`;
@@ -149,6 +155,8 @@ async function runOperation(artifact, operation, { env, guard, budgetMs, protoco
           if (("result" in parsed) === ("error" in parsed)) throw new HarnessError("plugin response must contain exactly one of result or error", "protocol_invalid");
           if ("error" in parsed) throw new HarnessError(`plugin returned JSON-RPC error ${parsed.error?.code}: ${parsed.error?.message}`, "tool_failed");
           if (parsed.result?.resultType !== "complete") throw new HarnessError("MCP 2026-07-28 resultType must be \"complete\"", "protocol_invalid");
+          // The guard reports the stack probe on stderr just before this response; give the pipe a moment to deliver it.
+          for (let waited = 0; guard && trace.stack === null && waited < 500; waited += 10) await new Promise((resolve) => setTimeout(resolve, 10));
           return parsed;
         }
         await closed;
@@ -179,8 +187,9 @@ export async function runE2E(options) {
   const env = { ...(options.baseUrl ? { OWED_BASE_URL: options.baseUrl } : {}), ...options.env };
   const ownHost = new URL(options.baseUrl ?? DEFAULT_BASE_URL).hostname;
   const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS];
-  const callGuard = options.guard === false || hosts === "any" ? null : { policy: hosts === "none" ? "none" : "allow", hosts: Array.isArray(hosts) ? hosts : [] };
-  const listGuard = options.guard === false ? null : { policy: "none", hosts: [] };
+  const down = options.down ?? [];
+  const callGuard = options.guard === false ? null : { policy: hosts === "none" || hosts === "any" ? hosts : "allow", hosts: Array.isArray(hosts) ? hosts : [], down };
+  const listGuard = options.guard === false ? null : { policy: "none", hosts: [], down: [] };
   const operationOptions = { env, budgetMs, protocolVersion: release.protocolVersion, version: release.version };
 
   // Artifact: the same limits the portal applies.
@@ -200,6 +209,9 @@ export async function runE2E(options) {
     for (let page = 0; page < LIMITS.toolPages; page += 1) {
       const { message, trace } = await runOperation(artifact, { method: "tools/list", params: cursor === undefined ? {} : { cursor } }, { ...operationOptions, guard: listGuard });
       for (const attempt of trace.network) fail(`network during startup/tool discovery: ${attempt.host ?? attempt.path}:${attempt.port ?? ""} (PayBox forbids it)`);
+      if (page === 0 && trace.stack && !trace.stack.ok) {
+        fail(`after startup, reading an error's .stack throws ${trace.stack.error}: any error path will crash the plugin (exit 1, the whole minified line on stderr)${/__filename|__dirname/.test(trace.stack.error) ? ". A CommonJS dependency needs __filename/__dirname: define them in the bundle banner" : ""}`);
+      }
       const result = message.result;
       if (!Array.isArray(result?.tools)) throw new HarnessError("tools/list result must contain a tools array", "tool_catalog_invalid");
       for (const tool of result.tools) {
@@ -241,7 +253,7 @@ export async function runE2E(options) {
     }
     warn(`arguments do not match the input schema (sent anyway): ${problems}`);
   }
-  const call = { tool: tool.name, arguments: args, hosts: callGuard ? callGuard.hosts : "any" };
+  const call = { tool: tool.name, arguments: args, hosts: !callGuard || callGuard.policy === "any" ? "any" : callGuard.hosts, down };
   report.call = call;
   let message;
   let trace;
@@ -250,7 +262,8 @@ export async function runE2E(options) {
   } catch (error) {
     Object.assign(call, { ms: error.trace?.ms, network: error.trace?.network ?? [], stderr: error.trace?.stderr ?? "" });
     fail(`tools/call failed (${error.code}): ${error.message}`);
-    for (const attempt of call.network.filter((entry) => !entry.allowed)) fail(`blocked ${attempt.host ?? attempt.path}:${attempt.port ?? ""}: ${attempt.reason}`);
+    for (const attempt of call.network.filter((entry) => !entry.allowed && !entry.simulated)) fail(`blocked ${attempt.host ?? attempt.path}:${attempt.port ?? ""}: ${attempt.reason}`);
+    if (/__filename is not defined|__dirname is not defined/.test(call.stderr)) fail("the plugin crashed on ReferenceError: __filename/__dirname is not defined (define them in the bundle banner)");
     return finish(report);
   }
   const result = message.result;
@@ -258,7 +271,7 @@ export async function runE2E(options) {
     ms: trace.ms, network: trace.network, stderr: trace.stderr, stdoutBytes: trace.stdoutBytes,
     isError: result.isError === true, content: result.content, structuredContent: result.structuredContent,
   });
-  for (const attempt of trace.network.filter((entry) => !entry.allowed)) {
+  for (const attempt of trace.network.filter((entry) => !entry.allowed && !entry.simulated)) {
     fail(`blocked ${attempt.host ?? attempt.path}:${attempt.port ?? ""}: ${attempt.reason}${callGuard?.policy === "allow" ? ` (allowed: ${callGuard.hosts.join(", ")})` : ""}`);
   }
   if (!Array.isArray(result.content)) fail("result.content must be an array");
@@ -349,6 +362,7 @@ export function parseArgs(argv) {
         break;
       }
       case "--no-guard": options.guard = false; break;
+      case "--down": options.down = take(++index, arg).split(",").map((host) => host.trim().toLowerCase()).filter(Boolean); break;
       case "--env": {
         const [key, ...rest] = take(++index, arg).split("=");
         options.env[key] = rest.join("=");
@@ -408,7 +422,7 @@ function formatReport(report) {
   const call = report.call;
   if (call) {
     out.push(`tools/call ${call.tool} · ${call.ms ?? "?"} ms · hosts: ${Array.isArray(call.hosts) ? call.hosts.join(", ") || "none" : call.hosts}`);
-    for (const attempt of call.network ?? []) out.push(`  network ${attempt.allowed ? "ok     " : "BLOCKED"} ${attempt.host ?? attempt.path}:${attempt.port ?? ""}${attempt.tls ? " tls" : ""}${attempt.reason ? ` (${attempt.reason})` : ""}`);
+    for (const attempt of call.network ?? []) out.push(`  network ${attempt.allowed ? "ok     " : attempt.simulated ? "DOWN   " : "BLOCKED"} ${attempt.host ?? attempt.path}:${attempt.port ?? ""}${attempt.tls ? " tls" : ""}${attempt.reason ? ` (${attempt.reason})` : ""}`);
     if (call.text) out.push(...call.text.split("\n").map((line) => `  text  ${line}`));
     if (call.structuredContent !== undefined) out.push(`  structuredContent ${JSON.stringify(call.structuredContent, null, 2).replace(/\n/g, "\n  ")}`);
     if (call.proposal) {

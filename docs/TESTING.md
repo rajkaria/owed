@@ -21,6 +21,9 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - Network: discovery runs with none (PayBox forbids network at startup and in `tools/list`). A call may reach the
   Owed host plus `solana-rpc.publicnode.com` and `api.mainnet-beta.solana.com` over HTTPS:443; override with
   `--hosts a,b`, `--hosts none`, `--hosts any` or `--no-guard`. Every attempt is printed; blocked ones fail the run.
+  `--down host` refuses a host as a simulated outage without failing (golden-path row 8).
+- Startup health: at the plugin's first response the harness checks that `new Error().stack` still works. A bundled
+  CommonJS dependency that breaks it (`__filename is not defined`) would crash every later error path.
 - Assertions: `--expect results.0.status=paid` (structuredContent), `--expect proposal.transfer.amount=1` (decoded
   tx), `--expect-text`, `--expect-error` / `--allow-error`, `--expect-no-proposal`, `--max-ms`.
 - Scripting: `--print link` writes one field to stdout (report on stderr); `--json` writes the whole report.
