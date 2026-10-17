@@ -3,21 +3,31 @@
 
 export const OG_SIZE = { width: 1200, height: 630 };
 
-const INK = "#141417";
-const MUTED = "#55555e";
-const PAPER = "#f6f6f3";
-const ACCENT = "#4338ca";
-const PAID = "#046c4e";
+const INK = "#0e0f14";
+const MUTED = "#5b5e6b";
+const PAPER = "#f8f8f5";
+const ACCENT = "#12a37c";
+const ACCENT_DEEP = "#0f7b5f";
+const PAID = "#0a7a4f";
 
+// The Owed mark (same geometry as components/wordmark.tsx): an O with an arrow landing in it.
+// Satori rasterises inline SVG, so the gradient tile works here; no filters.
 function Mark({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32">
-      <rect width="32" height="32" rx="9" fill={ACCENT} />
+      <defs>
+        <linearGradient id="og-mark-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor={ACCENT} />
+          <stop offset="1" stopColor={ACCENT_DEEP} />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#og-mark-g)" />
+      <circle cx="16" cy="17.8" r="9" fill="none" stroke="#ffffff" strokeWidth="2.6" />
       <path
-        d="M16 7.5v12M10.5 14.5 16 20l5.5-5.5M9.5 24.5h13"
+        d="M16 4.8v19.8M12.2 20.8 16 24.6l3.8-3.8"
         fill="none"
         stroke="#ffffff"
-        strokeWidth="2.75"
+        strokeWidth="2.6"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

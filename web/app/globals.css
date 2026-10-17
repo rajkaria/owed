@@ -1,36 +1,80 @@
 @import "tailwindcss";
 
+/*
+  Owed brand tokens.
+
+  Signature colour: "settled green", the colour of money that has landed. One family does the brand accent
+  and the Paid state on purpose: Owed's whole promise is "it landed", so the brand colour is the paid colour.
+  Light mode sits on warm paper with ink type; dark mode sits on deep ink with a mint glow.
+
+  Pay pages, invoices and boards use the same names as before (bg, surface, sunken, fg, muted, line, accent,
+  accent-soft, paid, paid-soft, warn, warn-soft, warn-line), so they inherit the brand without edits.
+  New names (accent-strong, accent-glow, ink*, gradient stops) are for the marketing pages.
+*/
 :root {
-  --bg: #f6f6f3;
+  --bg: #f8f8f5;
   --surface: #ffffff;
-  --sunken: #efefeb;
-  --fg: #141417;
-  --muted: #55555e;
-  --line: #e2e2dc;
-  --accent: #4338ca;
-  --accent-soft: #eef0ff;
-  --paid: #046c4e;
-  --paid-soft: #e7f8f0;
+  --sunken: #efefea;
+  --fg: #0e0f14;
+  --muted: #5b5e6b;
+  --line: #e3e4dd;
+
+  --accent: #0f7b5f;
+  --accent-strong: #12a37c;
+  --accent-soft: #e6f6ef;
+  --accent-glow: rgb(18 163 124 / 0.35);
+
+  --paid: #0a7a4f;
+  --paid-soft: #e6f6ef;
+
   --warn: #8a3b0a;
   --warn-soft: #fff7e6;
   --warn-line: #f2c46b;
+
+  /* Deep sections (hero, developer band) are ink in both schemes. */
+  --ink: #0a0b10;
+  --ink-surface: #13141b;
+  --ink-sunken: #1a1b23;
+  --ink-fg: #f4f4f1;
+  --ink-muted: #a3a6b3;
+  --ink-line: rgb(255 255 255 / 0.08);
+  --ink-accent: #3ddc9d;
+  --ink-accent-soft: rgb(61 220 157 / 0.12);
+
+  --grad-a: #3ddc9d;
+  --grad-b: #12a37c;
+  --grad-c: #0f7b5f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0b0d;
-    --surface: #151518;
-    --sunken: #1c1c20;
-    --fg: #f3f3f0;
-    --muted: #a6a6b0;
-    --line: #2a2a30;
-    --accent: #a9b3ff;
-    --accent-soft: #1d1f3a;
-    --paid: #74e3b5;
-    --paid-soft: #0d2a20;
+    --bg: #0a0b10;
+    --surface: #13141b;
+    --sunken: #1a1b23;
+    --fg: #f4f4f1;
+    --muted: #a3a6b3;
+    --line: #262833;
+
+    --accent: #3ddc9d;
+    --accent-strong: #19c98a;
+    --accent-soft: #0f2a22;
+    --accent-glow: rgb(61 220 157 / 0.28);
+
+    --paid: #3ddc9d;
+    --paid-soft: #0f2a22;
+
     --warn: #ffcf70;
     --warn-soft: #2b1f08;
     --warn-line: #6e4f12;
+
+    --ink: #0a0b10;
+    --ink-surface: #13141b;
+    --ink-sunken: #1a1b23;
+    --ink-fg: #f4f4f1;
+    --ink-muted: #a3a6b3;
+    --ink-line: rgb(255 255 255 / 0.08);
+    --ink-accent: #3ddc9d;
+    --ink-accent-soft: rgb(61 220 157 / 0.12);
   }
 }
 
@@ -42,25 +86,60 @@
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
   --color-accent-soft: var(--accent-soft);
   --color-paid: var(--paid);
   --color-paid-soft: var(--paid-soft);
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --color-warn-line: var(--warn-line);
+  --color-ink: var(--ink);
+  --color-ink-surface: var(--ink-surface);
+  --color-ink-sunken: var(--ink-sunken);
+  --color-ink-fg: var(--ink-fg);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-line: var(--ink-line);
+  --color-ink-accent: var(--ink-accent);
+  --color-ink-accent-soft: var(--ink-accent-soft);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --shadow-glow: 0 0 0 1px var(--ink-line), 0 24px 60px -24px var(--accent-glow);
+  --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
 }
 
 html {
   color-scheme: light dark;
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
 }
 
 ::selection {
@@ -72,7 +151,30 @@ body {
   outline-offset: 2px;
 }
 
+/* Marketing utilities */
+.text-gradient {
+  background: linear-gradient(100deg, var(--grad-a) 0%, var(--grad-b) 55%, var(--grad-c) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--ink-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ink-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.mask-fade-b {
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   *,
   *::before,
   *::after {
@@ -80,4 +182,24 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Landing page additions (appended; nothing above is renamed). */
+
+/* The sticky header paints a full-bleed background with a 100vw pseudo-element; with a classic scrollbar
+   that is a few pixels wider than the viewport, so clip the horizontal overflow at the viewport. */
+body {
+  overflow-x: clip;
+}
+
+/* Mint glow behind the hero and the final CTA. */
+.bg-glow {
+  background-image: radial-gradient(closest-side, var(--accent-glow), transparent);
+}
+
+/* Short dot divider between inline facts ("No fees · Owed never holds funds"). */
+.dot-list > li + li::before {
+  content: "·";
+  margin: 0 0.6em;
+  opacity: 0.5;
 }

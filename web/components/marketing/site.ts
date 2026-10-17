@@ -16,3 +16,9 @@ export const SWAPPED_WALLET = "1nc1nerator11111111111111111111111111111111";
 export function canonical(path: string): string {
   return new URL(path, CANONICAL_ORIGIN).toString();
 }
+
+/** Developer links shown on the landing page. */
+export const LLMS_URL = "/llms.txt";
+export const TESTING_URL = `${REPO_URL}/blob/main/docs/TESTING.md`;
+export const FIXTURES_URL = `${REPO_URL}/tree/main/contract/fixtures`;
+export const API_URL = "https://www.getowed.xyz/api/v1";
