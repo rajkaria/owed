@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { CreateRequestBody, CreateRequestResponse, GetRequestResponse } from "@/lib/contract";
 import { ApiError } from "@/lib/http";
 import {
+  domainBrandFlags,
   domainWarnings,
   normalizeDomain,
   owedPayValues,
@@ -20,7 +21,7 @@ import { toPublic, type RequestRow } from "@/lib/requests";
 // real DoH answers (plugin/test/fixtures/doh, captured by capture-doh.mjs) and the domain vectors.
 const pluginFixtures = new URL("../../plugin/test/fixtures/", import.meta.url);
 const vectors = JSON.parse(readFileSync(new URL("payee-vectors.json", pluginFixtures), "utf8")) as {
-  domains: Array<{ input: string; ascii: string; unicode: string; warnings: string[] }>;
+  domains: Array<{ input: string; ascii: string; unicode: string; warnings: string[]; flags: string[] }>;
   invalid: string[];
 };
 
@@ -69,6 +70,7 @@ test("domain vectors match the plugin word for word", () => {
     assert.equal(d.ascii, v.ascii, v.input);
     assert.equal(d.unicode, v.unicode, v.input);
     assert.deepEqual(domainWarnings(d), v.warnings, v.input);
+    assert.deepEqual(domainBrandFlags(v.input), v.flags, v.input);
   }
   for (const input of vectors.invalid) assert.equal(normalizeDomain(input), null, JSON.stringify(input));
 });

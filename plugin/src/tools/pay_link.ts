@@ -8,7 +8,7 @@ import { proposeSolana, proposeX402, solanaOutputSchema, x402OutputSchema } from
 import type { TransferRequest } from "../solana-pay.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
 // W2-H verified payee start
-import { PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
+import { domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
 // W2-H verified payee end
 // W2-E sanctions screen start
 import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
@@ -192,7 +192,9 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     }
   }
 
-  const caution = cautionLine([...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes)])]);
+  // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
+  const caution = cautionLine([...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])]);
+  // W2-H verified payee end
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);
   const preview = [
@@ -206,7 +208,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
   // W2-H verified payee start
-  const text = [caution, preview, `Recipient: ${request.recipient}`, ...payee.lines,
+  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines,
     // W2-E sanctions screen start
     screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
     // W2-E sanctions screen end

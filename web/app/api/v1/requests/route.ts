@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
-import { requireVerifiedDomain } from "@/lib/payee";
+import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
@@ -37,6 +37,8 @@ export async function POST(req: Request): Promise<Response> {
     // W2-E: DNS lookups are capped per client IP and per domain.
     if (body.from_domain) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
+    // A brand word in the verified domain flags the request like one in the text (QA-02): the pay page shows the caution.
+    const allFlags = [...new Set([...flags, ...domainBrandFlags(fromDomain)])];
 
     const row = await createRequest({
       recipient: body.recipient,
@@ -46,7 +48,7 @@ export async function POST(req: Request): Promise<Response> {
       forText: sanitizeText(body.for, TEXT_LIMITS.for),
       note: sanitizeText(body.note, TEXT_LIMITS.note),
       requesterName: sanitizeText(body.requester_name, TEXT_LIMITS.requester_name),
-      flags,
+      flags: allFlags,
       source: body.source,
       fromDomain,
     });
