@@ -1,15 +1,17 @@
 import type { ReactNode } from "react";
-import { AgentIcon, ChatIcon, QrIcon, WalletIcon } from "@/components/icons";
+import { AgentIcon, ChatIcon, LayersIcon, QrIcon, WalletIcon } from "@/components/icons";
 import { Container } from "./ui";
 
 // Not customer logos: a quiet row of what Owed works with, in words, with generic icons.
 
+// Phantom is named because a Phantom scan paid a production request (docs/FACTS.md, Mainnet transactions).
 const ITEMS: { icon: ReactNode; label: string; detail: string }[] = [
   { icon: <ChatIcon />, label: "Claude", detail: "as an MCP connector" },
   { icon: <ChatIcon />, label: "ChatGPT", detail: "as an MCP connector" },
-  { icon: <WalletIcon />, label: "Any Solana Pay wallet", detail: "from the link or the QR code" },
+  { icon: <QrIcon />, label: "Phantom", detail: "scan the QR code" },
+  { icon: <WalletIcon />, label: "Any Solana Pay wallet", detail: "from the link" },
+  { icon: <LayersIcon />, label: "Base wallets", detail: "USDC on Base" },
   { icon: <AgentIcon />, label: "PayBox agents", detail: "pay a link with a passkey" },
-  { icon: <QrIcon />, label: "A QR code", detail: "on every pay page" },
 ];
 
 export function TrustStrip() {

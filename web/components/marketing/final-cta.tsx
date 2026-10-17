@@ -16,6 +16,10 @@ const TRY = [
   { say: "Nudge Sam about the 20 USDC", tool: "write_reminder" },
   { say: "Ask Sam for 450 USDC rent on the 1st", tool: "ask_every_month" },
   { say: "Priya paid me in cash, cancel her link", tool: "cancel_request" },
+  { say: "Ask Priya for ₹1,200 for dinner", tool: "ask_for_money" },
+  { say: "Bill Alex 20 USDC on Base", tool: "ask_for_money" },
+  { say: "Pay bonfida.sns 2 USDC", tool: "pay_link" },
+  { say: "Sam says he paid from Coinbase, but it still shows open", tool: "match_payments" },
 ];
 
 export function FinalCta() {
@@ -58,7 +62,7 @@ export function FinalCta() {
                   <h3 className="font-semibold">Turn on Owed</h3>
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-                  Owed is in the PayBox developer portal and not yet listed in the public marketplace. Once it is, open{" "}
+                  Owed is submitted to PayBox and waiting for its listing in the plugin marketplace. Once it is listed, open{" "}
                   <a href={PAYBOX_PLUGINS_URL} className="font-medium text-ink-accent underline-offset-4 hover:underline">
                     app.paybox.sh/plugins
                   </a>{" "}
@@ -95,7 +99,7 @@ export function FinalCta() {
             <h3 className="mt-12 text-sm font-semibold text-ink-muted">Things to try</h3>
             <ul className="mt-3 flex flex-wrap gap-2">
               {TRY.map((t) => (
-                <li key={t.tool} className="inline-flex max-w-full flex-wrap items-center gap-x-2 rounded-full border border-ink-line bg-ink-surface/80 py-1.5 pl-3.5 pr-2 text-sm">
+                <li key={t.say} className="inline-flex max-w-full flex-wrap items-center gap-x-2 rounded-full border border-ink-line bg-ink-surface/80 py-1.5 pl-3.5 pr-2 text-sm">
                   <span className="leading-snug">&ldquo;{t.say}&rdquo;</span>
                   <code className="rounded-full bg-ink-accent-soft px-2 py-0.5 font-mono text-[0.7rem] text-ink-accent">{t.tool}</code>
                 </li>

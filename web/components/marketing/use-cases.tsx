@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { BellIcon, ListIcon, ReceiptIcon, ShieldIcon, UsersIcon, UtensilsIcon } from "@/components/icons";
+import { BellIcon, CalendarIcon, CoinsIcon, ListIcon, ReceiptIcon, SearchIcon, ShieldIcon, UsersIcon, UtensilsIcon } from "@/components/icons";
 import { Container, SectionHeading } from "./ui";
 
-// Six things people ask their agent to do with Owed. Each sentence follows the tool's own description
+// Nine things people ask their agent to do with Owed. Each sentence follows the tool's own description
 // in plugin/src/tools/*.ts; the chip is the phrase you would say.
 
 interface UseCase {
@@ -22,6 +22,13 @@ const CASES: UseCase[] = [
     tools: ["ask_for_money"],
   },
   {
+    icon: <CoinsIcon />,
+    title: "In your own currency",
+    body: "Ask in rupees, euros or any of 38 currencies. Owed locks the USDC at a live rate, rounded up, and the pay page shows both amounts, so nobody does the conversion in their head.",
+    say: "Ask Priya for ₹1,200 for dinner",
+    tools: ["ask_for_money"],
+  },
+  {
     icon: <UsersIcon />,
     title: "Split the bill",
     body: "One request per person, a set amount for anyone who owes a specific sum and an even split for the rest, plus a live board that shows who has paid.",
@@ -34,6 +41,20 @@ const CASES: UseCase[] = [
     body: "A printable invoice with line items, total, due date and invoice number, payable by QR, by link or by the client's own agent.",
     say: "Invoice Acme for 3 hours of consulting at 40 USDC, due Friday",
     tools: ["create_invoice"],
+  },
+  {
+    icon: <CalendarIcon />,
+    title: "Rent every month",
+    body: "The same amount on the same day each month. A new request opens on that day, and each one works with every other tool: check it, remind about it, cancel it.",
+    say: "Ask Sam for 450 USDC rent on the 1st",
+    tools: ["ask_every_month"],
+  },
+  {
+    icon: <SearchIcon />,
+    title: "Paid from an exchange",
+    body: "Exchanges drop the payment's reference, so the money arrives and the request stays open. Your agent finds transfers of exactly the amount owed and counts one only when you sign that it's yours.",
+    say: "Sam says he paid from Coinbase, but it still shows open",
+    tools: ["match_payments"],
   },
   {
     icon: <ListIcon />,
@@ -52,7 +73,7 @@ const CASES: UseCase[] = [
   {
     icon: <ShieldIcon />,
     title: "Paying safely",
-    body: "Paste any Owed or Solana Pay link. Your agent checks it is still open, that your wallet can cover it and, when the request names a domain, that the domain publishes the payee wallet. Then you approve with your passkey in PayBox.",
+    body: "Paste any Owed or Solana Pay link, or an .sns name. Your agent checks it is still open, that your wallet can cover it and that the payee is who it claims: the domain's DNS lists the wallet, or the name still points to it on Solana. Then you approve with your passkey in PayBox.",
     say: "Pay this link",
     tools: ["pay_link", "verify_payee"],
   },

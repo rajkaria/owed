@@ -14,14 +14,16 @@ import { Toolbox } from "@/components/marketing/toolbox";
 import { TrustStrip } from "@/components/marketing/trust-strip";
 import { Container, SectionHeading, StepBadge } from "@/components/marketing/ui";
 import { UseCases } from "@/components/marketing/use-cases";
+import { WhatsNew } from "@/components/marketing/whats-new";
 import { WithWithout } from "@/components/marketing/with-without";
+import { moonpayConfig } from "@/lib/moonpay/config";
 
 // Refresh the live counters and the DNS read at most once a minute.
 export const revalidate = 60;
 
 const TITLE = "Owed: your agent asks for money and knows when it lands";
 const DESCRIPTION =
-  "Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Requests, split bills and invoices any Solana wallet or PayBox agent can pay, in USDC or SOL, with no fees and nothing held by Owed.";
+  "Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Requests, split bills and invoices in USDC, SOL or your own currency, payable from any Solana wallet, a Base wallet or a PayBox agent, with no fees and nothing held by Owed.";
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -31,7 +33,7 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION },
 };
 
-const FACTS = ["No fees", "Owed never holds funds", "One Solana transaction, wallet to wallet", "Open source"];
+const FACTS = ["No fees", "Owed never holds funds", "One transaction, wallet to wallet", "Open source"];
 
 const STEPS = [
   {
@@ -47,7 +49,7 @@ const STEPS = [
     title: "They pay from any wallet",
     body: (
       <>
-        Priya opens the link and pays from a Solana wallet, or asks her own PayBox agent to pay it. She
+        Priya scans the QR with Phantom, opens the link in a Solana wallet, or asks her own PayBox agent to pay it. She
         doesn&apos;t need an Owed account, and the money goes straight to your wallet.
       </>
     ),
@@ -56,8 +58,9 @@ const STEPS = [
     title: "Your agent tells you",
     body: (
       <>
-        Ask &ldquo;did Priya pay?&rdquo; Owed reads Solana and answers with the amount, the time and the transaction. The pay
-        page flips to Paid on its own.
+        Ask &ldquo;did Priya pay?&rdquo; Owed reads the chain and answers with the amount, the time and the transaction. The pay
+        page flips to Paid on its own. If she paid from an exchange that dropped the reference, Owed finds it for you to
+        confirm.
       </>
     ),
   },
@@ -70,6 +73,8 @@ const SAFETY = [
   "Notes appear in quotes, marked as unverified, with links and hidden characters removed. Requests that mention names like MoonPay or PayBox carry a warning.",
   "Recipients on the U.S. Treasury's OFAC sanctions list are refused, by the plugin and by the server.",
   "A request id is a hash of its terms, so a server can't swap who gets paid or how much behind a shared link.",
+  "Owed never guesses who paid: a transfer without the request's reference counts only after the recipient signs that it's theirs, and Owed re-checks it on chain first.",
+  "An .sns name is resolved on Solana by the plugin itself, and a request made for a name is paid only while the name still points to its wallet.",
 ];
 
 function Hero() {
@@ -81,7 +86,7 @@ function Hero() {
         <div>
           <p className="animate-rise inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-surface/70 px-3 py-1 text-sm font-medium text-ink-muted">
             <span className="animate-pulse-dot size-1.5 rounded-full bg-ink-accent" aria-hidden="true" />
-            PayBox plugin · Solana mainnet · USDC or SOL
+            PayBox plugin · Solana and Base · 11 tools
           </p>
           <h1
             id="hero-title"
@@ -90,9 +95,9 @@ function Hero() {
             Your agent asks for money. <span className="text-gradient">And knows when it lands.</span>
           </h1>
           <p className="animate-rise mt-6 max-w-xl text-pretty text-lg leading-relaxed text-ink-muted [animation-delay:120ms]">
-            Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Ask one person,
-            split a bill or send an invoice; any Solana wallet or PayBox agent can pay it, and before your agent pays a
-            request from a domain, Owed checks that the domain lists the wallet.
+            Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Ask one person
+            in USDC, SOL or your own currency, split a bill or send an invoice; anyone can pay from a Solana or Base wallet
+            or their own PayBox agent. Before your agent pays, Owed checks the payee is who it claims.
           </p>
           <div className="animate-rise mt-8 flex flex-wrap gap-3 [animation-delay:180ms]">
             <a
@@ -174,6 +179,9 @@ function Safety() {
 
 export default async function Home() {
   const [stats, record] = await Promise.all([getPaidStats(), readOwedRecord(DEMO_DOMAIN)]);
+  // The same switch as "Pay by card (MoonPay)" on the pay page; sandbox keys never count as live.
+  const card = moonpayConfig();
+  const cardLive = card !== null && !card.sandbox;
 
   return (
     <>
@@ -185,6 +193,7 @@ export default async function Home() {
           <GoldenPathVideo />
         </Container>
         <HowItWorks />
+        <WhatsNew cardLive={cardLive} />
         <UseCases />
         <Toolbox />
         <Developers />

@@ -29,9 +29,19 @@ const ROWS: { job: string; without: ReactNode; with: ReactNode }[] = [
     with: <>Ask &ldquo;did Priya pay?&rdquo; and get the amount, the time and the transaction.</>,
   },
   {
+    job: "Asking in your currency",
+    without: "Look up a rate, convert, round, and hope it still holds when they pay.",
+    with: <>Say &ldquo;₹1,200&rdquo;. Owed locks the USDC at a live rate and the pay page shows both amounts.</>,
+  },
+  {
+    job: "Paid from an exchange",
+    without: "The money is in your wallet, but nothing says which request it pays.",
+    with: "Your agent finds transfers of exactly the amount owed and counts one when you sign that it's yours.",
+  },
+  {
     job: "Knowing who you pay",
     without: "A wallet address in a chat can be swapped, and nothing tells you.",
-    with: "When a request names a domain, Owed reads that domain's DNS before your agent pays and refuses a wallet it doesn't list.",
+    with: "When a request names a domain or an .sns name, Owed checks it before your agent pays and refuses a wallet it doesn't point to.",
   },
 ];
 
@@ -43,7 +53,7 @@ export function WithWithout() {
           id="compare-title"
           eyebrow="Before and after"
           title="Getting paid, with and without Owed."
-          lede="The same six jobs, done by hand and done by asking your agent."
+          lede="The same eight jobs, done by hand and done by asking your agent."
         />
         <div className="mt-12 overflow-hidden rounded-2xl border border-line bg-surface">
           <table className="w-full border-separate border-spacing-0 text-left">

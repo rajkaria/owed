@@ -11,6 +11,7 @@ import { API_URL, LLMS_URL, REPO_URL, TESTING_URL } from "./site";
 
 const NAV = [
   { label: "Product", hash: "#how" },
+  { label: "What's new", hash: "#new" },
   { label: "Use cases", hash: "#use-cases" },
   { label: "Developers", hash: "#developers" },
 ] as const;
@@ -81,7 +82,7 @@ export function SiteFooter() {
             A PayBox plugin that lets your agent ask anyone for money, then tells you who has paid.
           </p>
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Every request and payment on this site is real, on Solana mainnet.
+            Every request and payment on this site is real, on Solana and Base mainnet.
           </p>
         </div>
         <div>
@@ -89,6 +90,9 @@ export function SiteFooter() {
           <ul className="mt-3 flex flex-col gap-2 text-sm">
             <li>
               <FooterLink href="/#how">How it works</FooterLink>
+            </li>
+            <li>
+              <FooterLink href="/#new">What&apos;s new</FooterLink>
             </li>
             <li>
               <FooterLink href="/#use-cases">Use cases</FooterLink>
@@ -132,9 +136,9 @@ export function SiteFooter() {
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-muted sm:px-6 lg:px-8">
           <span className="inline-flex items-center gap-2">
             <Mark size={16} />
-            Owed, a PayBox plugin on Solana mainnet
+            Owed, a PayBox plugin on Solana and Base mainnet
           </span>
-          <span>USDC or SOL · No fees · Open source</span>
+          <span>USDC, SOL or your own currency · No fees · Open source</span>
         </div>
       </div>
     </footer>

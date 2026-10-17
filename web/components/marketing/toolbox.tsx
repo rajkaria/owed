@@ -1,37 +1,38 @@
 import { Container, SectionHeading } from "./ui";
 
 // The plugin's tools, one line each, condensed from the DESCRIPTION in plugin/src/tools/<name>.ts.
-// The ten here are the ones in the build uploaded to the PayBox developer portal (docs/FACTS.md, build 79a06eb).
+// The eleven here are the ones in the build submitted in the PayBox developer portal (docs/FACTS.md, build cecfbd2).
 
 export const TOOLS: { name: string; summary: string }[] = [
   {
     name: "ask_for_money",
     summary:
-      "Create a payment request and get a short link with a QR code that anyone can pay from any Solana wallet or from their own PayBox agent, plus a ready-to-send message.",
+      "Create a payment request and get a short link with a QR code that anyone can pay from a Solana wallet or their own PayBox agent, plus a ready-to-send message. Ask in USDC, SOL or your own currency (locked to USDC at a live rate), to your wallet or your .sns name, on Solana or in USDC on Base.",
   },
   {
     name: "check_payments",
     summary:
-      "Check up to 20 requests by reading Solana mainnet: open, paid, underpaid, cancelled, expired or not found, with the payer, amount and transaction when paid.",
+      "Check up to 20 requests by reading Solana mainnet (and Base, for Base requests): open, paid, underpaid, cancelled, expired or not found, with the payer, amount and transaction when paid.",
   },
   {
     name: "pay_link",
     summary:
-      "Pay an Owed link or any Solana Pay transfer link (USDC or SOL): checks it is still open and the wallet can cover it, then returns an unsigned transaction to approve in PayBox.",
+      "Pay an Owed link, any Solana Pay transfer link or an .sns name (USDC or SOL): checks it is still open, the payee is who it claims and the wallet can cover it, then returns an unsigned transaction to approve in PayBox.",
   },
   {
     name: "verify_payee",
     summary:
-      "Check who a request is from: whether a domain publishes the wallet that gets paid, read from DNS by the plugin itself, with warnings for lookalike spellings.",
+      "Check who a request is from: whether a domain publishes the wallet that gets paid (read from DNS by the plugin itself), or which wallet an .sns name points to on Solana, with warnings for lookalike spellings.",
   },
   {
     name: "split_bill",
-    summary: "Split a bill into one request per person plus a live group board that shows who has paid.",
+    summary:
+      "Split a bill into one request per person plus a live group board that shows who has paid. Split in your own currency and every share is locked to USDC at one rate.",
   },
   {
     name: "create_invoice",
     summary:
-      "Create a printable invoice with line items, total, due date and invoice number, payable from any Solana wallet by QR or link, or by the client's agent.",
+      "Create a printable invoice with line items, total, due date and invoice number, payable from any Solana wallet by QR or link, or by the client's agent. Price it in your own currency if you like.",
   },
   {
     name: "who_owes_me",
@@ -53,6 +54,11 @@ export const TOOLS: { name: string; summary: string }[] = [
     summary:
       "Cancel one of your own requests, split shares or invoices so nobody pays it, proven by a signature from the wallet it pays. A paid request can't be cancelled.",
   },
+  {
+    name: "match_payments",
+    summary:
+      "Find money that reached your wallet without the request's reference (exchanges drop it): transfers of exactly the amount still owed, with reasons and warnings. It counts one only after you sign that it is yours, and can ask for exactly the rest of an underpaid request.",
+  },
 ];
 
 export function Toolbox() {
@@ -63,7 +69,7 @@ export function Toolbox() {
           <SectionHeading
             id="tools-title"
             eyebrow="The toolbox"
-            title="Ten tools your agent can call."
+            title="Eleven tools your agent can call."
             lede={
               <>
                 Each one is an MCP tool in the Owed plugin. <code className="font-mono text-[0.9em] text-fg">recipient</code> and{" "}

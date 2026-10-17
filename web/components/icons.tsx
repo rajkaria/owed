@@ -231,3 +231,48 @@ export function CardIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </Icon>
+  );
+}
+
+export function CoinsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="9" cy="9" r="6" />
+      <path d="M18.1 10.4A6 6 0 1 1 10.4 18.1M7.5 7.5h2v3" />
+    </Icon>
+  );
+}
+
+export function AtIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.9 7.9" />
+    </Icon>
+  );
+}
+
+export function LayersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" />
+    </Icon>
+  );
+}
+
+export function CalendarIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" />
+    </Icon>
+  );
+}

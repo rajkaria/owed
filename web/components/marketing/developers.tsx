@@ -15,6 +15,12 @@ const ID = "JArQ6g9JvoWr";
 const REFERENCE = "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const SOLANA_PAY_URL = `solana:${TEAM_WALLET}?amount=15&spl-token=${USDC_MINT}&reference=${REFERENCE}&label=Raj&message=dinner&memo=owed%3A${ID}`;
+/** What the pay page's QR encodes (lib/view/request-view.ts): a Solana Pay transaction request served by Owed. */
+const TX_REQUEST_URL = `solana:${ORIGIN}/api/v1/pay/${ID}`;
+/** A Base request's pay_url (contract/fixtures/base.create-request.res.json): EIP-681, USDC on chain 8453. */
+const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const BASE_RECIPIENT = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+const BASE_PAY_URL = `ethereum:${BASE_USDC}@8453/transfer?address=${BASE_RECIPIENT}&uint256=15000000`;
 
 const MCP_CALL = `{
   "name": "ask_for_money",
@@ -88,13 +94,21 @@ const REST_STATUS_RES = `{
   ]
 }`;
 
-const RAILS_SOLANA_PAY = `# Any Solana Pay wallet: the request is a Solana Pay transfer URL
-${SOLANA_PAY_URL}`;
+const RAILS_COMMON = `# 1. The QR on the pay page: a Solana Pay transaction request. The wallet
+#    fetches a transaction Owed built (reference and memo inside) and only signs it.
+${TX_REQUEST_URL}
 
-const RAILS_X402 = `# 1. Any Solana Pay wallet: the request is a Solana Pay transfer URL
+# 2. The same request as a Solana Pay transfer URL, for agents and deep links
 ${SOLANA_PAY_URL}
 
-# 2. Agents paying over HTTP: the same request as an x402 challenge
+# 3. A request on Base: an EIP-681 link a Base wallet opens (USDC, chain 8453)
+${BASE_PAY_URL}`;
+
+const RAILS_SOLANA_PAY = RAILS_COMMON;
+
+const RAILS_X402 = `${RAILS_COMMON}
+
+# 4. Agents paying over HTTP: the same request as an x402 challenge
 curl -i ${ORIGIN}/x/${ID}
 HTTP/2 402
 # The challenge pays the request's recipient and amount in USDC on Solana mainnet.`;
@@ -157,25 +171,25 @@ function RailsPanel() {
     return (
       <div className="flex flex-col gap-6">
         <Prose>
-          Every request is also a standard Solana Pay transfer URL, so any Solana Pay wallet can pay it from the QR code or
-          the link with no Owed account. The amount, token and recipient are in the URL, and the request&apos;s reference
-          rides along so Owed can match the payment on chain.
+          Every request is a standard link, so a wallet pays it with no Owed account. The QR asks the wallet to sign a
+          transaction Owed built, so the request&apos;s reference is always in it; the transfer URL carries the amount, token,
+          recipient and reference for everything else. A Base request is an EIP-681 link instead.
         </Prose>
-        <CodeBlock title="one request, a standard URL" lang="shell" code={RAILS_SOLANA_PAY} />
+        <CodeBlock title="one request, standard links" lang="shell" code={RAILS_SOLANA_PAY} />
       </div>
     );
   }
   return (
     <div className="flex flex-col gap-6">
       <Prose>
-        Every request is also a standard Solana Pay transfer URL, so any Solana Pay wallet can pay it from the QR code
-        with no Owed account. For agents,{" "}
+        Every request is a standard link, so a wallet pays it with no Owed account: the QR asks the wallet to sign a
+        transaction Owed built with the reference inside, and a Base request is an EIP-681 link. For agents,{" "}
         <code className="font-mono text-[0.9em] text-ink-fg">GET /x/&lt;id&gt;</code> answers HTTP 402 with an x402 challenge
         that pays the same recipient and amount; <code className="font-mono text-[0.9em] text-ink-fg">pay_link</code> with
         rail <code className="font-mono text-[0.9em] text-ink-fg">x402</code> checks the live challenge matches the request
         before proposing it, for payers without SOL for fees.
       </Prose>
-      <CodeBlock title="two rails, one request" lang="shell" code={RAILS_X402} />
+      <CodeBlock title="one request, every rail" lang="shell" code={RAILS_X402} />
     </div>
   );
 }
@@ -244,7 +258,7 @@ export function Developers() {
             tabs={[
               { id: "mcp", label: "MCP", panel: <McpPanel /> },
               { id: "rest", label: "REST", panel: <RestPanel /> },
-              { id: "rails", label: X402_PUBLIC ? "Solana Pay / x402" : "Solana Pay", panel: <RailsPanel /> },
+              { id: "rails", label: X402_PUBLIC ? "Solana Pay / Base / x402" : "Solana Pay / Base", panel: <RailsPanel /> },
             ]}
           />
         </div>
