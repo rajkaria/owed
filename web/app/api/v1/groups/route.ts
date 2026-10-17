@@ -68,6 +68,7 @@ export async function POST(req: Request): Promise<Response> {
       shares,
       source: body.source,
       fromDomain,
+      expiresInDays: body.expires_in_days ?? null, // W3-C
     });
     const res: GroupResponse = toPublicGroup(created, baseUrl(req));
     return json(res, { status: 201 });

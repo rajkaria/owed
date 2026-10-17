@@ -28,6 +28,7 @@ export interface X402Deps {
 }
 
 const REFRESH_BUDGET_MS = 2000;
+const EXPIRED = "This request has expired and no longer takes payments. Ask the requester for a new link."; // W3-C
 const VERIFY_ON_CHAIN_MS = 8000;
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -99,10 +100,12 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
     return errorResponse("upstream_unavailable", "this request's payment terms don't match its id", BASE_HEADERS);
   }
 
-  if (row.status === "open") row = await deps.refresh(row, REFRESH_BUDGET_MS);
+  // W3-C: an expired or cancelled request may still have been paid (before it ended, or from a kept link).
+  if (row.status === "open" || row.status === "expired" || row.status === "cancelled") row = await deps.refresh(row, REFRESH_BUDGET_MS);
   if (row.status === "paid") return receipt(row, base);
   if (row.status === "underpaid") return conflict(`This request already received a partial payment. Ask the requester for a new link.`);
   if (row.status === "cancelled") return conflict("This request was cancelled by the requester.");
+  if (row.status === "expired") return conflict(EXPIRED); // W3-C: no challenge, no settlement
 
   const resourceUrl = `${base}/x/${row.id}`;
   let supported: Supported;
@@ -146,6 +149,9 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
   if (!lock.ok) {
     const fresh = await deps.load(row.id);
     if (fresh?.status === "paid") return receipt(fresh, base);
+    // W3-C: cancelled or expired while this payment was being verified; nothing was settled.
+    if (fresh?.status === "cancelled") return conflict("This request was cancelled by the requester. Nothing was taken from this payment.");
+    if (fresh?.status === "expired") return conflict(`${EXPIRED} Nothing was taken from this payment.`);
     return conflict("Another payment for this request is being settled. Nothing was taken from this one; check the request before paying again.");
   }
 

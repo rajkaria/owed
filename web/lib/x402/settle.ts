@@ -41,7 +41,8 @@ async function settleOne(receipt: Receipt, row: RequestRow, rpc: RpcOptions, dep
 /** Returns the ids of requests marked paid. Never throws: a status check must not fail because of x402. */
 export async function settlePendingX402(rows: readonly RequestRow[], rpc: RpcOptions = {}, deps: PendingDeps = defaults): Promise<Set<string>> {
   const paid = new Set<string>();
-  const open = new Map(rows.filter((r) => r.status === "open" && r.token === "USDC").map((r) => [r.id, r]));
+  // W3-C: a settlement that started before a request expired still counts (store.verified checks the stored status).
+  const open = new Map(rows.filter((r) => (r.status === "open" || r.status === "expired") && r.token === "USDC").map((r) => [r.id, r]));
   if (open.size === 0) return paid;
   let receipts: Receipt[];
   try {

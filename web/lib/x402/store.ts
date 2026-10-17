@@ -71,11 +71,20 @@ export const store: Store = {
       [input.requestId, LOCK_TTL_SECONDS],
     );
     try {
+      // W3-C: the lock is taken only while the request is open and unexpired, holding its row so a cancel
+      // (lib/cancel.ts locks the same row) can't slip in between this check and the settlement.
       const rows = await sql(
-        `insert into x402_receipts (request_id, state, x402_version, network, amount_atomic, payer, fee_payer)
-         values ($1, 'settling', $2, $3, $4, $5, $6) returning id::text as id`,
+        `with payable as (
+           select id from requests
+            where id = $1 and status = 'open' and (expires_at is null or expires_at > now())
+            for update
+         )
+         insert into x402_receipts (request_id, state, x402_version, network, amount_atomic, payer, fee_payer)
+         select id, 'settling', $2::int, $3::text, $4::numeric, $5::text, $6::text from payable
+         returning id::text as id`,
         [input.requestId, input.version, input.network, input.amountAtomic, input.payer, input.feePayer],
       );
+      if (rows.length === 0) return { ok: false, holder: null }; // W3-C: cancelled or expired meanwhile
       return { ok: true, receiptId: rows[0].id! };
     } catch (e) {
       if (!isUniqueViolation(e, "x402_receipts_active_key")) throw e;

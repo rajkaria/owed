@@ -4,7 +4,7 @@ import bs58 from "bs58";
 import { isoUtc, isUniqueViolation, sql, transaction, type Query, type Row } from "./db";
 import { newReference, requestIdFor } from "./ids";
 import { AmountError, fromAtomic, TOKENS, USDC_MINT, type Token } from "./money";
-import { getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
+import { chainCheckable, getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 
@@ -131,6 +131,8 @@ export interface CreateGroupInput {
   source: "plugin" | "web";
   /** A domain already verified by web/lib/payee.ts `requireVerifiedDomain` (W2-H), or null. */
   fromDomain?: string | null;
+  /** W3-C: whole days (1-90, checked by the route); every share gets expires_at = now() + this. */
+  expiresInDays?: number | null;
 }
 
 export interface GroupWithShares {
@@ -185,11 +187,20 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
           ],
         }),
       ),
+      // W3-C: the shares expire together, at the transaction's now() + N days (the same instant as created_at).
+      ...(input.expiresInDays
+        ? [{
+            text: `update requests set expires_at = now() + make_interval(days => $2::int) where group_id = $1
+                   returning ${isoUtc("expires_at")} as expires_at`,
+            params: [id, input.expiresInDays],
+          }]
+        : []),
     ];
     try {
       const results = await transaction(queries);
       const createdAt = results[0][0].created_at!;
       const fromDomainVerifiedAt = results[0][0].from_domain_verified_at;
+      const expiresAt = input.expiresInDays ? (results[results.length - 1][0]?.expires_at ?? null) : null; // W3-C
       const group: GroupRow = {
         id,
         title: input.title,
@@ -229,6 +240,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         createdAt,
         fromDomain,
         fromDomainVerifiedAt,
+        expiresAt, // W3-C
       }));
       return { group, shares: rows };
     } catch (e) {
@@ -256,7 +268,7 @@ export async function loadGroup(id: string, rpc: RpcOptions | null = null): Prom
   if (!group) return null;
   const byId = await getRequests(group.shareIds);
   let shares = group.shareIds.map((shareId) => byId.get(shareId)).filter((r): r is RequestRow => r !== undefined);
-  if (rpc && shares.some((r) => r.status === "open" || r.status === "underpaid")) {
+  if (rpc && shares.some((r) => chainCheckable(r.status))) { // W3-C: expired/cancelled shares may still have been paid
     try {
       shares = await settleFromChain(shares, rpc);
     } catch {
@@ -297,6 +309,14 @@ export interface PublicGroup {
   /** What has arrived on chain across all shares, including partial payments. */
   amount_received: string;
   shares: PublicShare[];
+  /** W3-C: when the shares stop taking payments (they share one expiry); absent when they never expire. */
+  expires_at?: string;
+}
+
+/** W3-C: the shares' common expiry, only when they have one (so groups without one keep their exact shape). */
+function expiryOf(shares: readonly RequestRow[]): { expires_at?: string } {
+  const at = shares.find((r) => r.expiresAt)?.expiresAt;
+  return at ? { expires_at: at } : {};
 }
 
 export function toPublicGroup({ group, shares }: GroupWithShares, base: string): PublicGroup {
@@ -333,5 +353,6 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
     paid_count: paidCount,
     amount_received: fromAtomic(received, group.token),
     shares: out,
+    ...expiryOf(shares), // W3-C
   };
 }
