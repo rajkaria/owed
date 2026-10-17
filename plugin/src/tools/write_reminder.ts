@@ -23,7 +23,7 @@ export const inputSchema = z.object({
 }).strict();
 
 export const outputSchema = z.object({
-  status: z.enum(["open", "underpaid", "paid", "cancelled"]),
+  status: z.enum(["open", "underpaid", "paid", "cancelled", "expired"]), // W3-C: + expired
   text: z.string().nullable().describe("The reminder to send, or null when there is nothing to chase."),
   subject: z.string().optional().describe("Email only."),
   tone: toneSchema,
@@ -48,6 +48,8 @@ const DESCRIPTION = [
 
 interface Facts {
   status: ReminderOutput["status"];
+  /** W3-C: when an expired request stopped taking payments. */
+  expiresAt?: string;
   id?: string;
   link: string;
   amount: string;
@@ -103,6 +105,10 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
   if (facts.status === "cancelled") {
     return text("This request was cancelled, so there is nothing to chase.", base);
   }
+  // W3-C: an expired link takes no payment, so a reminder would send the payer to a dead end.
+  if (facts.status === "expired") {
+    return text(`This request expired${facts.expiresAt ? ` at ${facts.expiresAt}` : ""}, so its link no longer takes payments and there is nothing to chase with it. If it's still owed, make a new request with ask_for_money and send that.`, base);
+  }
 
   const draft = compose(facts, args.tone, args.channel, days);
   const output: ReminderOutput = {
@@ -151,6 +157,7 @@ async function owedFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: num
     createdAt: r.created_at,
     signature: paid?.signature,
     paidAt: paid?.at,
+    ...(r.expires_at && { expiresAt: r.expires_at }), // W3-C
   };
 }
 

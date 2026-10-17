@@ -16,7 +16,7 @@ export const inputSchema = z.object({
     .describe("1 to 20 requests to check: Owed request ids (e.g. \"JArQ6g9JvoWr\"), Owed links, or Solana Pay transfer URLs that carry a reference."),
 }).strict();
 
-const resultStatus = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid", "unknown"]);
+const resultStatus = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid", "unknown"]); // W3-C: + expired
 
 export const resultSchema = z.object({
   input: z.string(),
@@ -30,6 +30,9 @@ export const resultSchema = z.object({
   paid_at: z.string().optional(),
   explorer_url: z.string().optional(),
   waited: z.string().optional().describe('How long an unpaid request has been open, e.g. "2h 14m".'),
+  // W3-C
+  expires_at: z.string().optional().describe("When the request stops (or stopped) taking payments."),
+  cancelled_at: z.string().optional().describe("When the recipient cancelled it."),
   error: z.string().optional(),
 }).strict();
 
@@ -46,7 +49,7 @@ const DESCRIPTION = [
   "Check whether payment requests have been paid, by reading Solana mainnet.",
   "Use it when the user asks \"did Priya pay?\", \"who still owes me?\" or wants a status on requests made with ask_for_money.",
   "Pass up to 20 items: Owed request ids, Owed links, or Solana Pay transfer URLs (they must include a reference).",
-  "Returns each request's status (open, paid, underpaid, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
+  "Returns each request's status (open, paid, underpaid, cancelled, expired, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
 ].join(" ");
 
 type Parsed =
@@ -131,6 +134,8 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
     out.explorer_url = explorerUrl(r.signature);
   }
   if (r.paid_at !== undefined) out.paid_at = r.paid_at;
+  if (r.expires_at !== undefined) out.expires_at = r.expires_at; // W3-C
+  if (r.cancelled_at !== undefined) out.cancelled_at = r.cancelled_at;
   if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
     const waited = ago(r.created_at, now);
     if (waited) out.waited = waited;
@@ -207,7 +212,7 @@ export function summarize(results: CheckResult[], deps: Deps): string {
   const due = totals(outstanding, deps);
   if (due) parts.push(`${due} outstanding`);
   const extras: Array<[CheckResult["status"], string]> = [
-    ["underpaid", "underpaid"], ["cancelled", "cancelled"], ["not_found", "not found"],
+    ["underpaid", "underpaid"], ["cancelled", "cancelled"], ["expired", "expired"], ["not_found", "not found"],
     ["invalid", "invalid"], ["unknown", "couldn't be checked"],
   ];
   for (const [status, label] of extras) if (count(status) > 0) parts.push(`${count(status)} ${label}`);
@@ -223,7 +228,10 @@ function detailLine(r: CheckResult): string[] {
   const link = r.explorer_url ? `: ${r.explorer_url}` : "";
   if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
   if (r.status === "underpaid") return [`Underpaid, ${label(r)}: ${r.amount_paid ?? "?"} of ${r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
-  if (r.status === "open" && r.waited) return [`Open, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}, waiting ${r.waited}`];
+  if (r.status === "open" && r.waited) return [`Open, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}, waiting ${r.waited}${r.expires_at ? `, expires ${r.expires_at}` : ""}`];
+  // W3-C: ended requests take no payment; say so, so nobody chases or pays them.
+  if (r.status === "cancelled") return [`Cancelled, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}${r.cancelled_at ? ` at ${r.cancelled_at}` : ""}; it takes no payment.`];
+  if (r.status === "expired") return [`Expired, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}${r.expires_at ? ` at ${r.expires_at}` : ""}; it takes no payment.`];
   if (r.error) return [`${r.status === "unknown" ? "Not checked" : "Skipped"}, ${r.input.length > 60 ? `${r.input.slice(0, 57)}...` : r.input}: ${r.error}`];
   return [];
 }

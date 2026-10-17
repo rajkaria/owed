@@ -5,6 +5,7 @@ import {
   type StatusRawRes, type StatusRes,
   invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
   ledgerResSchema, type LedgerReq, type LedgerRes,
+  cancelResSchema, type CancelReq, type CancelRes,
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -50,6 +51,8 @@ export interface ApiClient {
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
   createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
   ledger(body: LedgerReq): Promise<LedgerRes>;
+  /** W3-C: cancel a request with the recipient's signed message. */
+  cancelRequest(id: string, body: CancelReq): Promise<CancelRes>;
 }
 
 export interface ApiOptions {
@@ -106,5 +109,6 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
     createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
+    cancelRequest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/cancel`, cancelResSchema, body), // W3-C
   };
 }
