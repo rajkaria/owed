@@ -11,10 +11,5 @@ export function isRequestId(id: string): boolean {
 /** One read per request id per render, shared by the page, its metadata and its preview card. */
 export const loadPublicRequest = cache(async (id: string): Promise<PublicRequest | null> => {
   if (!isRequestId(id)) return null;
-  // Local-only switch while the API sprint is unmerged; removed before merge.
-  if (process.env.NODE_ENV === "development" && process.env.OWED_DEV_FIXTURES === "1") {
-    const { getFixtureRequest } = await import("./dev-fixtures");
-    return getFixtureRequest(id);
-  }
   return getPublicRequest(id);
 });
