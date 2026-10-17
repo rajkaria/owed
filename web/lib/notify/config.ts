@@ -51,7 +51,11 @@ export interface HookTarget {
   url: string;
 }
 
-/** Null when Helius couldn't reach this deployment anyway (no public https origin, e.g. `next dev`). */
+/**
+ * Null when Helius couldn't reach this deployment anyway: no public https origin (`next dev`), or a preview
+ * behind Vercel's protection without the automation bypass. Registering those would only take one of the
+ * Helius free plan's 5 webhooks and fail every delivery.
+ */
 export function hookTarget(): HookTarget | null {
   const base = publicBase();
   if (!base) return null;
@@ -59,6 +63,7 @@ export function hookTarget(): HookTarget | null {
   if (protocol !== "https:" || !hostname.includes(".") || /^(localhost|127\.|0\.0\.0\.0|\[)/.test(hostname)) return null;
   const key = `${base}${HOOK_PATH}`;
   const bypass = env("VERCEL_AUTOMATION_BYPASS_SECRET");
+  if (env("VERCEL_ENV") === "preview" && !bypass) return null;
   const url = bypass && env("VERCEL_ENV") !== "production" ? `${key}?x-vercel-protection-bypass=${encodeURIComponent(bypass)}` : key;
   return { key, url };
 }
