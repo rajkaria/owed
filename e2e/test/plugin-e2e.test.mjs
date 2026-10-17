@@ -154,10 +154,9 @@ test("--broker adds the header to HTTPS fetches to that exact host only, like a 
   assert.match(leak.failures.join(), /output contains the value brokered as X-API-Key for broker\.invalid/);
 });
 
-test("default call hosts include public.chainalysis.com (W2-E sanctions screen)", async () => {
+test("default call hosts: the Owed host, the two RPC hosts and the two DoH resolvers (the sanctions screen is local)", async () => {
   const report = await runE2E({ artifact: await fakePlugin(), tool: "probe", arguments: {} });
-  assert.ok(report.call.hosts.includes("public.chainalysis.com"));
-  assert.ok(report.call.hosts.includes("cloudflare-dns.com"));
+  assert.deepEqual(report.call.hosts, ["owed-omega.vercel.app", "solana-rpc.publicnode.com", "api.mainnet-beta.solana.com", "cloudflare-dns.com", "dns.google"]);
 });
 
 test("--broker parsing: HOST:HEADER=@FILE only, never an inline value", () => {

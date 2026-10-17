@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { requireNotSanctioned } from "@/lib/sanctions";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
@@ -25,6 +26,8 @@ export async function POST(req: Request): Promise<Response> {
       body.recipient = checksummed;
     }
     // W3-B Base requests end
+
+    requireNotSanctioned(body.recipient); // W2-E: OFAC SDN list (Solana and EVM), 403 blocked
 
     // An off-curve recipient is usually a token account pasted by mistake; wallets would
     // derive a second token account from it and the money would be stuck.
