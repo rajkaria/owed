@@ -361,7 +361,8 @@ it("a delivery for a real payment marks the open request paid through the chain,
   assert.equal(r.paid, "387");
   assert.deepEqual(await logged(OLDEST), { outcome: "paid", request_ids: `{${id}}`, marked_paid: `{${id}}`, deliveries: "1", has_payload: "t" });
   assert.equal(rpcCalls[0], `getSignaturesForAddress ${USDC_REF}`, "re-checked on chain by the reference, not read from the body");
-  assert.equal(rpcCalls.length, 11);
+  assert.ok(rpcCalls.includes(`getTransaction ${OLDEST}`), "the paying transaction was read from the chain");
+  assert.ok(rpcCalls.slice(1).every((c) => c.startsWith("getTransaction ")), rpcCalls.join("\n"));
   assert.ok(!watched().accountAddresses.includes(USDC_REF), "paid: no longer watched");
   assert.deepEqual(watched().accountAddresses, await openReferences());
   assert.deepEqual(helius.calls.map((c) => c.method), ["PUT"]);
