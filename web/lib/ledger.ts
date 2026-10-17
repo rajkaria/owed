@@ -15,6 +15,23 @@ export const CHAIN_CHECK_ROWS = 20;
 /** Leaves headroom under the plugin's 4 s API timeout. */
 export const CHAIN_BUDGET_MS = 2500;
 
+/**
+ * QA-20. Creating a request needs no proof from the recipient (asking on someone's behalf only ever pays
+ * them), so a wallet's ledger can hold rows a stranger made, names and amounts included. Every ledger
+ * surface says so in these words: the API response, who_owes_me (plugin/src/tools/who_owes_me.ts keeps
+ * the same text; web/test/ledger.test.ts checks it) and the CSV export (W3-D).
+ */
+export const LEDGER_CAUTION =
+  "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.";
+export const LEDGER_TOTALS_NOTE = "Totals include requests anyone could have made.";
+/** Label for requester-written text (payer names, reasons, titles, invoice numbers) on ledger surfaces. */
+export const UNVERIFIED_LABEL = "unverified";
+
+/** Brand words a row mentions (`brand_word:<w>` flags): scams use them to look official, so nobody gets chased for these. */
+export function brandWords(flags: readonly string[]): string[] {
+  return flags.filter((f) => f.startsWith("brand_word:")).map((f) => f.slice("brand_word:".length));
+}
+
 export type LedgerStatus = "open" | "underpaid" | "paid";
 
 export interface LedgerEntry {
@@ -43,6 +60,8 @@ export interface LedgerEntry {
   due_date: string | null;
   /** W2-H verified payee: the domain checked at creation (display only; the plugin checks DNS itself). */
   from_domain: string | null;
+  /** Safety flags such as `brand_word:irs` (SPEC §6). */
+  flags: string[];
 }
 
 export interface LedgerTotal {
@@ -55,6 +74,8 @@ export interface LedgerTotal {
 
 export interface Ledger {
   recipient: string;
+  /** LEDGER_CAUTION: the rows are whatever anyone asked this wallet to be paid. */
+  caution: string;
   generated_at: string;
   /** False when the chain couldn't be read in time: open entries show the stored state. */
   chain_checked: boolean;
@@ -148,6 +169,7 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
     invoice_number: invoice ? listed.invoiceNumber : null,
     due_date: invoice ? listed.dueDate : null,
     from_domain: row.fromDomain ?? null,
+    flags: row.flags,
   };
   const paid = row.paidAmountAtomic ?? 0n;
   if (status === "open") out.amount_due = out.amount;
@@ -219,6 +241,7 @@ export async function getLedger(recipient: string, { base, now = Date.now(), cha
 
   return {
     recipient,
+    caution: LEDGER_CAUTION,
     generated_at: new Date(Math.floor(now / 1000) * 1000).toISOString().replace(".000Z", "Z"),
     chain_checked: chainChecked,
     open: open.map((r) => entry(r, listed.get(r.id)!, base)),

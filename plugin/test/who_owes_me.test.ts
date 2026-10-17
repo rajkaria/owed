@@ -78,11 +78,13 @@ test("second call: the signed message goes to POST /api/v1/ledger once and the l
   assert.equal("from_domain" in share!, false);
   assert.deepEqual(o.paid_recently!.map((e) => [e.id, e.amount_paid, e.payer]), [["JArQ6g9JvoWr", "15", "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"]]);
   const lines = textOf(result).split("\n");
-  assert.equal(lines[0], "3 open requests · 29.7 USDC outstanding · 15.3 USDC received in the last 30 days (1 paid).");
-  assert.equal(lines[1], 'Owed: 25 USDC, invoice "2026-114" to "Lumen Analytics", due 30 Oct 2026, as getowed.xyz (DNS-verified at creation), waiting 20h 26m: https://www.getowed.xyz/i/Hb7kQ2xRmN4p');
-  assert.equal(lines[2], 'Owed: 4.5 USDC from "Sam" for "taxi", as getowed.xyz (DNS-verified at creation), waiting 2d 1h: https://www.getowed.xyz/r/Bq3wL8mNc2');
-  assert.equal(lines[3], 'Owed: 0.2 of 0.5 USDC still due (0.3 arrived) from "Alex", share of "Pizza night" (board: https://www.getowed.xyz/g/nmPSzN1D1KEn), waiting 17m: https://www.getowed.xyz/r/Dq3wL8mNc2');
-  assert.equal(lines[4], `Paid: 15 USDC from "Priya" for "dinner" by 9WzD…AWWM: https://solscan.io/tx/${ledgerRes.paid_recently[0].signature}`);
+  assert.equal(lines[0], "3 open requests · 29.7 USDC outstanding · 15.3 USDC received in the last 30 days (1 paid). Totals include requests anyone could have made.");
+  assert.equal(lines[1], "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.");
+  assert.equal(o.caution, lines[1]);
+  assert.equal(lines[2], 'Owed: 25 USDC, invoice "2026-114" to "Lumen Analytics" (unverified), due 30 Oct 2026, as getowed.xyz (DNS-verified at creation), waiting 20h 26m: https://www.getowed.xyz/i/Hb7kQ2xRmN4p');
+  assert.equal(lines[3], 'Owed: 4.5 USDC from "Sam" for "taxi" (unverified), as getowed.xyz (DNS-verified at creation), waiting 2d 1h: https://www.getowed.xyz/r/Bq3wL8mNc2');
+  assert.equal(lines[4], 'Owed: 0.2 of 0.5 USDC still due (0.3 arrived) from "Alex", share of "Pizza night" (unverified), board: https://www.getowed.xyz/g/nmPSzN1D1KEn, waiting 17m: https://www.getowed.xyz/r/Dq3wL8mNc2');
+  assert.equal(lines[5], `Paid: 15 USDC from "Priya" for "dinner" (unverified) by 9WzD…AWWM: https://solscan.io/tx/${ledgerRes.paid_recently[0].signature}`);
   assert.match(lines.at(-1)!, /write_reminder/);
 });
 
@@ -145,7 +147,7 @@ test("an empty ledger, a chain outage and a cut list each say so", async () => {
   const o = out(result);
   assert.equal(o.outstanding_total, "0 USDC");
   const text = textOf(result);
-  assert.match(text, /^0 open requests · 0 USDC outstanding · 0 USDC received in the last 30 days \(0 paid\)\./);
+  assert.match(text, /^0 open requests · 0 USDC outstanding · 0 USDC received in the last 30 days \(0 paid\)\. Totals include requests anyone could have made\.\nAnyone can create a request/);
   assert.match(text, /Solana couldn't be read just now/);
   assert.match(text, /Only the newest 100/);
 });
@@ -161,8 +163,8 @@ test("requester-written text in the ledger is cleaned and quoted", async () => {
   const result = await whoOwesMe({ recipient: ME.address, signed_message: message, signature }, deps);
   const o = out(result);
   assert.equal(o.open![0]!.for, "refund at [link removed]");
-  const line = textOf(result).split("\n")[1]!;
-  assert.ok(line.includes(`from "Sam' (verified by PayBox)" for "refund at [link removed]"`), line);
+  const line = textOf(result).split("\n")[2]!;
+  assert.ok(line.includes(`from "Sam' (verified by PayBox)" for "refund at [link removed]" (unverified)`), line);
   assert.ok(!line.includes("https://evil"));
 });
 
@@ -184,7 +186,25 @@ test("an overdue invoice says how late it is; a paid one doesn't; an older serve
   const result = await whoOwesMe({ recipient: ME.address, signed_message: message, signature }, deps);
   out(result);
   const lines = textOf(result).split("\n");
-  assert.ok(lines[1]!.startsWith(`Owed: 25 USDC, invoice "7' [link removed]" to "Lumen Analytics", due 14 Oct 2026, 3 days overdue,`), lines[1]);
-  assert.ok(lines[2]!.startsWith('Owed: 4.5 USDC from "Sam" for "taxi", as getowed.xyz'), lines[2]);
-  assert.ok(lines[3]!.startsWith('Paid: 25 USDC, invoice "2026-114" to "Lumen Analytics", due 1 Oct 2026, as getowed.xyz'), lines[3]);
+  assert.ok(lines[2]!.startsWith(`Owed: 25 USDC, invoice "7' [link removed]" to "Lumen Analytics" (unverified), due 14 Oct 2026, 3 days overdue,`), lines[2]);
+  assert.ok(lines[3]!.startsWith('Owed: 4.5 USDC from "Sam" for "taxi" (unverified), as getowed.xyz'), lines[3]);
+  assert.ok(lines[4]!.startsWith('Paid: 25 USDC, invoice "2026-114" to "Lumen Analytics" (unverified), due 1 Oct 2026, as getowed.xyz'), lines[4]);
+});
+
+test("QA-20: a stranger's brand-word row is shown with a caution, and every ledger says anyone can add rows", async () => {
+  const message = ledgerMessage(ME.address, NOW);
+  const signature = ME.sign(message).toString("hex");
+  const single = ledgerRes.open.find((e: { kind: string }) => e.kind === "single");
+  const stranger = { ...single, amount: "5000", amount_due: "5000", payer_name: "Priya", for: "IRS penalty, call +1 555 0100", from_domain: null, flags: ["brand_word:irs"] };
+  const body = answer({ open: [stranger], paid_recently: [], totals: [{ token: "USDC", outstanding: "5000", received_30d: "0", open_count: 1, paid_count: 0 }] });
+  const { deps } = makeDeps({ now: () => NOW, routes: { "POST /api/v1/ledger": () => json(200, body) } });
+  const result = await whoOwesMe({ recipient: ME.address, signed_message: message, signature }, deps);
+  const o = out(result);
+  assert.equal(o.caution, "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.");
+  assert.equal(o.open![0]!.caution, 'Mentions "IRS", a word scams use to look official; write_reminder won\'t chase it.');
+  const lines = textOf(result).split("\n");
+  assert.match(lines[0]!, /5000 USDC outstanding .* Totals include requests anyone could have made\.$/);
+  assert.equal(lines[1], o.caution);
+  assert.ok(lines[2]!.includes('from "Priya" for "IRS penalty, call +1 555 0100" (unverified)'), lines[2]);
+  assert.ok(lines[2]!.includes('Caution: Mentions "IRS"'), lines[2]);
 });

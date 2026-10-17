@@ -6,7 +6,7 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { TOKENS, type Token } from "../money.js";
 import { atomicAmount } from "../paybox.js";
 import { domainLabel, PAYEE_BUDGET_MS, recordHowTo, verifyPayee, type PayeeResult } from "../payee.js";
-import { clean, explorerUrl } from "../text.js";
+import { brandFlags, brandWordsFromFlags, clean, explorerUrl } from "../text.js";
 import { checkPayments, type CheckResult } from "./check_payments.js";
 
 // A nudge for someone who hasn't paid yet. It reads the request's status first and never writes a
@@ -16,6 +16,10 @@ import { checkPayments, type CheckResult } from "./check_payments.js";
 // payee domain, the plugin checks DNS itself (W2-H) before the reminder says "verified".
 
 export const REMINDER_BUDGET_MS = 8500;
+
+/** QA-20: Owed can't tell who created a request that pays the user's wallet; said with every draft. */
+export const REMINDER_CAUTION =
+  "Before sending: anyone can create a request that pays your wallet, and Owed can't tell whether you made this one. Check the name and amount.";
 
 /** W2-H's verifyPayee (plugin/src/payee.ts), injected so tests can replay recorded DNS answers. */
 export type VerifyPayee = (domain: string, address: string, budgetMs: number, deps: Deps) => Promise<PayeeResult>;
@@ -57,6 +61,7 @@ export const outputSchema = z.object({
   paid_count: z.number().int().nonnegative().optional().describe("Split bills: shares paid."),
   share_count: z.number().int().nonnegative().optional().describe("Split bills: shares in the bill."),
   unpaid: z.array(unpaidShareSchema).optional().describe("Split bills: who still owes, each with their own link."),
+  caution: z.string().optional().describe("Show the user before they send: Owed can't tell whether they made this request."),
   explorer_url: z.string().optional().describe("The payment, when it is already paid."),
 }).strict();
 
@@ -101,6 +106,8 @@ interface Facts {
   dueDate?: string;
   /** Whole split bills. */
   shares?: { paid: number; total: number; unpaid: Array<{ name: string; amountDue: string; link: string }> };
+  /** Safety flags (`brand_word:<w>`), from the server and from the text read here. */
+  flags: string[];
 }
 
 export async function writeReminder(args: ReminderInput, deps: Deps = defaultDeps, verify: VerifyPayee = defaultVerify) {
@@ -164,6 +171,20 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
     return text(`This request expired${facts.expiresAt ? ` at ${facts.expiresAt}` : ""}, so its link no longer takes payments and there is nothing to chase with it. If it's still owed, make a new request with ask_for_money and send that.`, base);
   }
 
+  // QA-20: anyone can create a request that pays the user's wallet. One that name-drops a brand scams use
+  // ("IRS penalty", "PayBox refund") is not chased on Owed's word.
+  const brands = brandWordsFromFlags([
+    ...facts.flags,
+    ...brandFlags(facts.payerName, facts.forText, facts.groupTitle, facts.invoiceNumber, facts.requesterName, ...(facts.shares?.unpaid.map((u) => u.name) ?? [])),
+  ]);
+  if (brands.length > 0) {
+    const list = brands.map((w) => `"${w}"`).join(", ");
+    return refusal(
+      `No reminder drafted: this ${facts.kind === "group" ? "split bill" : facts.kind === "invoice" ? "invoice" : "request"} mentions ${list}, a word scams use to look official, `
+      + "and anyone can create a request that pays your wallet, so Owed can't tell whether you made it. If you did, write to the person yourself.",
+    );
+  }
+
   // Only now, with something to chase: the payee domain is named only if DNS still publishes the wallet.
   const domainNote: string[] = [];
   if (facts.claimedDomain && facts.recipient) {
@@ -193,6 +214,7 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
     ...(draft.link && { link: draft.link }),
     ...(facts.verifiedDomain && { from_domain: facts.verifiedDomain }),
     ...(facts.shares && { unpaid: facts.shares.unpaid.map((u) => ({ name: u.name, amount_due: u.amountDue, link: u.link })) }),
+    caution: REMINDER_CAUTION,
   };
   const waited = days === undefined ? "" : days === 0 ? " since today" : ` after ${dayCount(days)}`;
   const lead = facts.shares
@@ -204,6 +226,7 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
         : `Still open${waited}: ${facts.amount} ${facts.token}. Reminder (${args.tone}, ${args.channel}) for the user to send:`;
   const lines = [
     lead,
+    REMINDER_CAUTION,
     ...domainNote,
     ...(draft.subject ? [`Subject: ${draft.subject}`] : []),
     draft.body,
@@ -278,6 +301,7 @@ async function owedFacts(id: string, invoiceLink: boolean, ctx: CallContext, dep
     paidAt: paid?.at,
     recipient: r.recipient,
     claimedDomain: r.from_domain || undefined,
+    flags: r.flags,
     ...(r.expires_at && { expiresAt: r.expires_at }), // W3-C
   };
 }
@@ -311,6 +335,7 @@ async function invoiceFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: 
     paidAt: paid?.at,
     recipient: inv.recipient,
     claimedDomain: inv.from_domain || undefined,
+    flags: inv.flags,
     ...(inv.expires_at && { expiresAt: inv.expires_at }), // W3-C
   };
 }
@@ -356,6 +381,7 @@ async function groupFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: nu
     recipient: g.recipient,
     claimedDomain: g.from_domain || undefined,
     shares: { paid, total: g.shares.length, unpaid },
+    flags: g.flags,
   };
 }
 
@@ -385,6 +411,7 @@ async function transferFacts(input: string, ctx: CallContext, deps: Deps): Promi
     forText: clean(request.message, 80) || undefined,
     signature: result.signature,
     paidAt: result.paid_at,
+    flags: brandFlags(request.label, request.message, request.memo),
   };
 }
 

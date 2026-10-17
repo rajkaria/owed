@@ -279,10 +279,12 @@ export const ledgerEntrySchema = z.object({
   invoice_number: z.string().max(80).nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   from_domain: z.string().max(253).nullable(),
+  flags: z.array(z.string().max(80)).max(32).optional(),
 });
 
 export const ledgerResSchema = z.object({
   recipient: addressSchema,
+  caution: z.string().max(400).optional(),
   generated_at: isoTime,
   chain_checked: z.boolean(),
   open: z.array(ledgerEntrySchema).max(100),

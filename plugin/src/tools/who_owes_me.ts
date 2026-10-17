@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 import { ApiError, makeApi } from "../api.js";
 import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
-import { ago, clean, explorerUrl, quote, shortAddress } from "../text.js";
+import { ago, brandWordsFromFlags, clean, explorerUrl, quote, shortAddress } from "../text.js";
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
 // request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
@@ -13,6 +13,15 @@ import { ago, clean, explorerUrl, quote, shortAddress } from "../text.js";
 // the checks here only spare a round trip and give a clear reason.
 
 export const LEDGER_BUDGET_MS = 8500;
+
+/**
+ * QA-20. Creating a request needs no proof from the recipient, so a wallet's ledger can hold rows a
+ * stranger made. Same words as web/lib/ledger.ts LEDGER_CAUTION / LEDGER_TOTALS_NOTE (web/test/ledger.test.ts
+ * checks they match); write_reminder uses them too.
+ */
+export const LEDGER_CAUTION =
+  "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.";
+export const LEDGER_TOTALS_NOTE = "Totals include requests anyone could have made.";
 /** The server checks open requests on chain before it answers; a timeout would spend the signature for nothing. */
 export const LEDGER_API_TIMEOUT_MS = 7000;
 export const MESSAGE_VALID_MS = 5 * 60_000;
@@ -36,29 +45,31 @@ const entrySchema = z.object({
   token: tokenSchema,
   amount_due: z.string().optional().describe("What is still owed (open and underpaid only)."),
   amount_paid: z.string().optional(),
-  payer_name: z.string().optional().describe("Written by the requester; unverified."),
-  for: z.string().optional().describe("Written by the requester; unverified."),
+  payer_name: z.string().optional().describe("Written by whoever created the request (anyone can); unverified."),
+  for: z.string().optional().describe("Written by whoever created the request (anyone can); unverified."),
   created_at: z.string(),
   waited: z.string().optional().describe('How long an unpaid request has been open, e.g. "2d 4h".'),
   payer: z.string().optional(),
   paid_at: z.string().optional(),
   explorer_url: z.string().optional(),
   group_id: z.string().optional().describe("Split shares: the bill's group id."),
-  group_title: z.string().optional().describe("Split shares: the bill's title. Written by the requester; unverified."),
+  group_title: z.string().optional().describe("Split shares: the bill's title. Written by whoever created it; unverified."),
   group_link: z.string().optional().describe("Split shares: the bill's board, showing who has paid."),
-  invoice_number: z.string().optional().describe("Invoices: the invoice number. Written by the requester; unverified."),
+  invoice_number: z.string().optional().describe("Invoices: the invoice number. Written by whoever created it; unverified."),
   due_date: z.string().optional().describe("Invoices: the due date, YYYY-MM-DD."),
   from_domain: z.string().optional().describe("The payee domain the request was created with (DNS-verified then)."),
+  caution: z.string().optional().describe("Set when the request mentions a brand word scams use (e.g. IRS, PayBox, refund); write_reminder won't chase it."),
 }).strict();
 
 export const outputSchema = z.object({
   step: z.enum(["sign", "ledger"]).describe("sign = sign message_to_sign and call again; ledger = the result."),
   recipient: z.string(),
+  caution: z.string().optional().describe("Show this to the user with the ledger: anyone can create a request that pays their wallet."),
   message_to_sign: z.string().optional(),
   expires_at: z.string().optional(),
   open: z.array(entrySchema).optional(),
   paid_recently: z.array(entrySchema).optional().describe("Paid in the last 30 days, newest first."),
-  outstanding_total: z.string().optional().describe('e.g. "15 USDC + 0.5 SOL", or "0 USDC".'),
+  outstanding_total: z.string().optional().describe('e.g. "15 USDC + 0.5 SOL", or "0 USDC". Includes requests anyone could have made.'),
   received_30d: z.string().optional(),
   chain_checked: z.boolean().optional().describe("false = Solana couldn't be read just now; open items show the last known state."),
   truncated: z.boolean().optional(),
@@ -226,6 +237,8 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   if (kind === "invoice" && e.due_date) out.due_date = e.due_date;
   // Lower-case ASCII (punycode for IDN), as W2-H stores it; anything else is dropped, never shown.
   if (e.from_domain && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(e.from_domain) && e.from_domain.includes(".")) out.from_domain = e.from_domain;
+  const brands = brandWordsFromFlags(e.flags ?? []);
+  if (brands.length > 0) out.caution = `Mentions ${brands.map((w) => `"${w}"`).join(", ")}, a word scams use to look official; write_reminder won't chase it.`;
   return out;
 }
 
@@ -248,24 +261,28 @@ function dueText(dueDate: string, unpaid: boolean, now: number): string {
   return `${label}, ${late === 1 ? "1 day" : `${late} days`} overdue`;
 }
 
-/** Who and what, by kind. Every requester-written value is quoted. */
+/** Who and what, by kind. Every requester-written value is quoted and labelled unverified (QA-20). */
 function who(e: z.output<typeof entrySchema>, now: number): string {
   const domain = e.from_domain ? `, as ${e.from_domain} (DNS-verified at creation)` : "";
+  const caution = e.caution ? `. Caution: ${e.caution}` : "";
   if (e.kind === "invoice") {
     const number = e.invoice_number ? ` ${quote(e.invoice_number, 20)}` : "";
     const client = e.payer_name ? ` to ${quote(e.payer_name, 40)}` : "";
+    const label = number || client ? " (unverified)" : "";
     const due = e.due_date ? `, ${dueText(e.due_date, e.status !== "paid", now)}` : "";
-    return `, invoice${number}${client}${due}${domain}`;
+    return `, invoice${number}${client}${label}${due}${domain}${caution}`;
   }
   const name = e.payer_name ? ` from ${quote(e.payer_name, 40)}` : "";
   if (e.kind === "split_share") {
     const title = e.group_title ?? e.for;
     const bill = title ? `, share of ${quote(title, 60)}` : ", share of a split bill";
-    const board = e.group_link && e.status !== "paid" ? ` (board: ${e.group_link})` : "";
-    return `${name}${bill}${board}${domain}`;
+    const label = name || title ? " (unverified)" : "";
+    const board = e.group_link && e.status !== "paid" ? `, board: ${e.group_link}` : "";
+    return `${name}${bill}${label}${board}${domain}${caution}`;
   }
   const forPart = e.for ? ` for ${quote(e.for, 80)}` : "";
-  return `${name}${forPart}${domain}`;
+  const label = name || forPart ? " (unverified)" : "";
+  return `${name}${forPart}${label}${domain}${caution}`;
 }
 
 function render(ledger: LedgerRes, now: number) {
@@ -277,7 +294,8 @@ function render(ledger: LedgerRes, now: number) {
   const paidCount = ledger.totals.reduce((n, t) => n + t.paid_count, 0);
 
   const lines = [
-    `${openCount} open ${openCount === 1 ? "request" : "requests"} · ${outstanding_total} outstanding · ${received_30d} received in the last 30 days (${paidCount} paid).`,
+    `${openCount} open ${openCount === 1 ? "request" : "requests"} · ${outstanding_total} outstanding · ${received_30d} received in the last 30 days (${paidCount} paid). ${LEDGER_TOTALS_NOTE}`,
+    LEDGER_CAUTION,
   ];
   if (!ledger.chain_checked) lines.push("Solana couldn't be read just now, so open requests show their last known state.");
   const detail: string[] = [];
@@ -292,10 +310,10 @@ function render(ledger: LedgerRes, now: number) {
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
   if (ledger.truncated) lines.push("Only the newest 100 open and 100 paid requests are listed; the totals count all of them.");
-  if (open.length > 0) lines.push("Names and notes were written by whoever made each request; write_reminder drafts a nudge for any open one.");
+  if (open.length > 0) lines.push("Names, reasons and amounts were written by whoever made each request. write_reminder drafts a nudge for an open one the user recognises.");
 
   const output: WhoOutput = {
-    step: "ledger", recipient: ledger.recipient, open, paid_recently: paid, outstanding_total, received_30d,
+    step: "ledger", recipient: ledger.recipient, caution: LEDGER_CAUTION, open, paid_recently: paid, outstanding_total, received_30d,
     chain_checked: ledger.chain_checked, truncated: ledger.truncated,
   };
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
