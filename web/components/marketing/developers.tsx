@@ -7,7 +7,8 @@ import { FIXTURES_URL, LLMS_URL, PAYBOX_MCP_URL, REPO_URL, TEAM_WALLET, TESTING_
 import { Container, SectionHeading } from "./ui";
 
 // The developer band. Samples follow contract/fixtures (create-request, status) and the plugin's
-// ask_for_money schemas, with the production host; the x402 line follows docs/FACTS.md (wave 2).
+// ask_for_money schemas, with the production host. x402 copy is shown only when NEXT_PUBLIC_OWED_X402_PUBLIC is "1"
+// (the pay page uses the same flag): nothing about x402 until a mainnet x402 settle is in docs/FACTS.md.
 
 const ORIGIN = "https://www.getowed.xyz";
 const ID = "JArQ6g9JvoWr";
@@ -53,13 +54,15 @@ const REST_CREATE = `curl -X POST ${ORIGIN}/api/v1/requests \\
     "for": "dinner"
   }'`;
 
+/** The pay page shows x402 lines under the same flag; the landing follows it so the two never disagree. */
+const X402_PUBLIC = process.env.NEXT_PUBLIC_OWED_X402_PUBLIC === "1";
+
 const REST_CREATE_RES = `{
   "id": "${ID}",
   "link": "${ORIGIN}/r/${ID}",
   "solana_pay_url": "solana:${TEAM_WALLET}?amount=15&…",
   "qr_url": "${ORIGIN}/api/qr/${ID}.png",
-  "reference": "${REFERENCE}",
-  "x402_url": "${ORIGIN}/x/${ID}",
+  "reference": "${REFERENCE}",${X402_PUBLIC ? `\n  "x402_url": "${ORIGIN}/x/${ID}",` : ""}
   "created_at": "2026-10-17T05:00:00Z",
   "flags": []
 }`;
@@ -85,7 +88,10 @@ const REST_STATUS_RES = `{
   ]
 }`;
 
-const RAILS = `# 1. Any Solana wallet: the request is a Solana Pay transfer URL
+const RAILS_SOLANA_PAY = `# Any Solana Pay wallet: the request is a Solana Pay transfer URL
+${SOLANA_PAY_URL}`;
+
+const RAILS_X402 = `# 1. Any Solana Pay wallet: the request is a Solana Pay transfer URL
 ${SOLANA_PAY_URL}
 
 # 2. Agents paying over HTTP: the same request as an x402 challenge
@@ -147,17 +153,29 @@ function RestPanel() {
 }
 
 function RailsPanel() {
+  if (!X402_PUBLIC) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Prose>
+          Every request is also a standard Solana Pay transfer URL, so any Solana Pay wallet can pay it from the QR code or
+          the link with no Owed account. The amount, token and recipient are in the URL, and the request&apos;s reference
+          rides along so Owed can match the payment on chain.
+        </Prose>
+        <CodeBlock title="one request, a standard URL" lang="shell" code={RAILS_SOLANA_PAY} />
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-6">
       <Prose>
-        Every request is also a standard Solana Pay transfer URL, so Phantom, Solflare, Backpack or any other Solana Pay
-        wallet can pay it from the QR code with no Owed account. For agents,{" "}
+        Every request is also a standard Solana Pay transfer URL, so any Solana Pay wallet can pay it from the QR code
+        with no Owed account. For agents,{" "}
         <code className="font-mono text-[0.9em] text-ink-fg">GET /x/&lt;id&gt;</code> answers HTTP 402 with an x402 challenge
         that pays the same recipient and amount; <code className="font-mono text-[0.9em] text-ink-fg">pay_link</code> with
         rail <code className="font-mono text-[0.9em] text-ink-fg">x402</code> checks the live challenge matches the request
         before proposing it, for payers without SOL for fees.
       </Prose>
-      <CodeBlock title="two rails, one request" lang="shell" code={RAILS} />
+      <CodeBlock title="two rails, one request" lang="shell" code={RAILS_X402} />
     </div>
   );
 }
@@ -226,7 +244,7 @@ export function Developers() {
             tabs={[
               { id: "mcp", label: "MCP", panel: <McpPanel /> },
               { id: "rest", label: "REST", panel: <RestPanel /> },
-              { id: "rails", label: "Solana Pay / x402", panel: <RailsPanel /> },
+              { id: "rails", label: X402_PUBLIC ? "Solana Pay / x402" : "Solana Pay", panel: <RailsPanel /> },
             ]}
           />
         </div>

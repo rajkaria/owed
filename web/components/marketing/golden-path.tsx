@@ -11,7 +11,7 @@ export interface Recording {
   poster: string;
   width: number;
   height: number;
-  /** What the recording shows, in one sentence, e.g. "Priya pays 15 USDC from Phantom; the agent sees it land." */
+  /** What the recording shows, in one sentence, e.g. "Priya pays 15 USDC from her wallet; the agent sees it land." */
   caption: string;
   /** YYYY-MM-DD it was recorded. */
   recorded: string;
