@@ -144,9 +144,24 @@ it("the status-check hook flips a pending receipt to paid without a reference sc
   const row = await newRequest();
   const a = await lock(beginInput(row.id));
   await store.settled(a, SIG(4), PAYER);
-  const ids = await settlePendingX402([row], {}, { store, check: async () => ({ status: "verified", credit: credit(4, "2026-10-17T09:01:00Z") }) });
+  const ids = await settlePendingX402([row], {}, { store, check: async () => ({ status: "verified", credit: credit(4, "2026-10-17T09:01:00Z") }), findLanded: async () => null });
   assert.deepEqual([...ids], [row.id]);
   assert.equal((await load(row.id)).paidRail, "x402");
+});
+
+it("a timed-out settlement that landed is found by the status check and settles the request", async () => {
+  const row = await newRequest();
+  const a = await lock(beginInput(row.id));
+  await store.fail(a, "unknown", "facilitator /settle timed out");
+  const [pending] = await store.pending([row.id]);
+  assert.deepEqual([pending?.state, pending?.payer, pending?.feePayer], ["unknown", PAYER, FEE_PAYER]);
+  assert.ok(Math.abs(pending!.createdUnix - Date.now() / 1000) < 10);
+  const ids = await settlePendingX402([row], {}, { store, check: async () => ({ status: "pending" }), findLanded: async () => credit(6, "2026-10-17T09:03:00Z") });
+  assert.deepEqual([...ids], [row.id]);
+  const paid = await load(row.id);
+  assert.deepEqual([paid.status, paid.paidRail, paid.paidSignature], ["paid", "x402", SIG(6)]);
+  const r = await pg.query<{ state: string; signature: string }>("select state, signature from x402_receipts where id = $1", [a]);
+  assert.deepEqual(r.rows[0], { state: "verified", signature: SIG(6) });
 });
 
 it("handler end to end on Postgres: two agents pay at once, exactly one settles", async () => {

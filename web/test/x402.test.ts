@@ -5,7 +5,7 @@ import { requestIdFor } from "@/lib/ids";
 import type { RequestRow } from "@/lib/requests";
 import { parseJsonExact } from "@/lib/solana";
 import type { Credit, ParsedTransaction } from "@/lib/validate";
-import { checkSettlement, waitForSettlement, type SettlementCheck } from "@/lib/x402/chain";
+import { checkSettlement, findLandedSettlement, waitForSettlement, type SettlementCheck } from "@/lib/x402/chain";
 import { clearSupportedCache, FacilitatorError, makeFacilitator, parseSupported, type Facilitator, type Supported } from "@/lib/x402/facilitator";
 import { handleX402, type X402Deps } from "@/lib/x402/handler";
 import { settlePendingX402 } from "@/lib/x402/settle";
@@ -481,7 +481,7 @@ test("x402UrlFor: USDC requests with 12-char ids only", () => {
 test("settlePendingX402 confirms settled receipts the chain now shows, gives up on old ones, never throws", async () => {
   const receipt = (over: Partial<Receipt>): Receipt => ({
     id: "1", requestId: ID, state: "settled", x402Version: 2, network: NETWORK_V2, amountAtomic: 10_000n, payer: OTHER, signature: SIG,
-    createdAt: "2026-10-17T08:00:00Z", settledAt: "2026-10-17T08:00:02Z", ageSeconds: 5, ...over,
+    feePayer: FEE_PAYER, createdAt: "2026-10-17T08:00:00Z", createdUnix: 1792224000, settledAt: "2026-10-17T08:00:02Z", ageSeconds: 5, ...over,
   });
   const credit: Credit = { signature: SIG, payer: OTHER, amountAtomic: 10_000n, at: "2026-10-17T08:00:03Z", slot: 9 };
   const log: string[] = [];
@@ -493,24 +493,85 @@ test("settlePendingX402 confirms settled receipts the chain now shows, gives up 
     pending: async (ids) => { log.push(`pending ${ids.join(",")}`); return receipts; },
   });
   const paidRow = row({ id: "otherPaidId1", status: "paid" });
+  const noLanded = async () => null;
 
-  let paid = await settlePendingX402([row(), paidRow], {}, { store: store([receipt({})]), check: async () => ({ status: "verified", credit }) });
+  let paid = await settlePendingX402([row(), paidRow], {}, { store: store([receipt({})]), check: async () => ({ status: "verified", credit }), findLanded: noLanded });
   assert.deepEqual([...paid], [ID]);
   assert.deepEqual(log.splice(0), [`pending ${ID}`, "verified 1"]);
 
-  paid = await settlePendingX402([row()], {}, { store: store([receipt({})]), check: async () => ({ status: "mismatch", reason: "nope" }) });
+  paid = await settlePendingX402([row()], {}, { store: store([receipt({})]), check: async () => ({ status: "mismatch", reason: "nope" }), findLanded: noLanded });
   assert.equal(paid.size, 0);
   assert.deepEqual(log.splice(0), [`pending ${ID}`, "fail 1 mismatch nope"]);
 
-  await settlePendingX402([row()], {}, { store: store([receipt({ ageSeconds: 601 })]), check: async () => ({ status: "pending" }) });
+  await settlePendingX402([row()], {}, { store: store([receipt({ ageSeconds: 601 })]), check: async () => ({ status: "pending" }), findLanded: noLanded });
   assert.deepEqual(log.splice(0), [`pending ${ID}`, "fail 1 mismatch settlement transaction never appeared on chain"]);
 
-  await settlePendingX402([row()], {}, { store: store([receipt({})]), check: async () => ({ status: "pending" }) });
+  await settlePendingX402([row()], {}, { store: store([receipt({})]), check: async () => ({ status: "pending" }), findLanded: noLanded });
   assert.deepEqual(log.splice(0), [`pending ${ID}`]);
 
   // Nothing open: no query at all. A broken store (e.g. migration not applied yet): no throw.
-  assert.equal((await settlePendingX402([paidRow], {}, { store: store([]), check: async () => ({ status: "pending" }) })).size, 0);
+  assert.equal((await settlePendingX402([paidRow], {}, { store: store([]), check: async () => ({ status: "pending" }), findLanded: noLanded })).size, 0);
   assert.deepEqual(log, []);
   const broken = { ...store([]), pending: async () => { throw new Error('relation "x402_receipts" does not exist'); } };
-  assert.equal((await settlePendingX402([row()], {}, { store: broken, check: async () => ({ status: "pending" }) })).size, 0);
+  assert.equal((await settlePendingX402([row()], {}, { store: broken, check: async () => ({ status: "pending" }), findLanded: noLanded })).size, 0);
+});
+
+test("settlePendingX402: a timed-out settlement that landed anyway is found and settles the request", async () => {
+  const log: string[] = [];
+  const unknown: Receipt = {
+    id: "7", requestId: ID, state: "unknown", x402Version: 2, network: NETWORK_V2, amountAtomic: 10_000n, payer: OTHER, feePayer: FEE_PAYER,
+    signature: null, createdAt: "2026-10-17T08:00:00Z", createdUnix: 1792224000, settledAt: null, ageSeconds: 40,
+  };
+  const credit: Credit = { signature: SIG, payer: OTHER, amountAtomic: 10_000n, at: "2026-10-17T08:00:20Z", slot: 9 };
+  const store: Store = {
+    begin: async () => { throw new Error("unused"); },
+    fail: async (id, state) => { log.push(`fail ${id} ${state}`); },
+    settled: async (id, signature, payer) => { log.push(`settled ${id} ${signature} ${payer}`); },
+    verified: async (r, c) => { log.push(`verified ${r.id} ${c.signature}`); return true; },
+    pending: async () => [unknown],
+  };
+  let asked: unknown = null;
+  const paid = await settlePendingX402([row()], {}, {
+    store, check: async () => { throw new Error("unknown receipts have no signature to check"); },
+    findLanded: async (q) => { asked = q; return credit; },
+  });
+  assert.deepEqual([...paid], [ID]);
+  assert.deepEqual(asked, { recipient: RECIPIENT, payer: OTHER, feePayer: FEE_PAYER, amountAtomic: 10_000n, sinceUnix: 1792224000 - 60 });
+  assert.deepEqual(log, [`settled 7 ${SIG} ${OTHER}`, `verified 7 ${SIG}`]);
+
+  log.length = 0;
+  const none = await settlePendingX402([row()], {}, { store, check: async () => ({ status: "pending" }), findLanded: async () => null });
+  assert.equal(none.size, 0);
+  assert.deepEqual(log, []);
+  // An RPC error on one receipt doesn't throw out of a status check.
+  const boom = await settlePendingX402([row()], {}, { store, check: async () => ({ status: "pending" }), findLanded: async () => { throw new Error("rpc down"); } });
+  assert.equal(boom.size, 0);
+});
+
+test("findLandedSettlement finds a real PayAI settlement on the recipient's USDC account, and only a matching one", async () => {
+  const real = globalThis.fetch;
+  const asked: string[] = [];
+  globalThis.fetch = (async (_input: string | URL, init?: RequestInit) => {
+    const call = JSON.parse(String(init!.body)) as { method: string; params: unknown[] };
+    asked.push(call.method === "getSignaturesForAddress" ? `sigs ${call.params[0]}` : `tx ${call.params[0]}`);
+    const result = call.method === "getSignaturesForAddress"
+      ? [{ signature: "older".padEnd(88, "1"), err: null, blockTime: Number(settled.tx.blockTime) - 3600 }, { signature: settled.signature, err: null, blockTime: Number(settled.tx.blockTime) }]
+      : settled.tx;
+    return Response.json({ jsonrpc: "2.0", id: 0, result });
+  }) as typeof globalThis.fetch;
+  try {
+    const q = { recipient: settled.recipient, payer: settled.payer, feePayer: settled.feePayer, amountAtomic: BigInt(settled.amountAtomic), sinceUnix: Number(settled.tx.blockTime) - 30 };
+    const opts = { urls: ["https://rpc.example"] };
+    const found = await findLandedSettlement(q, opts);
+    assert.equal(found?.signature, settled.signature);
+    assert.equal(found?.payer, settled.payer);
+    // The hour-old transaction is before the attempt began and is never fetched.
+    assert.deepEqual(asked, [`sigs ${recipientUsdcAccount(settled.recipient)}`, `tx ${settled.signature}`]);
+    assert.equal(await findLandedSettlement({ ...q, payer: OTHER }, opts), null, "another payer's transfer");
+    assert.equal(await findLandedSettlement({ ...q, feePayer: OTHER }, opts), null, "not fee-paid by this facilitator");
+    assert.equal(await findLandedSettlement({ ...q, amountAtomic: q.amountAtomic + 1n }, opts), null, "less than the request");
+    assert.equal(await findLandedSettlement({ ...q, sinceUnix: Number(settled.tx.blockTime) + 1 }, opts), null, "landed before the attempt");
+  } finally {
+    globalThis.fetch = real;
+  }
 });

@@ -18,14 +18,18 @@ export interface Receipt {
   network: string;
   amountAtomic: bigint;
   payer: string | null;
+  feePayer: string | null;
   signature: string | null;
   createdAt: string;
+  /** created_at as Unix seconds. */
+  createdUnix: number;
   settledAt: string | null;
   ageSeconds: number;
 }
 
 const COLUMNS = `id::text as id, request_id, state, x402_version::text as x402_version, network,
-  amount_atomic::text as amount_atomic, payer, signature, ${isoUtc("created_at")} as created_at,
+  amount_atomic::text as amount_atomic, payer, fee_payer, signature, ${isoUtc("created_at")} as created_at,
+  extract(epoch from created_at)::bigint::text as created_unix,
   ${isoUtc("settled_at")} as settled_at, extract(epoch from now() - created_at)::int::text as age_seconds`;
 
 function fromRow(r: Record<string, string | null>): Receipt {
@@ -37,8 +41,10 @@ function fromRow(r: Record<string, string | null>): Receipt {
     network: r.network!,
     amountAtomic: BigInt(r.amount_atomic!),
     payer: r.payer,
+    feePayer: r.fee_payer,
     signature: r.signature,
     createdAt: r.created_at!,
+    createdUnix: Number(r.created_unix),
     settledAt: r.settled_at,
     ageSeconds: Number(r.age_seconds),
   };
@@ -52,6 +58,7 @@ export interface Store {
   settled(receiptId: string, signature: string, payer: string | null): Promise<void>;
   /** Mark the receipt verified and the request paid over x402, in one transaction. Returns false if the request was no longer open. */
   verified(receipt: { id: string; requestId: string }, credit: Credit): Promise<boolean>;
+  /** Settled receipts waiting for the chain, and timed-out ones whose transaction may have landed. */
   pending(requestIds: readonly string[]): Promise<Receipt[]>;
 }
 
@@ -120,7 +127,7 @@ export const store: Store = {
   async pending(requestIds) {
     if (requestIds.length === 0) return [];
     const rows = await sql(
-      `select ${COLUMNS} from x402_receipts where state = 'settled' and request_id = any($1::text[])`,
+      `select ${COLUMNS} from x402_receipts where state in ('settled', 'unknown') and request_id = any($1::text[])`,
       [requestIds],
     );
     return rows.map(fromRow);
