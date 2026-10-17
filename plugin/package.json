@@ -10,7 +10,7 @@
   "packageManager": "pnpm@11.11.0",
   "scripts": {
     "dev": "tsx src/plugin.ts",
-    "build": "esbuild src/plugin.ts --bundle --platform=node --format=esm --target=node24 --minify --outfile=dist/plugin.mjs",
+    "build": "esbuild src/plugin.ts --bundle --platform=node --format=esm --target=node24 --main-fields=module,main --minify --banner:js=\"import{createRequire as __owedCreateRequire}from'node:module';const require=__owedCreateRequire(import.meta.url);\" --outfile=dist/plugin.mjs",
     "conformance": "node scripts/conformance.mjs",
     "test": "node scripts/test.mjs",
     "typecheck": "tsc --noEmit",
