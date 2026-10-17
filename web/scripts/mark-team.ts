@@ -1,7 +1,8 @@
 // Recompute requests.is_team for payments recorded before OWED_TEAM_WALLETS was set (W2-F, /proof).
 // New payments get the flag when they are recorded (lib/requests.ts, lib/x402/store.ts); this brings
-// older rows in line with the same rule (lib/team.ts): a settled request is the team's when it pays a
-// team wallet or a team wallet paid it. Dry run by default: prints every row it would change.
+// older rows in line with the same rule (lib/team.ts): a settled request is the team's when a team
+// wallet paid it. Dry run by default: prints every row it would change, in both directions (rows the
+// earlier recipient-or-payer rule flagged are cleared).
 //
 //   vercel env pull .env.production.local --environment=production
 //   node --env-file=.env.production.local --import ./test/setup.mjs scripts/mark-team.ts            # dry run
