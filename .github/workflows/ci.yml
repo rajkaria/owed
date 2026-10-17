@@ -34,8 +34,10 @@ jobs:
         run: pnpm test
       - name: Quality tooling tests (shapes, tx decoder, smoke grading, e2e harness)
         run: node --test "e2e/test/*.test.mjs"
-      - name: MCP end-to-end, sample call with network blocked
-        run: node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs --sample --hosts none
+      - name: MCP end-to-end, sample call reaching only the configured hosts
+        run: node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs --sample
+      - name: MCP end-to-end, sample call with every host down
+        run: node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs --sample --down owed-omega.vercel.app,solana-rpc.publicnode.com,api.mainnet-beta.solana.com --expect results.0.status=unknown
       - name: Bundle digest
         run: |
           (cd plugin/dist && sha256sum plugin.mjs | tee plugin.mjs.sha256)
