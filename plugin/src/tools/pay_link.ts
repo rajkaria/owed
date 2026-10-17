@@ -221,6 +221,10 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
   }
   if (rq.status === "paid") return REFUSE_ALREADY_PAID;
   if (rq.status === "cancelled") return "This request was cancelled by the requester.";
+  // W3-C: the server says expired once expires_at passes; the plugin's own clock refuses it too.
+  if (rq.status === "expired" || (rq.expires_at && Date.parse(rq.expires_at) <= deps.now())) {
+    return `This request expired${rq.expires_at ? ` at ${rq.expires_at}` : ""} and no longer takes payments. Nothing was sent; ask the requester for a new link.`;
+  }
   if (rq.status === "underpaid") {
     const paid = rq.paid ? `${rq.paid.amount} of ${rq.amount} ${rq.token}` : `part of ${rq.amount} ${rq.token}`;
     return `This request already received a partial payment (${paid}). Ask the requester for a new link for the rest.`;

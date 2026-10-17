@@ -7,6 +7,8 @@ import { register as splitBill } from "./split_bill.js";
 import { register as createInvoice } from "./create_invoice.js";
 import { register as whoOwesMe } from "./who_owes_me.js";
 import { register as writeReminder } from "./write_reminder.js";
+import { register as cancelRequest } from "./cancel_request.js"; // W3-C
+import { register as askEveryMonth } from "./ask_every_month.js"; // W3-D
 
 // One line per tool. Sprints append their import + entry; LEAD resolves merge conflicts.
 export const tools: Array<(server: McpServer) => void> = [
@@ -18,4 +20,6 @@ export const tools: Array<(server: McpServer) => void> = [
   createInvoice,
   writeReminder,
   whoOwesMe,
+  cancelRequest, // W3-C
+  askEveryMonth, // W3-D
 ];

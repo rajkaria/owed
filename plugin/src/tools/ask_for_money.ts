@@ -10,6 +10,7 @@ import { clean, quote, shareText } from "../text.js";
 // W2-H verified payee start
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
+import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
 
 export const inputSchema = z.object({
   recipient: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials). The money is paid to this address."),
@@ -22,6 +23,7 @@ export const inputSchema = z.object({
   // W2-H verified payee start
   from_domain: fromDomainSchema.optional(),
   // W2-H verified payee end
+  expires_in_days: expiresInDaysInput.optional(), // W3-C
 }).strict();
 
 export const outputSchema = z.object({
@@ -41,6 +43,7 @@ export const outputSchema = z.object({
   // W2-H verified payee start
   from_domain: z.string().optional().describe("The verified domain payers see on the request (lower-case ASCII). Absent offline: offline links carry no domain."),
   // W2-H verified payee end
+  expires_at: z.string().optional().describe("When the link stops taking payments (set by Owed's server). Absent offline or without expires_in_days."), // W3-C
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -59,6 +62,7 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the user has a domain that publishes their wallet in DNS (_owed.<domain> TXT owed-pay=<wallet>), pass it as from_domain: Owed checks it first and payers see the request as verified from that domain.",
   // W2-H verified payee end
+  "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
@@ -103,9 +107,11 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     ...(fromDomain && { from_domain: fromDomain.domain }),
     // W2-H verified payee end
+    ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
   };
 
   let created: { id: string | null; mode: "hosted" | "offline"; link: string; solana_pay_url: string; qr_url: string | null; reference: string };
+  let expiresAt: string | undefined; // W3-C
   try {
     const res = await ctx.api.createRequest(body);
     const mismatch = checkHosted(res, args.recipient, token, atomic, ctx, deps);
@@ -115,6 +121,10 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
       return refusal(`Owed's server didn't attach ${fromDomain.domain} to the request, so the link wasn't used. Try again, or ask without from_domain.`);
     }
     // W2-H verified payee end
+    // W3-C: the server must have set the expiry that was asked for.
+    const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
+    if (expiry) return refusal(expiry);
+    if (args.expires_in_days !== undefined && res.expires_at) expiresAt = res.expires_at;
     created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url, qr_url: res.qr_url, reference: res.reference };
   } catch (error) {
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the request."));
@@ -135,6 +145,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain.domain }),
     // W2-H verified payee end
+    ...(expiresAt && { expires_at: expiresAt }), // W3-C
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -151,6 +162,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     lines.push(`Offline links can't carry a domain, so payers will see this one as unverified, not as from ${fromDomain.domain}.`);
   }
   // W2-H verified payee end
+  // W3-C expiry
+  if (expiresAt && args.expires_in_days !== undefined) lines.push(expiryLine(expiresAt, args.expires_in_days));
+  if (created.mode === "offline" && args.expires_in_days !== undefined) lines.push(OFFLINE_NO_EXPIRY);
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
 

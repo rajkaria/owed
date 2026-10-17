@@ -28,6 +28,7 @@ export async function POST(req: Request): Promise<Response> {
       dueDate: body.due_date,
       items: body.items,
       source: body.source,
+      expiresInDays: body.expires_in_days ?? null, // W3-C
     };
     const now = Date.now();
     try {

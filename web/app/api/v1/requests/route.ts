@@ -58,6 +58,7 @@ export async function POST(req: Request): Promise<Response> {
       flags: allFlags,
       source: body.source,
       fromDomain,
+      expiresInDays: body.expires_in_days ?? null, // W3-C: the database computes expires_at from its own clock
     });
 
     const base = baseUrl(req);
@@ -71,6 +72,7 @@ export async function POST(req: Request): Promise<Response> {
       created_at: row.createdAt,
       flags: row.flags,
       from_domain: row.fromDomain,
+      expires_at: row.expiresAt ?? null, // W3-C
     };
     return json(res, { status: 201 });
   } catch (e) {

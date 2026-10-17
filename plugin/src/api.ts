@@ -5,6 +5,8 @@ import {
   type StatusRawRes, type StatusRes,
   invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
   ledgerResSchema, type LedgerReq, type LedgerRes,
+  cancelResSchema, type CancelReq, type CancelRes,
+  scheduleResSchema, type CreateScheduleReq, type ScheduleRes, // W3-D
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -52,6 +54,9 @@ export interface ApiClient {
   ledger(body: LedgerReq): Promise<LedgerRes>;
   getGroup(id: string): Promise<GroupRes>;
   getInvoice(id: string): Promise<InvoiceRes>;
+  /** W3-C: cancel a request with the recipient's signed message. */
+  cancelRequest(id: string, body: CancelReq): Promise<CancelRes>;
+  createSchedule(body: CreateScheduleReq): Promise<ScheduleRes>; // W3-D
 }
 
 export interface ApiOptions {
@@ -110,5 +115,7 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
     getGroup: (id) => call("GET", `/groups/${encodeURIComponent(id)}`, groupResSchema),
     getInvoice: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceResSchema),
+    cancelRequest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/cancel`, cancelResSchema, body), // W3-C
+    createSchedule: (body) => call("POST", "/schedules", scheduleResSchema, body), // W3-D
   };
 }

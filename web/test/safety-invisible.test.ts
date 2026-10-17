@@ -56,6 +56,7 @@ test("QA-06: production row Yq9MaUsCopbJ ('Owed Support', stored flags []) gets 
     payer_name: null, for: "account verification fee", note: null, requester_name: "Owed Support", status: "open",
     solana_pay_url: "solana:B7QBb26C4Cijm6BCLntASHhGouMSx6ayVWqkyFYYGTTp?amount=5", reference: "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
     x402_url: null, created_at: "2026-10-17T13:38:00Z", paid: null, flags: [], from_domain: null, from_domain_verified_at: null,
+    expires_at: null, cancelled: null, // W3-C
   };
   const model = modelFromRequest(req as Parameters<typeof modelFromRequest>[0], "https://www.getowed.xyz");
   assert.equal(pageTitle(model), "Payment request for 5 USDC");

@@ -11,6 +11,18 @@ const requestId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-k
 const isoTime = z.iso.datetime();
 const token = z.enum(["USDC", "SOL"]);
 
+// W3-C: optional expiry, in whole days. The server computes expires_at from its own clock; no client time is taken.
+export const EXPIRES_IN_DAYS = { min: 1, max: 90 } as const;
+const expiresInDays = z
+  .number({ error: "expires_in_days must be a whole number of days from 1 to 90" })
+  .int("expires_in_days must be a whole number of days from 1 to 90")
+  .min(EXPIRES_IN_DAYS.min, "expires_in_days must be at least 1")
+  .max(EXPIRES_IN_DAYS.max, "expires_in_days can be at most 90")
+  .nullish();
+const requestStatus = z.enum(["open", "paid", "underpaid", "cancelled", "expired"]);
+/** W3-C: the recipient's signed cancellation, public so anyone can check it came from the wallet the request pays. */
+export const CancelProof = z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) });
+
 // Raw text may be longer than its cap: links and invisible characters are stripped
 // first, then the clean text is cut to the cap. 4x the cap bounds the work.
 const untrusted = (cap: number) => z.string().max(cap * 4).nullish();
@@ -27,6 +39,7 @@ export const CreateRequestBody = z.object({
   source: z.enum(["plugin", "web"]).default("web"),
   // W2-H verified payee: re-checked over DNS before the request is created (lib/payee.ts).
   from_domain: z.string().min(1).max(253).nullish(),
+  expires_in_days: expiresInDays, // W3-C
 });
 export type CreateRequestBody = z.infer<typeof CreateRequestBody>;
 
@@ -40,6 +53,7 @@ export const CreateRequestResponse = z.object({
   created_at: isoTime,
   flags: z.array(z.string()),
   from_domain: z.string().nullable().optional(), // W2-H verified payee
+  expires_at: isoTime.nullable().optional(), // W3-C
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -61,7 +75,7 @@ export const GetRequestResponse = z.object({
   for: z.string().nullable(),
   note: z.string().nullable(),
   requester_name: z.string().nullable(),
-  status: z.enum(["open", "paid", "underpaid", "cancelled"]),
+  status: requestStatus, // W3-C: + "expired"
   solana_pay_url: z.string().startsWith("solana:"),
   reference: base58Key,
   x402_url: z.url().nullable(),
@@ -71,6 +85,9 @@ export const GetRequestResponse = z.object({
   // W2-H verified payee: display only; the plugin re-reads DNS before paying.
   from_domain: z.string().nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  // W3-C expiry + cancel
+  expires_at: isoTime.nullable().optional(),
+  cancelled: CancelProof.nullable().optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -78,7 +95,7 @@ export const StatusBody = z.object({
   ids: z.array(z.string().max(64)).min(1).max(20),
 });
 
-export const StatusValue = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid"]);
+export const StatusValue = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"]); // W3-C: + expired
 export type StatusValue = z.infer<typeof StatusValue>;
 
 const PaymentFields = {
@@ -90,7 +107,10 @@ const PaymentFields = {
   paid_at: isoTime.optional(),
 };
 
-export const StatusResult = z.object({ id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional() });
+export const StatusResult = z.object({
+  id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional(),
+  expires_at: isoTime.optional(), cancelled_at: isoTime.optional(), // W3-C
+});
 export type StatusResult = z.infer<typeof StatusResult>;
 
 export const StatusResponse = z.object({ results: z.array(StatusResult) });
@@ -108,7 +128,6 @@ export const StatsResponse = z.object({
 
 // Split bills: POST /api/v1/groups, GET /api/v1/groups/:id (one response shape for both).
 const groupId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed group id");
-const requestStatus = z.enum(["open", "paid", "underpaid", "cancelled"]);
 
 export const CreateGroupBody = z.object({
   recipient: base58Key,
@@ -122,6 +141,7 @@ export const CreateGroupBody = z.object({
   requester_name: untrusted(TEXT_LIMITS.requester_name),
   source: z.enum(["plugin", "web"]).default("web"),
   from_domain: z.string().min(1).max(253).nullish(),
+  expires_in_days: expiresInDays, // W3-C: every share expires together
 });
 export type CreateGroupBody = z.infer<typeof CreateGroupBody>;
 
@@ -153,6 +173,7 @@ export const GroupResponse = z.object({
   paid_count: z.number().int().nonnegative(),
   amount_received: decimal,
   shares: z.array(GroupShare).min(2).max(20),
+  expires_at: isoTime.optional(), // W3-C: when every share stops taking payments (absent: never)
 });
 export type GroupResponse = z.infer<typeof GroupResponse>;
 // ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
@@ -181,6 +202,7 @@ export const CreateInvoiceBody = z.object({
   notes: untrusted(INVOICE_LIMITS.notes),
   from_domain: z.string().min(1).max(253).nullish(),
   source: z.enum(["plugin", "web"]).default("web"),
+  expires_in_days: expiresInDays, // W3-C: must reach the due date
 });
 export type CreateInvoiceBody = z.infer<typeof CreateInvoiceBody>;
 
@@ -212,12 +234,15 @@ export const InvoiceResponse = z.object({
     .min(1)
     .max(INVOICE_LIMITS.items),
   total: decimal,
-  status: z.enum(["open", "paid", "underpaid", "cancelled"]),
+  status: requestStatus, // W3-C: + "expired"
   paid: PaidInfo.nullable(),
   created_at: isoTime,
   flags: z.array(z.string()),
   from_domain: domain.nullable(),
   from_domain_verified_at: isoTime.nullable(),
+  // W3-C expiry + cancel (absent when not set)
+  expires_at: isoTime.optional(),
+  cancelled_at: isoTime.optional(),
 });
 export type InvoiceResponse = z.infer<typeof InvoiceResponse>;
 
@@ -231,6 +256,7 @@ export const LedgerBody = z.object({
   recipient: base58Key,
   signed_message: z.string().min(1).max(200),
   signature: z.string().min(64).max(200),
+  csv: z.boolean().optional(), // W3-D: also return a 10-minute CSV download link
 }).strict();
 export type LedgerBody = z.infer<typeof LedgerBody>;
 
@@ -256,6 +282,9 @@ const LedgerEntry = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   from_domain: z.string().nullable(),
   flags: z.array(z.string()),
+  // W3-D: the monthly schedule and month ("YYYY-MM") that opened this request; null for one-off requests.
+  schedule_id: z.string().nullable().optional(),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
 });
 
 export const LedgerResponse = z.object({
@@ -273,5 +302,97 @@ export const LedgerResponse = z.object({
     paid_count: z.number().int().nonnegative(),
   })),
   truncated: z.boolean(),
+  schedules: z.array(z.lazy(() => ScheduleSummary)).optional(), // W3-D
+  csv: z.object({ url: z.url(), expires_at: isoTime }).nullable().optional(), // W3-D: null when export isn't configured
 });
 export type LedgerResponse = z.infer<typeof LedgerResponse>;
+
+// W3-C: POST /api/v1/requests/:id/cancel (cancel_request). The recipient's wallet signs
+// "Owed cancel <id> for <recipient> at <ISO time>"; the signature works once, within 5 minutes.
+export const CancelBody = z.object({
+  recipient: base58Key,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type CancelBody = z.infer<typeof CancelBody>;
+
+/** The request after the cancel, plus whether it had already been cancelled (cancelling twice changes nothing). */
+export const CancelResponse = GetRequestResponse.extend({ already_cancelled: z.boolean() });
+export type CancelResponse = z.infer<typeof CancelResponse>;
+
+// ---- W3-D: recurring requests (POST /api/v1/schedules) ----
+
+const period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "must be a month written YYYY-MM");
+const scheduleId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed schedule id");
+
+export const CreateScheduleBody = z.object({
+  recipient: base58Key,
+  amount: z.string().max(40),
+  token: token.default("USDC"),
+  payer_name: untrusted(TEXT_LIMITS.payer_name),
+  for: untrusted(TEXT_LIMITS.for),
+  requester_name: untrusted(TEXT_LIMITS.requester_name),
+  day_of_month: z.number().int().min(1, "day_of_month must be 1 to 28").max(28, "day_of_month must be 1 to 28 (every month has those days)"),
+  months: z.number().int().min(1).max(120).nullish(),
+  from_domain: z.string().min(1).max(253).nullish(),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
+
+export const ScheduleRequestRef = z.object({
+  period,
+  id: requestId,
+  link: z.url(),
+  status: z.string(),
+});
+
+export const ScheduleSummary = z.object({
+  id: scheduleId,
+  status: z.enum(["active", "ended", "stopped"]),
+  amount: decimal,
+  token,
+  payer_name: z.string().nullable(),
+  for: z.string().nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  requests_opened: z.number().int().nonnegative(),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  from_domain: z.string().nullable(),
+  last_error: z.string().nullable(),
+  requests: z.array(ScheduleRequestRef),
+});
+export type ScheduleSummary = z.infer<typeof ScheduleSummary>;
+
+export const ScheduleResponse = z.object({
+  id: scheduleId,
+  recipient: base58Key,
+  amount: decimal,
+  token,
+  payer_name: z.string().nullable(),
+  for: z.string().nullable(),
+  requester_name: z.string().nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  first_period: period,
+  status: z.enum(["active", "ended", "stopped"]),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string()),
+  from_domain: domain.nullable(),
+  from_domain_verified_at: isoTime.nullable(),
+  /** This month's request when the schedule's day is today; null otherwise. */
+  first_request: z.object({
+    period,
+    id: requestId,
+    link: z.url(),
+    solana_pay_url: z.string().startsWith("solana:"),
+    qr_url: z.url(),
+    reference: base58Key,
+    x402_url: z.url().nullable(),
+    created_at: isoTime,
+    flags: z.array(z.string()),
+    from_domain: domain.nullable(),
+  }).nullable(),
+});
+export type ScheduleResponse = z.infer<typeof ScheduleResponse>;

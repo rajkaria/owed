@@ -17,7 +17,10 @@ const isoTime = z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\
 const httpsUrl = z.string().max(2048).regex(/^https:\/\//);
 const solanaPayUrl = z.string().max(2048).regex(/^solana:/);
 
-export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid"]);
+// W3-C: + "expired" (an open request past its expires_at; the server computes it).
+export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"]);
+/** W3-C: optional expiry on creation, whole days. The server sets expires_at from its own clock. */
+export const expiresInDaysSchema = z.number().int().min(1).max(90);
 export const errorCodeSchema = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 
 export const createRequestReqSchema = z.object({
@@ -32,6 +35,7 @@ export const createRequestReqSchema = z.object({
   group_id: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -44,6 +48,7 @@ export const createRequestResSchema = z.object({
   created_at: isoTime,
   flags: z.array(z.string().max(80)).max(32),
   from_domain: z.string().max(253).nullable().optional(), // W2-H verified payee
+  expires_at: isoTime.nullable().optional(), // W3-C
 });
 
 export const paidInfoSchema = z.object({
@@ -74,6 +79,9 @@ export const getRequestResSchema = z.object({
   // W2-H verified payee: display copy only. pay_link re-checks the domain's DNS itself.
   from_domain: z.string().max(253).nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  // W3-C: when it stops taking payments, and the recipient's signed cancellation (display; never trusted for paying).
+  expires_at: isoTime.nullable().optional(),
+  cancelled: z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
@@ -95,6 +103,8 @@ export const statusResultSchema = z.object({
   ...paymentFields,
   // check_payments turns it into how long an open request has waited.
   created_at: isoTime.optional(),
+  expires_at: isoTime.optional(), // W3-C
+  cancelled_at: isoTime.optional(),
 }).superRefine((r, ctx) => {
   if (r.status === "not_found" || r.status === "invalid") return;
   for (const key of ["amount_requested", "token"] as const) {
@@ -132,6 +142,7 @@ export const createGroupReqSchema = z.object({
   requester_name: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(),
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
 }).strict();
 
 export const groupShareSchema = z.object({
@@ -163,6 +174,7 @@ export const groupResSchema = z.object({
   paid_count: z.number().int().nonnegative(),
   amount_received: decimalSchema,
   shares: z.array(groupShareSchema).min(2).max(20),
+  expires_at: isoTime.optional(), // W3-C
 });
 
 export const errorResSchema = z.object({
@@ -192,6 +204,7 @@ export const createInvoiceReqSchema = z.object({
   notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional(),
   from_domain: z.string().min(1).max(253).optional(),
   source: z.enum(["plugin", "web"]),
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
 }).strict();
 
 export const invoiceResSchema = z.object({
@@ -223,6 +236,8 @@ export const invoiceResSchema = z.object({
   flags: z.array(z.string().max(80)).max(32),
   from_domain: z.string().max(253).nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  expires_at: isoTime.optional(), // W3-C
+  cancelled_at: isoTime.optional(),
 });
 
 export type Token = z.infer<typeof tokenSchema>;
@@ -248,6 +263,7 @@ export const ledgerReqSchema = z.object({
   recipient: addressSchema,
   signed_message: z.string().min(1).max(200),
   signature: z.string().min(64).max(200),
+  csv: z.literal(true).optional(), // W3-D: also mint a 10-minute CSV download link
 }).strict();
 
 export const ledgerEntrySchema = z.object({
@@ -273,6 +289,32 @@ export const ledgerEntrySchema = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   from_domain: z.string().max(253).nullable(),
   flags: z.array(z.string().max(80)).max(32).optional(),
+  // W3-D: the monthly schedule and month that opened this request (null or absent for one-off requests).
+  schedule_id: z.string().max(40).nullable().optional(),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
+});
+
+// W3-D: a monthly schedule as the ledger lists it.
+export const scheduleSummarySchema = z.object({
+  id: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/),
+  status: z.string().max(20),
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).nullable(),
+  for: z.string().max(80).nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  requests_opened: z.number().int().nonnegative(),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  from_domain: z.string().max(253).nullable(),
+  last_error: z.string().max(400).nullable(),
+  requests: z.array(z.object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    id: requestIdSchema,
+    link: httpsUrl,
+    status: z.string().max(20),
+  })).max(24),
 });
 
 export const ledgerResSchema = z.object({
@@ -290,8 +332,72 @@ export const ledgerResSchema = z.object({
     paid_count: z.number().int().nonnegative(),
   })).max(2),
   truncated: z.boolean(),
+  schedules: z.array(scheduleSummarySchema).max(20).optional(), // W3-D
+  csv: z.object({ url: httpsUrl, expires_at: isoTime }).nullable().optional(), // W3-D: null = export not configured
 });
 
 export type LedgerReq = z.infer<typeof ledgerReqSchema>;
 export type LedgerRes = z.infer<typeof ledgerResSchema>;
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
+
+// W3-C: POST /api/v1/requests/:id/cancel (cancel_request). The recipient's wallet signs
+// "Owed cancel <id> for <recipient> at <ISO time>"; the server accepts it once, within 5 minutes.
+export const cancelReqSchema = z.object({
+  recipient: addressSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const cancelResSchema = getRequestResSchema.extend({ already_cancelled: z.boolean() });
+
+export type CancelReq = z.infer<typeof cancelReqSchema>;
+export type CancelRes = z.infer<typeof cancelResSchema>;
+export type ScheduleSummary = z.infer<typeof scheduleSummarySchema>;
+
+// W3-D: POST /api/v1/schedules (ask_every_month). Same payer, amount and text on the same day each month (UTC).
+export const createScheduleReqSchema = z.object({
+  recipient: addressSchema,
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).optional(),
+  for: z.string().max(80).optional(),
+  requester_name: z.string().max(40).optional(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).optional(),
+  from_domain: z.string().min(1).max(253).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const scheduleResSchema = z.object({
+  id: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/),
+  recipient: addressSchema,
+  amount: decimalSchema,
+  token: tokenSchema,
+  payer_name: z.string().max(40).nullable(),
+  for: z.string().max(80).nullable(),
+  requester_name: z.string().max(40).nullable().optional(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  first_period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  status: z.string().max(20),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
+  first_request: z.object({
+    period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+    id: requestIdSchema,
+    link: httpsUrl,
+    solana_pay_url: solanaPayUrl,
+    qr_url: httpsUrl,
+    reference: addressSchema,
+    x402_url: httpsUrl.nullable().optional(),
+    created_at: isoTime,
+    flags: z.array(z.string().max(80)).max(32),
+    from_domain: z.string().max(253).nullable().optional(),
+  }).nullable(),
+});
+
+export type CreateScheduleReq = z.infer<typeof createScheduleReqSchema>;
+export type ScheduleRes = z.infer<typeof scheduleResSchema>;
