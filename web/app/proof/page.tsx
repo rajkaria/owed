@@ -33,7 +33,8 @@ export const metadata: Metadata = {
 };
 
 const KIND: Record<ProofPayment["kind"], string> = { single: "Request", split_share: "Split share", invoice: "Invoice" };
-const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402" };
+// 0012: a matched payment is never shown with the Solana Pay chip: it carried no reference.
+const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402", matched: "Matched by the recipient (no reference)" };
 
 function receiptHref(p: ProofPayment): string {
   if (p.kind === "split_share" && p.groupId) return `/g/${p.groupId}`;
@@ -65,6 +66,7 @@ function Payment({ p }: { p: ProofPayment }) {
         <div className="mt-2 flex flex-wrap gap-1.5">
           <Chip>{KIND[p.kind]}</Chip>
           <Chip>{RAIL[p.rail]}</Chip>
+          {p.matchedRest && <Chip>Rest matched by the recipient (no reference)</Chip>}
           {payee && (
             <Chip tone="paid">
               <CheckIcon width={12} height={12} strokeWidth={3} className="shrink-0" />
@@ -95,6 +97,11 @@ function Payment({ p }: { p: ProofPayment }) {
 }
 
 function Summary({ proof }: { proof: ProofSummary }) {
+  const rails: Array<[string, number]> = [
+    ["Solana Pay", proof.rails.solana_pay],
+    ...(proof.rails.x402 > 0 ? [["x402", proof.rails.x402] as [string, number]] : []),
+    ...(proof.rails.matched > 0 ? [["matched by recipient", proof.rails.matched] as [string, number]] : []),
+  ];
   const totals = [proof.usdc !== "0" && `${groupDigits(proof.usdc)} USDC`, proof.sol !== "0" && `${groupDigits(proof.sol)} SOL`].filter(Boolean);
   return (
     <dl className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -108,9 +115,9 @@ function Summary({ proof }: { proof: ProofSummary }) {
       </div>
       <div className="flex flex-col-reverse rounded-2xl border border-line bg-surface p-5">
         {/* A rail is named only once a real payment used it. */}
-        <dt className="mt-1 text-muted">{proof.rails.x402 > 0 ? "Solana Pay · x402" : "paid with Solana Pay"}</dt>
+        <dt className="mt-1 text-muted">{rails.length > 1 ? rails.map(([label]) => label).join(" · ") : "paid with Solana Pay"}</dt>
         <dd className="text-3xl font-semibold tabular-nums">
-          {proof.rails.x402 > 0 ? `${proof.rails.solana_pay} · ${proof.rails.x402}` : proof.rails.solana_pay}
+          {rails.length > 1 ? rails.map(([, n]) => n).join(" · ") : proof.rails.solana_pay}
         </dd>
       </div>
     </dl>

@@ -11,6 +11,7 @@ import {
 import { ledgerReqSchema, ledgerResSchema } from "../src/contract.ts";
 import { cancelReqSchema, cancelResSchema } from "../src/contract.ts"; // W3-C
 import { createScheduleReqSchema, scheduleResSchema } from "../src/contract.ts"; // W3-D
+import { attributedReqSchema, attributedResSchema, matchReqSchema, matchResSchema, restReqSchema, restResSchema } from "../src/contract.ts"; // 0012
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -44,6 +45,15 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "ledger.schedules.res.json": ledgerResSchema,
   "schedules.create.req.json": createScheduleReqSchema,
   "schedules.create.res.json": scheduleResSchema,
+  // 0012 matched payments
+  "match.req.json": matchReqSchema,
+  "match.res.json": matchResSchema,
+  "match.rest.res.json": matchResSchema,
+  "rest.req.json": restReqSchema,
+  "rest.res.json": restResSchema,
+  "attributed.req.json": attributedReqSchema,
+  "attributed.res.json": attributedResSchema,
+  "status.matched.res.json": statusResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

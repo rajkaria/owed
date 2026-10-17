@@ -69,6 +69,23 @@ export const paidInfoSchema = z.object({
   rail: z.string().max(20).optional(),
 });
 
+// 0012: a payment without the request's reference that the recipient's wallet attributed to it (signed message),
+// as the full record on a request and as the short form in status results and ledger entries.
+export const matchedSchema = z.object({
+  signature: signatureSchema,
+  covers: z.enum(["full", "rest"]),
+  payer: addressSchema,
+  amount: decimalSchema,
+  at: isoTime,
+  confirmed_by: addressSchema,
+  confirmed_at: isoTime,
+  signed_message: z.string().max(200),
+  message_signature: z.string().max(200),
+});
+export const matchedLiteSchema = z.object({ signature: signatureSchema, covers: z.enum(["full", "rest"]), amount: decimalSchema, confirmed_at: isoTime });
+const restLinkSchema = z.object({ id: requestIdSchema, status: requestStatusSchema, link: httpsUrl.optional() });
+const railSchema = z.string().max(20);
+
 export const getRequestResSchema = z.object({
   id: requestIdSchema,
   kind: z.string().max(20).optional(),
@@ -94,6 +111,10 @@ export const getRequestResSchema = z.object({
   cancelled: z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable().optional(),
   chain: chainSchema.optional(), // W3-B: absent = solana
   pay_url: payUrl.optional(), // W3-B
+  // 0012 matched payments + ask_for_rest
+  matched: matchedSchema.nullable().optional(),
+  rest_of: requestIdSchema.nullable().optional(),
+  rest_request: restLinkSchema.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
@@ -118,6 +139,11 @@ export const statusResultSchema = z.object({
   expires_at: isoTime.optional(), // W3-C
   cancelled_at: isoTime.optional(),
   chain: chainSchema.optional(), // W3-B: "base" on Base requests (their payment links go to Basescan)
+  // 0012: how it was paid, the recipient's match (no reference on the payment), the ask_for_rest links.
+  rail: railSchema.optional(),
+  matched: matchedLiteSchema.optional(),
+  rest_of: requestIdSchema.optional(),
+  rest_request: requestIdSchema.optional(),
 }).superRefine((r, ctx) => {
   if (r.status === "not_found" || r.status === "invalid") return;
   for (const key of ["amount_requested", "token"] as const) {
@@ -306,6 +332,11 @@ export const ledgerEntrySchema = z.object({
   // W3-D: the monthly schedule and month that opened this request (null or absent for one-off requests).
   schedule_id: z.string().max(40).nullable().optional(),
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
+  // 0012: paid rail, the recipient's match (no reference on the payment), the ask_for_rest links.
+  rail: railSchema.optional(),
+  matched: matchedLiteSchema.optional(),
+  rest_of: requestIdSchema.optional(),
+  rest_request: requestIdSchema.optional(),
 });
 
 // W3-D: a monthly schedule as the ledger lists it.
@@ -415,3 +446,42 @@ export const scheduleResSchema = z.object({
 
 export type CreateScheduleReq = z.infer<typeof createScheduleReqSchema>;
 export type ScheduleRes = z.infer<typeof scheduleResSchema>;
+
+// ---- 0012: matched payments (match_payments) and ask_for_rest ----
+
+// POST /api/v1/requests/:id/match. The recipient's wallet signs "Owed match <transaction> to <id> for <recipient> at <ISO>";
+// the server accepts it once, within 5 minutes, after re-reading the transaction on chain.
+export const matchReqSchema = z.object({
+  recipient: addressSchema,
+  transaction: signatureSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export const matchResSchema = getRequestResSchema.extend({ already_matched: z.boolean() });
+
+// POST /api/v1/requests/:id/rest: one new request for exactly what an underpaid request still owes.
+export const restReqSchema = z.object({ source: z.enum(["plugin", "web"]).optional() }).strict();
+export const restResSchema = createRequestResSchema.extend({
+  recipient: anyAddress,
+  amount: decimalSchema,
+  token: tokenSchema,
+  rest_of: requestIdSchema,
+  already_asked: z.boolean(),
+});
+
+// POST /api/v1/attributed: which transactions already settle an Owed request, and which keys are Owed references.
+export const attributedReqSchema = z.object({
+  signatures: z.array(signatureSchema).max(100),
+  keys: z.array(addressSchema).max(256).optional(),
+}).strict();
+export const attributedResSchema = z.object({
+  attributed: z.array(z.object({ signature: signatureSchema, request_id: requestIdSchema, how: z.enum(["reference", "matched", "x402"]) })).max(200),
+  references: z.array(z.object({ key: addressSchema, request_id: requestIdSchema })).max(256),
+});
+
+export type MatchReq = z.infer<typeof matchReqSchema>;
+export type MatchRes = z.infer<typeof matchResSchema>;
+export type RestReq = z.infer<typeof restReqSchema>;
+export type RestRes = z.infer<typeof restResSchema>;
+export type AttributedReq = z.infer<typeof attributedReqSchema>;
+export type AttributedRes = z.infer<typeof attributedResSchema>;

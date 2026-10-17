@@ -115,7 +115,7 @@ function Recipient({ model }: { model: PayModel }) {
         Paying to
       </h2>
       <p className="mt-1.5 font-mono text-[0.9rem] leading-relaxed break-all">{model.recipient}</p>
-      {model.chain === "base" ? null : <p data-pay-hint className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand can&apos;t be matched to this request.</p>}
+      {model.chain === "base" ? null : <p data-pay-hint className="mt-2 text-xs leading-relaxed text-muted">Pay with the QR code or Open in wallet. A payment sent to this address by hand isn&apos;t counted on its own: the recipient has to match it to this request.</p>}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
         {model.chain === "base" ? (
           <CopyButton
@@ -165,6 +165,16 @@ export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }
           info={
             <>
               {badge /* W2-H verified payee: <VerifiedBadge>, wired by the page */}
+              {model.restOf ? (
+                <p data-rest-of className="mt-4 text-sm text-muted">
+                  {/* 0012: Owed wrote this link (requests.rest_of), not the requester. */}
+                  This asks for the rest of an earlier request that was only partly paid:{" "}
+                  <a href={`/r/${encodeURIComponent(model.restOf)}`} className="font-medium text-accent underline-offset-4 hover:underline">
+                    see the first request
+                  </a>
+                  .
+                </p>
+              ) : null}
               <RequesterDetails model={model} />
             </>
           }

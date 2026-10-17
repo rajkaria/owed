@@ -26,7 +26,12 @@ function result(row: RequestRow): StatusResult {
     out.payer = row.paidPayer ?? undefined;
     out.signature = row.paidSignature ?? undefined;
     out.paid_at = row.paidAt ?? undefined;
+    if (row.paidRail) out.rail = row.paidRail; // 0012
   }
+  // 0012: a payment the recipient matched (no reference on it), and the rest-of links.
+  if (row.match) out.matched = { signature: row.match.signature, covers: row.match.covers, amount: fromAtomic(row.match.amountAtomic, row.token), confirmed_at: row.match.confirmedAt };
+  if (row.restOf) out.rest_of = row.restOf;
+  if (row.restRequest) out.rest_request = row.restRequest.id;
   return out;
 }
 

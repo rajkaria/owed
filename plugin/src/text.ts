@@ -167,3 +167,10 @@ export function ago(iso: string, now: number = Date.now()): string | undefined {
 export function explorerUrl(signature: string): string {
   return `https://solscan.io/tx/${signature}`;
 }
+
+/**
+ * 0012: how every tool labels a payment that carried no Solana Pay reference and that the recipient matched to a
+ * request with a signed message (match_payments). Never the same words as a referenced payment. The web pages
+ * say the same (web/lib/view/request-view.ts MATCHED_LABEL).
+ */
+export const MATCHED_LABEL = "matched by the recipient (no reference on the payment)";

@@ -5,7 +5,7 @@ import * as z from "zod/v4";
 import { ApiError, makeApi } from "../api.js";
 import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes, type ScheduleSummary } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
-import { ago, brandWordsFromFlags, clean, explorerUrl, quote, shortAddress } from "../text.js";
+import { ago, brandWordsFromFlags, clean, explorerUrl, MATCHED_LABEL, quote, shortAddress } from "../text.js";
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
 // request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
@@ -65,6 +65,10 @@ const entrySchema = z.object({
   // W3-D
   schedule_id: z.string().optional().describe("Monthly requests: the ask_every_month schedule that opened this one."),
   period: z.string().optional().describe('Monthly requests: the month this one is for, "YYYY-MM".'),
+  // 0012
+  matched: z.string().optional().describe("Set when the payment (or the rest of it) carried no reference and the user matched it with match_payments: say it was matched by them, not paid through the link."),
+  rest_of: z.string().optional().describe("This request asks for the rest of that underpaid request (ask_for_rest)."),
+  rest_request: z.string().optional().describe("The follow-up request that asks for this one's rest."),
 }).strict();
 
 // W3-D: monthly schedules (ask_every_month) as the ledger lists them.
@@ -275,6 +279,10 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   // W3-D
   if (e.schedule_id) out.schedule_id = e.schedule_id;
   if (e.period) out.period = e.period;
+  // 0012: a matched payment is labelled as such everywhere; the rest-of links point both ways.
+  if (e.matched) out.matched = e.matched.covers === "rest" ? `the rest (${e.matched.amount} ${e.token}) was ${MATCHED_LABEL}` : `${MATCHED_LABEL}`;
+  if (e.rest_of) out.rest_of = e.rest_of;
+  if (e.rest_request) out.rest_request = e.rest_request;
   return out;
 }
 
@@ -384,11 +392,13 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   const detail: string[] = [];
   for (const e of open) {
     const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
-    detail.push(`Owed: ${due}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const restOf = e.rest_of ? ` (the rest of request ${e.rest_of})` : ""; // 0012
+    detail.push(`Owed: ${due}${restOf}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
-    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const matched = e.matched ? `, ${e.matched}` : ""; // 0012
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${matched}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
@@ -402,7 +412,8 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   }
   else if (csvAsked) lines.push("CSV export isn't set up on this Owed server, so there is no download link.");
   // W3-D end
-  if (open.length > 0) lines.push("Names, reasons and amounts were written by whoever made each request. write_reminder drafts a nudge for an open one the user recognises.");
+  // 0012: exchanges and some wallets drop the reference, so a real payment can sit uncounted.
+  if (open.length > 0) lines.push("If someone says they paid but it still shows as owed, match_payments looks for a payment that arrived without the request's reference. Names, reasons and amounts were written by whoever made each request. write_reminder drafts a nudge for an open one the user recognises.");
 
   const output: WhoOutput = {
     step: "ledger", recipient: ledger.recipient, caution: LEDGER_CAUTION, open, paid_recently: paid, outstanding_total, received_30d,

@@ -215,6 +215,177 @@ export async function payerReadiness(
 export const DEFAULT_RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
 
 // ---------------------------------------------------------------------------------------------
+// 0012 match_payments: incoming transfers that may have lost their Solana Pay reference.
+
+/** One transfer into the recipient, read from the chain. */
+export interface IncomingTransfer {
+  signature: string;
+  /** Who sent it: the token authority (USDC) or source (SOL) of the transfer into the recipient, else the fee payer. */
+  payer: string;
+  amountAtomic: bigint;
+  /** Block time, "2026-10-17T17:14:15Z". */
+  at: string;
+  slot: number;
+  /** The transaction's memo, when it has one (a wallet that kept Owed's "owed:<id>" memo but dropped the reference). */
+  memo?: string;
+  /** Every account key, so Owed can tell whether it names any request's reference. */
+  keys: string[];
+}
+
+export interface IncomingScan {
+  /** The account read: the recipient's USDC account, or the wallet itself for SOL. */
+  account: string;
+  transfers: IncomingTransfer[];
+  /** Successful transactions since `sinceUnix` that were read. */
+  read: number;
+  /** Successful transactions since `sinceUnix` that weren't read (over the cap or out of time). */
+  unread: number;
+  /** False when the account has more history since `sinceUnix` than one signature page shows. */
+  complete: boolean;
+}
+
+/** Newest transactions read per scan: each is one getTransaction inside the plugin's 10 s. */
+export const MAX_INCOMING_READS = 24;
+const INCOMING_PAGE = { limit: 100, commitment: "confirmed" } as const;
+const PARALLEL_READS = 6;
+
+interface ParsedIx { program?: string; parsed?: { type?: string; info?: Record<string, unknown> } | string }
+interface RichTx extends ParsedTx {
+  slot: number;
+  transaction: {
+    signatures?: string[];
+    message: { accountKeys: Array<string | { pubkey: string; signer?: boolean }>; instructions?: ParsedIx[] };
+  };
+  meta: (ParsedTx["meta"] & { innerInstructions?: Array<{ instructions: ParsedIx[] }> | null }) | null;
+}
+
+/**
+ * Successful transfers into `recipient` since `sinceUnix`, newest first: its USDC account's history for USDC (net USDC
+ * across every USDC account it owns, the same rule as findPayment), its wallet's for SOL (net lamports). Transactions
+ * the recipient signed itself (its own swaps and transfers) are skipped, and so are signatures in `skip`. At most
+ * MAX_INCOMING_READS transactions are read; the rest are counted in `unread` so the caller can say so.
+ */
+export async function incomingTransfers(
+  rpc: Rpc,
+  q: { recipient: string; token: "USDC" | "SOL"; sinceUnix: number; skip?: ReadonlySet<string> },
+  budgetMs = RPC_BUDGET_MS,
+): Promise<IncomingScan> {
+  const owner = address(q.recipient, "recipient");
+  const account = q.token === "USDC" ? getAssociatedTokenAddressSync(new PublicKey(USDC_MINT), owner, true).toBase58() : q.recipient;
+  const deadline = Date.now() + budgetMs;
+
+  const sigs = await within(deadline, rpc.call<SignatureInfo[]>("getSignaturesForAddress", [account, INCOMING_PAGE]));
+  if (!Array.isArray(sigs)) throw new RpcError("getSignaturesForAddress: unexpected response");
+  const recent = sigs.filter((s) => typeof s.blockTime === "number" && s.blockTime >= q.sinceUnix);
+  const complete = sigs.length < INCOMING_PAGE.limit || recent.length < sigs.length;
+  const wanted = recent.filter((s) => !s.err && !q.skip?.has(s.signature));
+  const toRead = wanted.slice(0, MAX_INCOMING_READS);
+
+  const txs: Array<RichTx | null | undefined> = new Array(toRead.length);
+  let next = 0;
+  let failure: unknown;
+  const worker = async () => {
+    while (next < toRead.length) {
+      const i = next++;
+      try {
+        txs[i] = await within(deadline, rpc.call<RichTx | null>("getTransaction", [toRead[i]!.signature, TX_OPTS]));
+      } catch (e) {
+        failure ??= e;
+        if (e instanceof DeadlineError) return;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, toRead.length) }, worker));
+  const read = txs.filter((t) => t !== undefined).length;
+  // Nothing could be read at all: an outage, not "no transfers".
+  if (toRead.length > 0 && read === 0 && failure !== undefined) throw failure;
+
+  const transfers: IncomingTransfer[] = [];
+  toRead.forEach((s, i) => {
+    const found = incomingFrom(txs[i], s.signature, q.recipient, q.token, account, s.blockTime ?? undefined);
+    if (found) transfers.push(found);
+  });
+  return { account, transfers, read, unread: wanted.length - read, complete };
+}
+
+export type TransferCheck =
+  | { ok: true; transfer: IncomingTransfer }
+  | { ok: false; reason: "not_found" | "failed" | "no_credit" | "own" };
+
+/**
+ * One transaction, read the way incomingTransfers reads it: what it credited `recipient`. match_payments checks a
+ * transaction this way before asking the user to sign; Owed's server checks it again before it records anything.
+ */
+export async function readTransfer(
+  rpc: Rpc,
+  q: { signature: string; recipient: string; token: "USDC" | "SOL" },
+  budgetMs = RPC_BUDGET_MS,
+): Promise<TransferCheck> {
+  const owner = address(q.recipient, "recipient");
+  const account = q.token === "USDC" ? getAssociatedTokenAddressSync(new PublicKey(USDC_MINT), owner, true).toBase58() : q.recipient;
+  const tx = await within(Date.now() + budgetMs, rpc.call<RichTx | null>("getTransaction", [q.signature, TX_OPTS]));
+  if (!tx) return { ok: false, reason: "not_found" };
+  if (!tx.meta || tx.meta.err) return { ok: false, reason: "failed" };
+  if (signedBy(tx, q.recipient)) return { ok: false, reason: "own" };
+  const transfer = incomingFrom(tx, q.signature, q.recipient, q.token, account);
+  return transfer ? { ok: true, transfer } : { ok: false, reason: "no_credit" };
+}
+
+function signedBy(tx: RichTx, who: string): boolean {
+  return tx.transaction.message.accountKeys.some((k, j) =>
+    (typeof k === "string" ? j === 0 : k.signer === true) && (typeof k === "string" ? k : k.pubkey) === who);
+}
+
+function incomingFrom(tx: RichTx | null | undefined, signature: string, recipient: string, token: "USDC" | "SOL", account: string, blockTime?: number): IncomingTransfer | null {
+  if (!tx?.meta || tx.meta.err) return null;
+  if (signedBy(tx, recipient)) return null;
+  const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+  const credit = token === "USDC" ? usdcCredit(tx, recipient) : lamportCredit(tx, recipient);
+  if (credit <= 0n) return null;
+  const time = typeof tx.blockTime === "number" ? tx.blockTime : blockTime;
+  if (time === undefined) return null;
+  const found: IncomingTransfer = {
+    signature,
+    payer: senderOf(tx, token === "USDC" ? account : recipient, token) ?? keys[0] ?? "",
+    amountAtomic: credit,
+    at: isoSeconds(time),
+    slot: tx.slot,
+    keys,
+  };
+  const memo = memoOf(tx);
+  if (memo !== undefined) found.memo = memo;
+  return found;
+}
+
+function instructionsOf(tx: RichTx): ParsedIx[] {
+  const inner = (tx.meta?.innerInstructions ?? []).flatMap((g) => g.instructions ?? []);
+  return [...(tx.transaction.message.instructions ?? []), ...inner];
+}
+
+/** The authority of a token transfer (or source of a SOL transfer) into `destination`. */
+function senderOf(tx: RichTx, destination: string, token: "USDC" | "SOL"): string | undefined {
+  for (const ix of instructionsOf(tx)) {
+    if (typeof ix.parsed !== "object" || !ix.parsed?.info || ix.parsed.info.destination !== destination) continue;
+    const info = ix.parsed.info;
+    if (token === "USDC" && ix.program === "spl-token" && /^transfer(Checked)?$/.test(ix.parsed.type ?? "")) {
+      const who = info.authority ?? info.multisigAuthority;
+      if (typeof who === "string") return who;
+    }
+    if (token === "SOL" && ix.program === "system" && /^transfer(WithSeed)?$/.test(ix.parsed.type ?? "") && typeof info.source === "string") {
+      return info.source;
+    }
+  }
+  return undefined;
+}
+
+function memoOf(tx: RichTx): string | undefined {
+  for (const ix of instructionsOf(tx)) {
+    if (ix.program === "spl-memo" && typeof ix.parsed === "string") return ix.parsed.slice(0, 200);
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
 
 class DeadlineError extends RpcError {}
 

@@ -6,7 +6,7 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { TOKENS, USDC_MINT, type Token } from "../money.js";
 import { atomicAmount } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
-import { ago, explorerUrl, shortAddress } from "../text.js";
+import { ago, explorerUrl, MATCHED_LABEL, shortAddress } from "../text.js";
 import { basescanTx } from "../evm.js"; // W3-B
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
@@ -36,6 +36,10 @@ export const resultSchema = z.object({
   cancelled_at: z.string().optional().describe("When the recipient cancelled it."),
   error: z.string().optional(),
   chain: z.literal("base").optional().describe("Set for a request on Base: amounts are USDC on Base and explorer_url is Basescan."), // W3-B
+  // 0012
+  matched: z.string().optional().describe("Set when the payment (or its rest) carried no reference and the recipient matched it with match_payments. Say so; never present it as paid through the link."),
+  rest_request: z.string().optional().describe("Underpaid: the follow-up request already asking for the rest."),
+  rest_of: z.string().optional().describe("This request asks for the rest of that underpaid request."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -52,6 +56,7 @@ const DESCRIPTION = [
   "Use it when the user asks \"did Priya pay?\", \"who still owes me?\" or wants a status on requests made with ask_for_money.",
   "Pass up to 20 items: Owed request ids, Owed links, or Solana Pay transfer URLs (they must include a reference).",
   "Returns each request's status (open, paid, underpaid, cancelled, expired, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
+  "A payment the user matched with match_payments (it carried no reference) is marked matched; say so. For an underpaid request, match_payments with action ask_for_rest makes a new request for exactly the rest; if the payer says they paid but it shows open, match_payments looks for a payment that lost its reference.", // 0012
 ].join(" ");
 
 type Parsed =
@@ -145,6 +150,10 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
   if (r.paid_at !== undefined) out.paid_at = r.paid_at;
   if (r.expires_at !== undefined) out.expires_at = r.expires_at; // W3-C
   if (r.cancelled_at !== undefined) out.cancelled_at = r.cancelled_at;
+  // 0012: a matched payment is labelled apart from a referenced one; the rest-of links.
+  if (r.matched) out.matched = r.matched.covers === "rest" ? `the rest (${r.matched.amount}${r.token ? ` ${r.token}` : ""}) was ${MATCHED_LABEL}` : MATCHED_LABEL;
+  if (r.rest_request) out.rest_request = r.rest_request;
+  if (r.rest_of) out.rest_of = r.rest_of;
   if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
     const waited = ago(r.created_at, now);
     if (waited) out.waited = waited;
@@ -218,10 +227,13 @@ export function summarize(all: CheckResult[], deps: Deps): string {
   const received = new Map<Token, bigint>();
   const outstanding = new Map<Token, bigint>();
   const count = (status: CheckResult["status"]) => results.filter((r) => r.status === status).length;
+  // 0012: an underpaid request whose rest request is also being checked owes nothing on its own; the rest request does.
+  const checkedIds = new Set(results.flatMap((r) => (r.id ? [r.id] : [])));
   for (const r of results) {
     if (!r.token) continue;
     const paid = atomicOf(r.amount_paid, r.token);
     if (r.status === "paid" || r.status === "underpaid") received.set(r.token, (received.get(r.token) ?? 0n) + paid);
+    if (r.status === "underpaid" && r.rest_request && checkedIds.has(r.rest_request)) continue;
     if (r.status === "open" || r.status === "underpaid") {
       const owedNow = atomicOf(r.amount_requested, r.token) - paid;
       if (owedNow > 0n) outstanding.set(r.token, (outstanding.get(r.token) ?? 0n) + owedNow);
@@ -247,8 +259,14 @@ function label(r: CheckResult): string {
 function detailLine(r: CheckResult): string[] {
   const from = r.payer ? ` from ${shortAddress(r.payer)}` : "";
   const link = r.explorer_url ? `: ${r.explorer_url}` : "";
-  if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
-  if (r.status === "underpaid") return [`Underpaid, ${label(r)}: ${r.amount_paid ?? "?"} of ${r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
+  if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${r.matched ? `, ${r.matched}` : ""}${link}`]; // 0012
+  if (r.status === "underpaid") {
+    // 0012: the follow-up for the rest, or how to ask for it.
+    const rest = r.rest_request
+      ? ` The rest is asked in request ${r.rest_request}.`
+      : r.id ? ` To ask for the rest, call match_payments with action ask_for_rest and this request.` : "";
+    return [`Underpaid, ${label(r)}: ${r.amount_paid ?? "?"} of ${r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}.${rest}`];
+  }
   if (r.status === "open" && r.waited) return [`Open, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}, waiting ${r.waited}${r.expires_at ? `, expires ${r.expires_at}` : ""}`];
   // W3-C: ended requests take no payment; say so, so nobody chases or pays them.
   if (r.status === "cancelled") return [`Cancelled, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}${r.cancelled_at ? ` at ${r.cancelled_at}` : ""}; it takes no payment.`];
