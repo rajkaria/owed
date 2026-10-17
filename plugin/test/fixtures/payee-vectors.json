@@ -1,35 +1,40 @@
 {
- "note": "Domain rules shared by plugin/test/payee.test.ts and web/test/payee.test.ts: normalization to lower-case ASCII (punycode), Unicode display form, and the exact warning sentences. Regenerate only after reviewing every change.",
+ "note": "Domain rules shared by plugin/test/payee.test.ts and web/test/payee.test.ts: normalization to lower-case ASCII (punycode), Unicode display form, the exact warning sentences, and the brand flags a domain adds to a request (QA-02). Regenerate only after reviewing every change.",
  "domains": [
   {
    "input": "GetOwed.XYZ",
    "ascii": "getowed.xyz",
    "unicode": "getowed.xyz",
-   "warnings": []
+   "warnings": [],
+   "flags": []
   },
   {
    "input": "getowed.xyz.",
    "ascii": "getowed.xyz",
    "unicode": "getowed.xyz",
-   "warnings": []
+   "warnings": [],
+   "flags": []
   },
   {
    "input": "_owed.getowed.xyz",
    "ascii": "getowed.xyz",
    "unicode": "getowed.xyz",
-   "warnings": []
+   "warnings": [],
+   "flags": []
   },
   {
    "input": "owed-omega.vercel.app",
    "ascii": "owed-omega.vercel.app",
    "unicode": "owed-omega.vercel.app",
-   "warnings": []
+   "warnings": [],
+   "flags": []
   },
   {
    "input": "web3.io",
    "ascii": "web3.io",
    "unicode": "web3.io",
-   "warnings": []
+   "warnings": [],
+   "flags": []
   },
   {
    "input": "münchen.de",
@@ -39,7 +44,8 @@
     "münchen.de is an internationalized domain name; in DNS it is xn--mnchen-3ya.de.",
     "It can pass for munchen.de: letters from other alphabets, or with accents, can look like plain ones.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "xn--mnchen-3ya.de",
@@ -49,7 +55,8 @@
     "münchen.de is an internationalized domain name; in DNS it is xn--mnchen-3ya.de.",
     "It can pass for munchen.de: letters from other alphabets, or with accents, can look like plain ones.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "café.fr",
@@ -59,7 +66,8 @@
     "café.fr is an internationalized domain name; in DNS it is xn--caf-dma.fr.",
     "It can pass for cafe.fr: letters from other alphabets, or with accents, can look like plain ones.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "ɡetowed.xyz",
@@ -68,8 +76,10 @@
    "warnings": [
     "ɡetowed.xyz is an internationalized domain name; in DNS it is xn--etowed-h0c.xyz.",
     "It can pass for getowed.xyz: letters from other alphabets, or with accents, can look like plain ones.",
+    "ɡetowed.xyz looks like Owed but isn't Owed's domain (getowed.xyz or owed-omega.vercel.app): verified only means ɡetowed.xyz publishes this wallet.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "раураl.com",
@@ -80,7 +90,8 @@
     "It can pass for paypal.com: letters from other alphabets, or with accents, can look like plain ones.",
     "\"раураl\" mixes Cyrillic and Latin letters, a common trick in lookalike domains.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "pаypal.com",
@@ -91,7 +102,8 @@
     "It can pass for paypal.com: letters from other alphabets, or with accents, can look like plain ones.",
     "\"pаypal\" mixes Latin and Cyrillic letters, a common trick in lookalike domains.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "exаmple.com",
@@ -102,7 +114,8 @@
     "It can pass for example.com: letters from other alphabets, or with accents, can look like plain ones.",
     "\"exаmple\" mixes Latin and Cyrillic letters, a common trick in lookalike domains.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "αpple.com",
@@ -113,7 +126,8 @@
     "It can pass for apple.com: letters from other alphabets, or with accents, can look like plain ones.",
     "\"αpple\" mixes Greek and Latin letters, a common trick in lookalike domains.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "g0towed.xyz",
@@ -122,7 +136,8 @@
    "warnings": [
     "g0towed.xyz has characters that can pass for others: \"0\" (zero) for \"o\".",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "paypa1.com",
@@ -131,7 +146,8 @@
    "warnings": [
     "paypa1.com has characters that can pass for others: \"1\" (one) for \"l\".",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "rnoonpay.com",
@@ -140,7 +156,8 @@
    "warnings": [
     "rnoonpay.com has characters that can pass for others: \"rn\" for \"m\".",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "vvallet.com",
@@ -149,7 +166,8 @@
    "warnings": [
     "vvallet.com has characters that can pass for others: \"vv\" for \"w\".",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "1password.com",
@@ -158,7 +176,8 @@
    "warnings": [
     "1password.com has characters that can pass for others: \"1\" (one) for \"l\".",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "ＧＥＴＯＷＥＤ.xyz",
@@ -167,7 +186,8 @@
    "warnings": [
     "The domain was given with non-ASCII characters and was checked as getowed.xyz.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "例え.テスト",
@@ -176,7 +196,8 @@
    "warnings": [
     "例え.テスト is an internationalized domain name; in DNS it is xn--r8jz45g.xn--zckzah.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "日本語abc.jp",
@@ -185,7 +206,8 @@
    "warnings": [
     "日本語abc.jp is an internationalized domain name; in DNS it is xn--abc-s08fl0dtz6h.jp.",
     "Check the spelling letter by letter."
-   ]
+   ],
+   "flags": []
   },
   {
    "input": "xn--ls8h.la",
@@ -194,7 +216,265 @@
    "warnings": [
     "💩.la is an internationalized domain name; in DNS it is xn--ls8h.la.",
     "Check the spelling letter by letter."
+   ],
+   "flags": []
+  },
+  {
+   "input": "paybox-support.com",
+   "ascii": "paybox-support.com",
+   "unicode": "paybox-support.com",
+   "warnings": [
+    "paybox-support.com looks like PayBox but isn't PayBox's domain (paybox.sh): verified only means paybox-support.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:paybox"
    ]
+  },
+  {
+   "input": "phantom-wallet.xyz",
+   "ascii": "phantom-wallet.xyz",
+   "unicode": "phantom-wallet.xyz",
+   "warnings": [
+    "phantom-wallet.xyz looks like Phantom but isn't Phantom's domain (phantom.app or phantom.com): verified only means phantom-wallet.xyz publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:phantom"
+   ]
+  },
+  {
+   "input": "usdc-support.app",
+   "ascii": "usdc-support.app",
+   "unicode": "usdc-support.app",
+   "warnings": [
+    "usdc-support.app contains \"USDC support\": verified only means usdc-support.app publishes this wallet, not that it is who the name suggests.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:usdc support"
+   ]
+  },
+  {
+   "input": "coinbase.refunds-desk.com",
+   "ascii": "coinbase.refunds-desk.com",
+   "unicode": "coinbase.refunds-desk.com",
+   "warnings": [
+    "coinbase.refunds-desk.com looks like Coinbase but isn't Coinbase's domain (coinbase.com): verified only means coinbase.refunds-desk.com publishes this wallet.",
+    "coinbase.refunds-desk.com contains \"refund\": verified only means coinbase.refunds-desk.com publishes this wallet, not that it is who the name suggests.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:coinbase",
+    "brand_word:refund"
+   ]
+  },
+  {
+   "input": "getowed.xyz.example-attacker.com",
+   "ascii": "getowed.xyz.example-attacker.com",
+   "unicode": "getowed.xyz.example-attacker.com",
+   "warnings": [
+    "getowed.xyz.example-attacker.com looks like Owed but isn't Owed's domain (getowed.xyz or owed-omega.vercel.app): verified only means getowed.xyz.example-attacker.com publishes this wallet.",
+    "getowed.xyz.example-attacker.com only starts with \"getowed.xyz\": the end of a domain name decides who controls it, so this is not getowed.xyz.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": []
+  },
+  {
+   "input": "paybox.sh.example-attacker.com",
+   "ascii": "paybox.sh.example-attacker.com",
+   "unicode": "paybox.sh.example-attacker.com",
+   "warnings": [
+    "paybox.sh.example-attacker.com looks like PayBox but isn't PayBox's domain (paybox.sh): verified only means paybox.sh.example-attacker.com publishes this wallet.",
+    "paybox.sh.example-attacker.com only starts with \"paybox.sh\": the end of a domain name decides who controls it, so this is not paybox.sh.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:paybox"
+   ]
+  },
+  {
+   "input": "payb0x.com",
+   "ascii": "payb0x.com",
+   "unicode": "payb0x.com",
+   "warnings": [
+    "payb0x.com has characters that can pass for others: \"0\" (zero) for \"o\".",
+    "payb0x.com looks like PayBox but isn't PayBox's domain (paybox.sh): verified only means payb0x.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:paybox"
+   ]
+  },
+  {
+   "input": "рaybox.com",
+   "ascii": "xn--aybox-uye.com",
+   "unicode": "рaybox.com",
+   "warnings": [
+    "рaybox.com is an internationalized domain name; in DNS it is xn--aybox-uye.com.",
+    "It can pass for paybox.com: letters from other alphabets, or with accents, can look like plain ones.",
+    "\"рaybox\" mixes Cyrillic and Latin letters, a common trick in lookalike domains.",
+    "рaybox.com looks like PayBox but isn't PayBox's domain (paybox.sh): verified only means рaybox.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:paybox"
+   ]
+  },
+  {
+   "input": "c0inbase-help.net",
+   "ascii": "c0inbase-help.net",
+   "unicode": "c0inbase-help.net",
+   "warnings": [
+    "c0inbase-help.net has characters that can pass for others: \"0\" (zero) for \"o\".",
+    "c0inbase-help.net looks like Coinbase but isn't Coinbase's domain (coinbase.com): verified only means c0inbase-help.net publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:coinbase"
+   ]
+  },
+  {
+   "input": "irs-refund.org",
+   "ascii": "irs-refund.org",
+   "unicode": "irs-refund.org",
+   "warnings": [
+    "irs-refund.org contains \"refund\": verified only means irs-refund.org publishes this wallet, not that it is who the name suggests.",
+    "irs-refund.org looks like IRS but isn't IRS's domain (irs.gov): verified only means irs-refund.org publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:refund",
+    "brand_word:irs"
+   ]
+  },
+  {
+   "input": "getowed-pay.com",
+   "ascii": "getowed-pay.com",
+   "unicode": "getowed-pay.com",
+   "warnings": [
+    "getowed-pay.com looks like Owed but isn't Owed's domain (getowed.xyz or owed-omega.vercel.app): verified only means getowed-pay.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": []
+  },
+  {
+   "input": "owed-pay.com",
+   "ascii": "owed-pay.com",
+   "unicode": "owed-pay.com",
+   "warnings": [
+    "owed-pay.com looks like Owed but isn't Owed's domain (getowed.xyz or owed-omega.vercel.app): verified only means owed-pay.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": []
+  },
+  {
+   "input": "solana-foundation.org",
+   "ascii": "solana-foundation.org",
+   "unicode": "solana-foundation.org",
+   "warnings": [
+    "solana-foundation.org looks like Solana Foundation but isn't Solana Foundation's domain (solana.org or solana.com): verified only means solana-foundation.org publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:solana foundation"
+   ]
+  },
+  {
+   "input": "circlek.com",
+   "ascii": "circlek.com",
+   "unicode": "circlek.com",
+   "warnings": [
+    "circlek.com looks like Circle but isn't Circle's domain (circle.com): verified only means circlek.com publishes this wallet.",
+    "Check the spelling letter by letter."
+   ],
+   "flags": [
+    "brand_word:circle"
+   ]
+  },
+  {
+   "input": "paybox.sh",
+   "ascii": "paybox.sh",
+   "unicode": "paybox.sh",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "www.paybox.sh",
+   "ascii": "www.paybox.sh",
+   "unicode": "www.paybox.sh",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "app.phantom.app",
+   "ascii": "app.phantom.app",
+   "unicode": "app.phantom.app",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "coinbase.com",
+   "ascii": "coinbase.com",
+   "unicode": "coinbase.com",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "irs.gov",
+   "ascii": "irs.gov",
+   "unicode": "irs.gov",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "getowed.xyz",
+   "ascii": "getowed.xyz",
+   "unicode": "getowed.xyz",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "www.getowed.xyz",
+   "ascii": "www.getowed.xyz",
+   "unicode": "www.getowed.xyz",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "first.com",
+   "ascii": "first.com",
+   "unicode": "first.com",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "example.co.uk",
+   "ascii": "example.co.uk",
+   "unicode": "example.co.uk",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "shop.example.co.uk",
+   "ascii": "shop.example.co.uk",
+   "unicode": "shop.example.co.uk",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "mail.google.com",
+   "ascii": "mail.google.com",
+   "unicode": "mail.google.com",
+   "warnings": [],
+   "flags": []
+  },
+  {
+   "input": "owedmoney.com",
+   "ascii": "owedmoney.com",
+   "unicode": "owedmoney.com",
+   "warnings": [],
+   "flags": []
   }
  ],
  "invalid": [
