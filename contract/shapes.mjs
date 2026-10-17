@@ -232,7 +232,78 @@ function statusConsistent(value, path, ctx) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------- split bills
+
+/** Group id = last 12 base58 chars of sha256 over its share ids in board order (web/lib/groups.ts, plugin split_bill). */
+export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
+  const asset = token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-group:v1\n${recipient}\n${asset}\n${totalAtomic}\n${shareIds.join("\n")}`, "utf8").digest();
+  return base58Encode(digest).slice(-12);
+}
+
+const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+
+/** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
+function peopleFitTotal(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  let total;
+  try { total = toAtomic(value.total, decimals); } catch (error) { return void ctx.errors.push(`${path}.total: ${error.message}`); }
+  let fixed = 0n;
+  let open = 0;
+  value.people.forEach((person, index) => {
+    if (person.amount === undefined) return void (open += 1);
+    try { fixed += toAtomic(person.amount, decimals); } catch (error) { ctx.errors.push(`${path}.people[${index}].amount: ${error.message}`); }
+  });
+  if (open === 0 && fixed !== total) ctx.errors.push(`${path}.people: amounts add up to ${fromAtomic(fixed, decimals)}, total is ${value.total}`);
+  if (open > 0 && total - fixed < BigInt(open)) ctx.errors.push(`${path}.people: nothing left to split between the people without an amount`);
+}
+
+/** Every share pays the group's recipient its own amount, its id hashes its terms, and the group id hashes the share ids. */
+function groupConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (value.share_count !== value.shares.length) ctx.errors.push(`${path}.share_count: ${value.share_count} but ${value.shares.length} shares`);
+  const paidCount = value.shares.filter((share) => share.status === "paid").length;
+  if (value.paid_count !== paidCount) ctx.errors.push(`${path}.paid_count: ${value.paid_count} but ${paidCount} shares are paid`);
+  if (!new URL(value.link).pathname.endsWith(`/g/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /g/${value.id}`);
+  if (decimals === undefined) return;
+  let total = 0n;
+  let received = 0n;
+  value.shares.forEach((share, index) => {
+    const at = `${path}.shares[${index}]`;
+    try { total += toAtomic(share.amount, decimals); } catch (error) { ctx.errors.push(`${at}.amount: ${error.message}`); }
+    urlMatchesFields({ ...share, recipient: value.recipient, token: value.token }, at, ctx);
+    if (!new URL(share.link).pathname.endsWith(`/r/${share.id}`)) ctx.errors.push(`${at}.link: does not end in /r/${share.id}`);
+    if ((share.status === "paid" || share.status === "underpaid") && !share.paid) ctx.errors.push(`${at}.paid: status is ${share.status} but paid is ${show(share.paid)}`);
+    if (share.status === "open" && share.paid) ctx.errors.push(`${at}.paid: status is open but paid is set`);
+    if (share.paid) try { received += toAtomic(share.paid.amount, decimals); } catch { /* reported by the amount shape */ }
+  });
+  try {
+    if (toAtomic(value.total, decimals) !== total) ctx.errors.push(`${path}.total: ${value.total} but the shares add up to ${fromAtomic(total, decimals)}`);
+    if (toAtomic(value.amount_received, decimals) !== received) ctx.errors.push(`${path}.amount_received: ${value.amount_received} but the shares received ${fromAtomic(received, decimals)}`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+  const expected = groupIdFor({ recipient: value.recipient, token: value.token, totalAtomic: total, shareIds: value.shares.map((share) => share.id) });
+  if (expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of its share ids (expected ${expected})`);
+}
+
 export const shapes = {
+  createGroupReq: object({
+    recipient: pubkey, total: positiveAmount, token, title: string({ min: 1, max: 60 }),
+    people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount) }), { min: 2, max: 20 }),
+    requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"),
+  }, peopleFitTotal),
+  groupRes: object({
+    id: groupId, link: httpsUrl, title: untrusted(60), recipient: pubkey, token, total: positiveAmount,
+    requester_name: untrusted(40), created_at: iso, flags: array(flag),
+    share_count: integer({ min: 2 }), paid_count: integer(), amount_received: amount,
+    shares: array(object({
+      id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"),
+      link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, paid: nullable(paidInfo),
+    }), { min: 2, max: 20 }),
+  }, groupConsistent),
   createRequestReq: object({
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
@@ -278,4 +349,7 @@ export const fixtureShapes = {
   "status-raw.res.json": "statusRawRes",
   "stats.res.json": "statsRes",
   "error.res.json": "errorRes",
+  "groups.create.req.json": "createGroupReq",
+  "groups.create.res.json": "groupRes",
+  "groups.get.res.json": "groupRes",
 };

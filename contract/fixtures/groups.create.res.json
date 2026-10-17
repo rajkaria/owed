@@ -1,0 +1,46 @@
+{
+  "id": "TompKg61uDGV",
+  "link": "https://owed.link/g/TompKg61uDGV",
+  "title": "Pizza night",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "total": "1.5",
+  "requester_name": "Raj",
+  "created_at": "2026-10-17T07:30:00Z",
+  "flags": [],
+  "share_count": 3,
+  "paid_count": 0,
+  "amount_received": "0",
+  "shares": [
+    {
+      "id": "svidMaRTJnwC",
+      "name": "Priya",
+      "amount": "0.5",
+      "status": "open",
+      "link": "https://owed.link/r/svidMaRTJnwC",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.5&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=G7JdjYtr3tuHguq9En59DAVBeYCpVJpNzU8pAL2REn7e&label=Raj&message=Pizza%20night&memo=owed%3AsvidMaRTJnwC",
+      "reference": "G7JdjYtr3tuHguq9En59DAVBeYCpVJpNzU8pAL2REn7e",
+      "paid": null
+    },
+    {
+      "id": "3KXqsVYirEes",
+      "name": "Sam",
+      "amount": "0.5",
+      "status": "open",
+      "link": "https://owed.link/r/3KXqsVYirEes",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.5&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=ByE8iLwoxKELBGxXg2KCAoRyADBXHsLTC7XdBgHneTJ4&label=Raj&message=Pizza%20night&memo=owed%3A3KXqsVYirEes",
+      "reference": "ByE8iLwoxKELBGxXg2KCAoRyADBXHsLTC7XdBgHneTJ4",
+      "paid": null
+    },
+    {
+      "id": "KrAMfU42kuuZ",
+      "name": "Alex",
+      "amount": "0.5",
+      "status": "open",
+      "link": "https://owed.link/r/KrAMfU42kuuZ",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.5&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=6YmrE9bb7yuzoRahCC4R1ncoZ13oyidxXPsihZemUoiG&label=Raj&message=Pizza%20night&memo=owed%3AKrAMfU42kuuZ",
+      "reference": "6YmrE9bb7yuzoRahCC4R1ncoZ13oyidxXPsihZemUoiG",
+      "paid": null
+    }
+  ]
+}
