@@ -116,7 +116,7 @@ export async function runSmoke({ base, strict = false, create = false, id = null
       shapeProblems(shapeName, r.json, problems, warnings);
       if (!problems.length && refine) refine(r.json, problems, warnings, r);
     }
-    return Object.assign(verdict(name, method, path, r, problems, { warnings }), { response: r });
+    return { ...verdict(name, method, path, r, problems, { warnings }), response: r };
   }
 
   async function page(name, path, { expect = 200, contains = [], refine, mustExist = expect === 200, pendingIfMissing = true } = {}) {
@@ -131,7 +131,7 @@ export async function runSmoke({ base, strict = false, create = false, id = null
       if (refine) refine(r, problems, warnings);
     }
     if (expect === 404 && pendingIfMissing && r.status === 404 && !r.headers.get("x-matched-path")) warnings.push("no x-matched-path header: can't tell a missing route from a handled 404");
-    return Object.assign(verdict(name, "GET", path, r, problems, { warnings }), { response: r });
+    return { ...verdict(name, "GET", path, r, problems, { warnings }), response: r };
   }
 
   async function image(name, path, { type, magic, minBytes = 64, mustExist = true }) {
@@ -285,7 +285,7 @@ export async function runSmoke({ base, strict = false, create = false, id = null
 
   const summary = { pass: 0, warn: 0, fail: 0, pending: 0, skip: 0 };
   for (const result of results) summary[result.status] += 1;
-  return { base: origin, strict, create, startedAt: new Date().toISOString(), results: results.map(({ response, ...rest }) => rest), summary, ok: summary.fail === 0 };
+  return { base: origin, strict, create, startedAt: new Date().toISOString(), results, summary, ok: summary.fail === 0 };
 }
 
 // ----------------------------------------------------------------------------------------------- CLI
