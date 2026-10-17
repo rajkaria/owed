@@ -1,0 +1,74 @@
+{
+  "input": "加布.sns",
+  "note": "Han-only name (accepted by the name rules), tokenized: refused.",
+  "sdk": {
+    "rule": "active NFT record: the NFT's holder"
+  },
+  "owed": "tokenized",
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "加布.sns",
+    "code": "tokenized",
+    "message": "加布.sns is tokenized (held as an NFT), and the wallet holding that NFT can't be read from Solana's public RPC, so Owed can't tell which wallet it names. Pay the holder's wallet address instead."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "9VzRrbB2TeZVTmhter4x1P4v7uPkCp4kTb8wvpMAUiD5",
+          "H1njDFmTXzmZU6nQJGaRzb83BFPqCNLYMkCPvLk4mSXy",
+          "13Jv2kWxqyk2oNbcszQTrXqeszNNTJ2v3ry45HrjSYyo",
+          "B2H65NFQS3mAfGjiycVSDryL626yKKMUdtH1xMEVPSsh"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177922
+        },
+        "value": [
+          {
+            "data": [
+              "Av+U6KPo40cuv07uDNSJtmJ3wPEJulP4sy3qHW4uOAy00NfrbEkCukGvDq77zqMpXJcHrgdlrIli15J0OVfwDMrW0yjF6rOYyVTQ6zYppP8N9U1DQrJENEbDxeGCu1Y2INg=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1572960,
+            "owner": "nftD3vbNkNqfj2Sd3HZwbpw4BxxKWr4AjGb9X38JeZk",
+            "rentEpoch": 18446744073709552000,
+            "space": 98
+          },
+          null,
+          {
+            "data": [
+              "lOij6ONHLr9O7gzUibZid8DxCbpT+LMt6h1uLjgMtNAa/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQADACAAAADX62xJArpBrw6u+86jKVyXB64HZayJYteSdDlX8AzK1h4aui1bQoNU4KBLuDaf5gz8ly4L5sB4xWc8AeXn5dzAHhq6LVtCg1TgoEu4Np/mDPyXLgvmwHjFZzwB5efl3MA=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZV+SrFVz0ZXvYvzX/W2a5tar1oTGzYzKcN7M0CaQQUMCAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

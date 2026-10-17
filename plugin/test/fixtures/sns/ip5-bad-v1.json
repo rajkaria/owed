@@ -1,0 +1,64 @@
+{
+  "input": "sns-ip-5-wallet-8.sns",
+  "note": "SOL record v1 whose signature doesn't verify: the owner is used.",
+  "sdk": {
+    "wallet": "ALd1XSrQMCPSRayYUoUZnp6KcP6gERfJhWzkP49CkXKs"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "sns-ip-5-wallet-8.sns",
+    "wallet": "ALd1XSrQMCPSRayYUoUZnp6KcP6gERfJhWzkP49CkXKs",
+    "source": "owner",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "ED4YpvFTvVE8JDAVn9cdrdsxcDC9gvmEE2wKpG26EjSx",
+          "6tYHCvTKZz5Db3pdmUkX4CLTLL9E6dda8fzgZRSMtVcX",
+          "FonoaN7GtRT2HGyTdRC9p4eRRvGt2LL6Y4U9TdxJUrMD",
+          "2goaWqTPfsUQ2ZsdVWPomtHXAQGYDqm3HPtAFzN9rsZ9"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177805
+        },
+        "value": [
+          null,
+          {
+            "data": [
+              "GQ4BE6AP9L66E89cutYEhwHABFvSeWatZJ7ns1xcTtiKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAwMDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2227200,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 192
+          },
+          null,
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZWKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

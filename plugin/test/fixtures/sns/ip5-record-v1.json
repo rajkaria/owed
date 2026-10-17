@@ -1,0 +1,64 @@
+{
+  "input": "sns-ip-5-wallet-7.sns",
+  "note": "SOL record v1 signed by the owner.",
+  "sdk": {
+    "wallet": "53Ujp7go6CETvC7LTyxBuyopp5ivjKt6VSfixLm1pQrH"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "sns-ip-5-wallet-7.sns",
+    "wallet": "53Ujp7go6CETvC7LTyxBuyopp5ivjKt6VSfixLm1pQrH",
+    "source": "sol_record_v1",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "EBtL5rVyS7mtC2BHM9qpBDAcx3zfXxkL9PwHNzax4B1o",
+          "HeaWHHz5x647NDgjKmN3MRF7rJXt1kvXQGshuboYZFCh",
+          "4iVekeqiFHp122cEFTZ24BD7amAEvoxFf1bQdji9ao2Y",
+          "DjbitGYFH8phin3TL3H5NeyTU9txBNJ2dkRdp51LEZhy"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177800
+        },
+        "value": [
+          null,
+          {
+            "data": [
+              "vTXlxVjdROvDUlR8pGNYa3xDAkduFBPChVux/J8RUICKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPBFF35C7fVrxoiiq3HKtDEkiu8Uv9mg/qsakHMoPz35oSBv+0Qws4atD9ExICY4CLnBlfEJhk+yVoTL00Gn9oY8l4h2PW17VO7Nxz0r7VZCjF92tA0CFDtKyN9mlO2EJ",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2227200,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 192
+          },
+          null,
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZWKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

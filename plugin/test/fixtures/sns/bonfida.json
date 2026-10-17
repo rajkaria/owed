@@ -1,0 +1,64 @@
+{
+  "input": "bonfida.sns",
+  "note": "Bonfida's name: an inactive NFT record (tag 3), no SOL record: the owner.",
+  "sdk": {
+    "wallet": "Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "bonfida.sns",
+    "wallet": "Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v",
+    "source": "owner",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "ET1ZtHQxL7oii4R4aMqvd2Rqf6cxwwbJZPHJNqSFLWZn",
+          "5WCZ6uhXPXJ7UrzBvXBnE9biZykq1ezJ6JhYe6CHgA7d",
+          "ETARvCjLwjyM6Jux1ndxuXuYEYy56Nf5uvU3abL1WyW6",
+          "Crf8hzfthWGbGbLTVCiqRqV5MVnbpHB1L9KQMd6gsinb"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177833
+        },
+        "value": [
+          {
+            "data": [
+              "A/ywKSIAJUnXDsENt4QYoUlJnXdRDVzKQS3+K/IWjLQAePJstyJwICCcLaZ0lI+PPDMO5PmjhiVr0U83puDFZ1QrNh+07K2dFOImBU72LGE+6ZEZJ8ujbYHtcUILuOd/hWM=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1572960,
+            "owner": "nftD3vbNkNqfj2Sd3HZwbpw4BxxKWr4AjGb9X38JeZk",
+            "rentEpoch": 18446744073709552000,
+            "space": 98
+          },
+          null,
+          null,
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZXd2T43CyhRYg4Vw8Pp55sKbLCn2Y+KDVYSu33vP3hIJQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAY2x1ZTIuc29s",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1621680,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 105
+          }
+        ]
+      }
+    }
+  ]
+}
