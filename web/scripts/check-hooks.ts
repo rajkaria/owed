@@ -6,8 +6,8 @@
 //   node --import ./test/setup.mjs --env-file=<…> scripts/check-hooks.ts <base-url> --watch <id> [--minutes 10]
 //
 // --create  POST <base>/api/v1/requests (0.01 USDC to the team wallet), then checks the deployment
-//           registered its webhook with the new reference (notify_webhooks, and Helius itself when
-//           HELIUS_API_KEY is in the env file), and that /api/hooks/helius refuses a missing or wrong
+//           registered its webhook with the new reference (notify_webhooks when DATABASE_URL is set, and
+//           Helius itself when HELIUS_API_KEY is), and that /api/hooks/helius refuses a missing or wrong
 //           Authorization header. Writes one real open request, so production needs --allow-production.
 // --watch   waits for the request to be paid, printing the row and the webhook's delivery log each time
 //           either changes. Pass = paid, and a delivery lists the request in marked_paid.
@@ -30,8 +30,9 @@ if (create && PRODUCTION_HOSTS.includes(new URL(base).hostname) && !args.include
   console.error(`${base} is production; pass --allow-production to create a real request there`);
   process.exit(2);
 }
-if (!process.env.DATABASE_URL && !process.env.POSTGRES_URL) {
-  console.error("DATABASE_URL is not set: pass --env-file with the target deployment's database");
+const hasDb = !!(process.env.DATABASE_URL || process.env.POSTGRES_URL);
+if (watchId && !hasDb) {
+  console.error("--watch reads the target's database: pass --env-file with its DATABASE_URL");
   process.exit(2);
 }
 
@@ -69,16 +70,27 @@ if (create) {
   console.log(`     id ${body.id}  link ${body.link}  reference ${body.reference}`);
 
   // The deployment syncs after its response; give it a few seconds.
-  let reg = null;
-  for (let i = 0; i < 15; i++) {
-    reg = await registry();
-    if (reg?.synced_at && reg.synced_at >= started) break;
-    await sleep(1000);
+  let heliusId: string | null = null;
+  if (hasDb) {
+    let reg = null;
+    for (let i = 0; i < 15; i++) {
+      reg = await registry();
+      if (reg?.synced_at && reg.synced_at >= started) break;
+      await sleep(1000);
+    }
+    report(!!reg && !reg.last_error, "notify_webhooks row for this deployment", JSON.stringify(reg));
+    heliusId = reg?.helius_id ?? null;
   }
-  report(!!reg && !reg.last_error, "notify_webhooks row for this deployment", JSON.stringify(reg));
   const apiKey = process.env.HELIUS_API_KEY?.trim();
-  if (reg && apiKey) {
-    const hook = await fetch(`https://api-mainnet.helius-rpc.com/v0/webhooks/${reg.helius_id}?api-key=${encodeURIComponent(apiKey)}`);
+  if (!heliusId && apiKey) {
+    await sleep(hasDb ? 0 : 8000);
+    const list = await fetch(`https://api-mainnet.helius-rpc.com/v0/webhooks?api-key=${encodeURIComponent(apiKey)}`);
+    const all = (await list.json().catch(() => [])) as { webhookID: string; webhookURL?: string }[];
+    heliusId = (Array.isArray(all) ? all : []).find((w) => (w.webhookURL ?? "").split("?")[0] === HOOK_KEY)?.webhookID ?? null;
+    report(!!heliusId, "Helius has a webhook for this deployment", `HTTP ${list.status}`);
+  }
+  if (heliusId && apiKey) {
+    const hook = await fetch(`https://api-mainnet.helius-rpc.com/v0/webhooks/${heliusId}?api-key=${encodeURIComponent(apiKey)}`);
     const w = (await hook.json().catch(() => null)) as { webhookURL?: string; webhookType?: string; accountAddresses?: string[]; active?: boolean } | null;
     report(
       hook.ok && !!w?.accountAddresses?.includes(body.reference!) && w.webhookType === "raw" && w.active === true && (w.webhookURL ?? "").split("?")[0] === HOOK_KEY,
