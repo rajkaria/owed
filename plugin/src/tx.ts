@@ -14,7 +14,7 @@ import {
   createTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { TOKENS, USDC_MINT } from "./money.js";
+import { TOKENS, U64_MAX, USDC_MINT } from "./money.js";
 import type { TransferRequest } from "./solana-pay.js";
 
 export interface BuildInput {
@@ -33,7 +33,6 @@ export const MEMO_PROGRAM_ID = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
 export const PLACEHOLDER_BLOCKHASH = "11111111111111111111111111111111";
 /** Solana packet data limit for a serialized transaction. */
 export const MAX_TX_BYTES = 1232;
-const U64_MAX = 2n ** 64n - 1n;
 const TOO_BIG = "This payment does not fit in one Solana transaction (limit 1,232 bytes). The memo is probably too long.";
 
 export function buildTransferTx(i: BuildInput): { transactionBase64: string; bytes: number; instructions: string[] } {

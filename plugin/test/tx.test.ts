@@ -4,6 +4,8 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { buildTransferTx, type BuildInput } from "../src/tx.ts";
 import { proposeSolana } from "../src/paybox.ts";
+import { toAtomic } from "../src/money.ts";
+import { buildTransferUrl, parseLink, transferToken } from "../src/solana-pay.ts";
 
 // Real mainnet keys: the team wallet, plus the payer, payee (a program-derived, off-curve
 // address) and reference of SOL payment
@@ -203,4 +205,40 @@ test("the starter's proposeSolana accepts every built layout unchanged", () => {
 test("variant A for the spike's 0.01 USDC self-transfer is 399 bytes, as measured in the portal", () => {
   const out = buildTransferTx(usdc({ amountAtomic: 10_000n }, { recipient: SENDER, memo: "owed:spike", references: ["8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e"] }));
   assert.equal(out.bytes, 399);
+});
+
+// --- End to end with W1-A's parser and money helpers: the pipeline pay_link runs ---
+
+function fromLink(link: string, sender = SENDER) {
+  const parsed = parseLink(link, ["owed-omega.vercel.app"]);
+  assert.equal(parsed.kind, "transfer");
+  const request = (parsed as Extract<ReturnType<typeof parseLink>, { kind: "transfer" }>).request;
+  const token = transferToken(request);
+  return buildTransferTx({ sender, request, token, amountAtomic: toAtomic(request.amount!, token), createRecipientAta: token === "USDC" });
+}
+
+test("Solana Pay spec SOL example builds memo + SystemProgram.transfer of 1 SOL", () => {
+  // https://docs.solanapay.com/spec
+  const out = fromLink("solana:mvines9iiHiQTysrwkJjGf2gb9Ex9jXJX8ns3qwf2kN?amount=1&label=Michael&message=Thanks%20for%20all%20the%20fish&memo=OrderId12345");
+  const { tx, programs, keys } = decode(out.transactionBase64);
+  assert.deepEqual(programs, [MEMO_PROGRAM, SYSTEM_PROGRAM]);
+  assert.equal(tx.instructions[0]!.data.toString("utf8"), "OrderId12345");
+  assert.equal(keys(1)[1]![0], "mvines9iiHiQTysrwkJjGf2gb9Ex9jXJX8ns3qwf2kN");
+  assert.deepEqual(tx.instructions[1]!.data, Buffer.concat([Buffer.from([2, 0, 0, 0]), u64le(1_000_000_000n)]));
+});
+
+test("Solana Pay spec USDC example builds account create + transferChecked of 0.01 USDC", () => {
+  // https://docs.solanapay.com/spec
+  const out = fromLink("solana:mvines9iiHiQTysrwkJjGf2gb9Ex9jXJX8ns3qwf2kN?amount=0.01&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  const { tx, programs } = decode(out.transactionBase64);
+  assert.deepEqual(programs, [ATA_PROGRAM, TOKEN_PROGRAM]);
+  assert.deepEqual(tx.instructions[1]!.data, Buffer.concat([Buffer.from([12]), u64le(10_000n), Buffer.from([6])]));
+});
+
+test("a built Owed request URL round-trips into a transaction carrying its reference and memo", () => {
+  const url = buildTransferUrl({ recipient: RECIPIENT, amount: "15", splToken: USDC, references: [REF], label: "Raj", message: "dinner", memo: "owed:7Gh2kQpXab" });
+  const { tx, keys } = decode(fromLink(url).transactionBase64);
+  assert.equal(tx.instructions[1]!.data.toString("utf8"), "owed:7Gh2kQpXab");
+  assert.deepEqual(keys(2).at(-1), [REF, false, false]);
+  assert.deepEqual(tx.instructions[2]!.data, Buffer.concat([Buffer.from([12]), u64le(15_000_000n), Buffer.from([6])]));
 });

@@ -2,7 +2,7 @@
 // Solana Pay reference, and a payer readiness check before building a transaction.
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { TOKENS, USDC_MINT } from "./money.js";
+import { fromAtomic, USDC_MINT } from "./money.js";
 
 export interface Rpc {
   call<T>(method: string, params: unknown[]): Promise<T>;
@@ -277,16 +277,8 @@ function address(value: string, role: string): PublicKey {
   throw new Error(`The ${role} is not a valid Solana address.`);
 }
 
-// Same output as money.fromAtomic (shortest decimal). Local so chain.ts runs before W1-A merges.
-function decimal(atomic: bigint, decimals: number): string {
-  const neg = atomic < 0n;
-  const digits = (neg ? -atomic : atomic).toString().padStart(decimals + 1, "0");
-  const whole = digits.slice(0, digits.length - decimals);
-  const frac = digits.slice(digits.length - decimals).replace(/0+$/, "");
-  return `${neg ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
-}
-const usdc = (atomic: bigint) => decimal(atomic, TOKENS.USDC.decimals);
-const sol = (lamports: bigint) => decimal(lamports, TOKENS.SOL.decimals);
+const usdc = (atomic: bigint) => fromAtomic(atomic, "USDC");
+const sol = (lamports: bigint) => fromAtomic(lamports, "SOL");
 
 function hostOf(url: string): string {
   try {
