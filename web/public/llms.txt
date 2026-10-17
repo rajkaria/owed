@@ -1,8 +1,8 @@
 # Owed
 
-> Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Your agent asks one person, splits a bill or sends an invoice, and any Solana wallet or PayBox agent can pay it. Before your agent pays a request, Owed checks the payee against the sender's own domain. Everything runs on Solana mainnet with real funds (USDC or SOL). Owed never holds money and charges no fees: every payment goes from the payer's wallet straight to the recipient in one Solana transaction.
+> Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Your agent asks one person, splits a bill or sends an invoice, and any Solana wallet or PayBox agent can pay it. Before your agent pays a request from a domain, Owed checks that the domain lists the wallet. Everything runs on Solana mainnet with real funds (USDC or SOL). Owed never holds money and charges no fees: every payment goes from the payer's wallet straight to the recipient in one Solana transaction.
 
-To use Owed, connect PayBox to your agent as an MCP connector (https://api.paybox.sh/mcp) and turn on the Owed plugin in PayBox. Payments your agent proposes are approved by the user with a passkey in PayBox; Owed returns unsigned proposals and never signs anything.
+Owed is in the PayBox developer portal and not yet listed in the public PayBox marketplace. Once it is: connect PayBox to your agent as an MCP connector (https://api.paybox.sh/mcp) and turn on the Owed plugin in PayBox. Payments your agent proposes are approved by the user with a passkey in PayBox; Owed returns unsigned proposals and never signs anything.
 
 ## Tools
 
