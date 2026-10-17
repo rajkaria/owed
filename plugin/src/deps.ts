@@ -23,7 +23,7 @@ export interface Deps {
   buildTransferTx: typeof buildTransferTx;
   findPayment: typeof findPayment;
   payerReadiness: typeof payerReadiness;
-  /** Sanctions screen (W2-E): called as `deps.screenRecipient(address, deps)` so it uses this Deps' fetch. */
+  /** Sanctions screen (W2-E): OFAC SDN list lookup, local; injectable so tests can force a hit. */
   screenRecipient: typeof screenRecipient;
 }
 

@@ -25,8 +25,6 @@ const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 const RPC_HOSTS = ["solana-rpc.publicnode.com", "api.mainnet-beta.solana.com"];
 // W2-H verified payee: the plugin reads _owed TXT records over DNS-over-HTTPS itself (same list as the portal).
 const DOH_HOSTS = ["cloudflare-dns.com", "dns.google"];
-// W2-E sanctions screen: Chainalysis's API, with X-API-Key as a PayBox brokered header (see --broker).
-const SCREEN_HOSTS = ["public.chainalysis.com"];
 export const LIMITS = { budgetMs: 10_000, stdoutBytes: 256 * 1024, stderrBytes: 16 * 1024, artifactBytes: 10 * 1024 * 1024, contentItems: 128, toolPages: 16 };
 
 const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-args | @file.json] [options]
@@ -35,12 +33,12 @@ const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-arg
   --sample             call the tool and arguments in plugin/paybox-plugin.json
   --base-url URL       OWED_BASE_URL for the plugin (default: $OWED_BASE_URL, else unset → plugin default)
   --hosts LIST         hosts the call may reach over HTTPS, comma-separated, or "none" / "any"
-                       (default: the Owed host + ${[...RPC_HOSTS, ...DOH_HOSTS, ...SCREEN_HOSTS].join(", ")})
+                       (default: the Owed host + ${[...RPC_HOSTS, ...DOH_HOSTS].join(", ")})
   --down LIST          hosts to refuse as a simulated outage (not a failure), e.g. the Owed host for row 8
   --broker H:NAME=@F   add header NAME to the plugin's HTTPS fetches to host H, its value read from file F, the way
                        PayBox brokers a secret (repeatable). The value never enters the plugin's env, argv or this
                        report, and the run fails if the tool's output contains it (PayBox withholds such output).
-                       e.g. --broker public.chainalysis.com:X-API-Key=@$HOME/.config/owed/chainalysis-api-key
+                       e.g. --broker api.example.com:X-API-Key=@$HOME/.config/owed/example-key
   --no-guard           launch without the network guard or stack probe (pure PayBox launch)
   --env KEY=VALUE      extra plugin env var (repeatable)
   --budget-ms N        per-process budget (default ${LIMITS.budgetMs}, the PayBox limit)
@@ -199,7 +197,7 @@ export async function runE2E(options) {
   const budgetMs = options.budgetMs ?? LIMITS.budgetMs;
   const env = { ...(options.baseUrl ? { OWED_BASE_URL: options.baseUrl } : {}), ...options.env };
   const ownHost = new URL(options.baseUrl ?? DEFAULT_BASE_URL).hostname;
-  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS, ...DOH_HOSTS, ...SCREEN_HOSTS];
+  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS, ...DOH_HOSTS];
   const down = options.down ?? [];
   const brokers = (options.brokers ?? []).map((b) => ({ ...b, value: readBrokerValue(b) }));
   if (brokers.length && options.guard === false) throw new HarnessError("--broker needs the network guard (it adds the header); drop --no-guard", "usage");

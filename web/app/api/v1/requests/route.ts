@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { requireNotSanctioned } from "@/lib/sanctions";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
@@ -18,6 +19,8 @@ export async function POST(req: Request): Promise<Response> {
 
     // An off-curve recipient is usually a token account pasted by mistake; wallets would
     // derive a second token account from it and the money would be stuck.
+    requireNotSanctioned(body.recipient); // W2-E: OFAC SDN list, 403 blocked
+
     if (!PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {
       throw new ApiError("invalid_input", "recipient must be a wallet address, not a token account or program address");
     }
