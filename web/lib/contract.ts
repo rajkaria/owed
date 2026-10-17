@@ -25,6 +25,8 @@ export const CreateRequestBody = z.object({
   requester_name: untrusted(TEXT_LIMITS.requester_name),
   kind: z.literal("single").default("single"),
   source: z.enum(["plugin", "web"]).default("web"),
+  // W2-H verified payee: re-checked over DNS before the request is created (lib/payee.ts).
+  from_domain: z.string().min(1).max(253).nullish(),
 });
 export type CreateRequestBody = z.infer<typeof CreateRequestBody>;
 
@@ -37,6 +39,7 @@ export const CreateRequestResponse = z.object({
   x402_url: z.url().nullable(),
   created_at: isoTime,
   flags: z.array(z.string()),
+  from_domain: z.string().nullable().optional(), // W2-H verified payee
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -65,6 +68,9 @@ export const GetRequestResponse = z.object({
   created_at: isoTime,
   paid: PaidInfo.nullable().optional(),
   flags: z.array(z.string()),
+  // W2-H verified payee: display only; the plugin re-reads DNS before paying.
+  from_domain: z.string().nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 

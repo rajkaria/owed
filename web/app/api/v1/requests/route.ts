@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
+import { requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
@@ -40,6 +41,9 @@ export async function POST(req: Request): Promise<Response> {
       );
     }
 
+    // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
+    const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
+
     const row = await createRequest({
       recipient: body.recipient,
       token: body.token,
@@ -50,6 +54,7 @@ export async function POST(req: Request): Promise<Response> {
       requesterName: sanitizeText(body.requester_name, TEXT_LIMITS.requester_name),
       flags,
       source: body.source,
+      fromDomain,
     });
 
     const base = baseUrl(req);
@@ -62,6 +67,7 @@ export async function POST(req: Request): Promise<Response> {
       x402_url: null,
       created_at: row.createdAt,
       flags: row.flags,
+      from_domain: row.fromDomain,
     };
     return json(res, { status: 201 });
   } catch (e) {
