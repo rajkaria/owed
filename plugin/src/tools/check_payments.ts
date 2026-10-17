@@ -1,0 +1,239 @@
+import type { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
+import { ApiError } from "../api.js";
+import { tokenSchema, type StatusRawRes, type StatusResult } from "../contract.js";
+import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
+import { TOKENS, USDC_MINT, type Token } from "../money.js";
+import { atomicAmount } from "../paybox.js";
+import type { TransferRequest } from "../solana-pay.js";
+import { ago, explorerUrl, shortAddress } from "../text.js";
+
+/** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
+export const CHECK_BUDGET_MS = 8500;
+
+export const inputSchema = z.object({
+  requests: z.array(z.string().min(1).max(2048)).min(1).max(20)
+    .describe("1 to 20 requests to check: Owed request ids (e.g. \"7Gh2kQpXa9\"), Owed links, or Solana Pay transfer URLs that carry a reference."),
+}).strict();
+
+const resultStatus = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid", "unknown"]);
+
+export const resultSchema = z.object({
+  input: z.string(),
+  id: z.string().optional(),
+  status: resultStatus.describe("unknown = could not be checked right now; try again."),
+  amount_requested: z.string().nullable(),
+  token: tokenSchema.nullable(),
+  amount_paid: z.string().optional(),
+  payer: z.string().optional(),
+  signature: z.string().optional(),
+  paid_at: z.string().optional(),
+  explorer_url: z.string().optional(),
+  waited: z.string().optional().describe('How long an unpaid request has been open, e.g. "2h 14m".'),
+  error: z.string().optional(),
+}).strict();
+
+export const outputSchema = z.object({
+  results: z.array(resultSchema),
+  summary: z.string(),
+}).strict();
+
+export type CheckInput = z.output<typeof inputSchema>;
+export type CheckResult = z.output<typeof resultSchema>;
+export type CheckOutput = z.output<typeof outputSchema>;
+
+const DESCRIPTION = [
+  "Check whether payment requests have been paid, by reading Solana mainnet.",
+  "Use it when the user asks \"did Priya pay?\", \"who still owes me?\" or wants a status on requests made with ask_for_money.",
+  "Pass up to 20 items: Owed request ids, Owed links, or Solana Pay transfer URLs (they must include a reference).",
+  "Returns each request's status (open, paid, underpaid, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
+].join(" ");
+
+type Parsed =
+  | { kind: "owed"; input: string; id: string }
+  | { kind: "transfer"; input: string; request: TransferRequest; token: Token }
+  | { kind: "invalid"; input: string; error: string };
+
+const TRANSACTION_REQUEST = "This is a Solana Pay checkout link (transaction request). Owed checks transfer links only.";
+const UNREACHABLE = "Owed's server is unreachable right now, so this request couldn't be checked. Try again shortly.";
+const RPC_FAILED = "Solana couldn't be reached to check this link. Try again shortly.";
+
+export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) {
+  const started = deps.now();
+  const remaining = () => CHECK_BUDGET_MS - (deps.now() - started);
+  let ctx: CallContext;
+  try {
+    ctx = callContext(deps);
+  } catch (error) {
+    return refusal(errorText(error, "Owed is misconfigured."));
+  }
+
+  const parsed = args.requests.map((raw) => parse(raw, ctx, deps));
+  const ids = [...new Set(parsed.flatMap((p) => (p.kind === "owed" ? [p.id] : [])))];
+
+  const owedLookup = ids.length === 0
+    ? Promise.resolve(new Map<string, StatusResult>() as Map<string, StatusResult> | string)
+    : within(
+      ctx.api.status(ids).then(
+        (res) => new Map(res.results.map((r) => [r.id, r] as const)) as Map<string, StatusResult> | string,
+        (error) => (error instanceof ApiError && error.code !== "upstream_unavailable" ? `Owed couldn't check these: ${error.message}` : UNREACHABLE),
+      ),
+      remaining(), () => UNREACHABLE,
+    );
+
+  const [owed, ...transfers] = await Promise.all([
+    owedLookup,
+    ...parsed.map((p) => (p.kind === "transfer" ? checkTransfer(p, ctx, deps, remaining) : Promise.resolve(null))),
+  ]);
+
+  const now = deps.now();
+  const results: CheckResult[] = parsed.map((p, i) => {
+    if (p.kind === "invalid") return { input: p.input, status: "invalid", amount_requested: null, token: null, error: p.error };
+    if (p.kind === "transfer") return transfers[i] as CheckResult;
+    if (typeof owed === "string") return { input: p.input, id: p.id, status: "unknown", amount_requested: null, token: null, error: owed };
+    const r = owed.get(p.id);
+    if (!r) return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: "No Owed request has this id." };
+    return fromOwed(p.input, r, now);
+  });
+
+  const summary = summarize(results, deps);
+  const lines = [summary, ...results.flatMap((r) => detailLine(r))];
+  const output: CheckOutput = { results, summary };
+  return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
+}
+
+function parse(raw: string, ctx: CallContext, deps: Deps): Parsed {
+  const input = raw.trim();
+  let link;
+  try {
+    link = deps.parseLink(input, ctx.hosts);
+  } catch (error) {
+    return { kind: "invalid", input, error: errorText(error, "This isn't an Owed link, id or Solana Pay transfer URL.") };
+  }
+  if (link.kind === "owed") return { kind: "owed", input, id: link.id };
+  if (link.kind === "transaction") return { kind: "invalid", input, error: TRANSACTION_REQUEST };
+  const request = link.request;
+  if (request.references.length === 0) {
+    return { kind: "invalid", input, error: "This Solana Pay link has no reference, so its payment can't be found on-chain." };
+  }
+  if (request.splToken !== undefined && request.splToken !== USDC_MINT) {
+    return { kind: "invalid", input, error: "Owed checks USDC or SOL links only." };
+  }
+  return { kind: "transfer", input, request, token: request.splToken === USDC_MINT ? "USDC" : "SOL" };
+}
+
+function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
+  const out: CheckResult = { input, id: r.id, status: r.status, amount_requested: r.amount_requested, token: r.token };
+  if (r.amount_paid !== undefined) out.amount_paid = r.amount_paid;
+  if (r.payer !== undefined) out.payer = r.payer;
+  if (r.signature !== undefined) {
+    out.signature = r.signature;
+    out.explorer_url = explorerUrl(r.signature);
+  }
+  if (r.paid_at !== undefined) out.paid_at = r.paid_at;
+  if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
+    const waited = ago(r.created_at, now);
+    if (waited) out.waited = waited;
+  }
+  return out;
+}
+
+async function checkTransfer(p: Extract<Parsed, { kind: "transfer" }>, ctx: CallContext, deps: Deps, remaining: () => number): Promise<CheckResult> {
+  const base: CheckResult = { input: p.input, status: "unknown", amount_requested: p.request.amount ?? null, token: p.token };
+  // The API reads the chain with its own RPC (and caches); direct RPC is the fallback when it's down.
+  try {
+    const url = deps.buildTransferUrl(p.request);
+    const res = await within<StatusRawRes | null>(ctx.api.statusRaw(url), Math.min(remaining(), 4000), () => null);
+    if (res) return withPayment({ ...base, status: res.status }, res.amount_paid, res.payer, res.signature, res.paid_at);
+  } catch (error) {
+    if (error instanceof ApiError && error.code !== "upstream_unavailable") return { ...base, status: "invalid", error: error.message };
+  }
+  try {
+    const amountAtomic = p.request.amount === undefined ? 1n : deps.toAtomic(p.request.amount, p.token);
+    const check = await within(
+      deps.findPayment(deps.rpc(), { reference: p.request.references[0]!, recipient: p.request.recipient, token: p.token, amountAtomic }),
+      remaining(), () => null,
+    );
+    if (!check) return { ...base, error: RPC_FAILED };
+    const paid = check.amountPaidAtomic === undefined ? undefined : deps.fromAtomic(check.amountPaidAtomic, p.token);
+    // A link without an amount lets the payer choose it: any confirmed credit counts as paid.
+    const status = p.request.amount === undefined && check.status === "underpaid" ? "paid" : check.status;
+    return withPayment({ ...base, status }, paid, check.payer, check.signature, check.paidAt);
+  } catch {
+    return { ...base, error: RPC_FAILED };
+  }
+}
+
+function withPayment(r: CheckResult, amountPaid?: string, payer?: string, signature?: string, paidAt?: string): CheckResult {
+  if (amountPaid !== undefined) r.amount_paid = amountPaid;
+  if (payer !== undefined) r.payer = payer;
+  if (signature !== undefined) {
+    r.signature = signature;
+    r.explorer_url = explorerUrl(signature);
+  }
+  if (paidAt !== undefined) r.paid_at = paidAt;
+  return r;
+}
+
+function atomicOf(amount: string | null | undefined, token: Token): bigint {
+  if (!amount) return 0n;
+  try {
+    return BigInt(atomicAmount(amount, TOKENS[token].decimals));
+  } catch {
+    return 0n;
+  }
+}
+
+function totals(map: Map<Token, bigint>, deps: Deps): string {
+  return [...map].filter(([, v]) => v > 0n).map(([token, v]) => `${deps.fromAtomic(v, token)} ${token}`).join(" + ");
+}
+
+export function summarize(results: CheckResult[], deps: Deps): string {
+  const received = new Map<Token, bigint>();
+  const outstanding = new Map<Token, bigint>();
+  const count = (status: CheckResult["status"]) => results.filter((r) => r.status === status).length;
+  for (const r of results) {
+    if (!r.token) continue;
+    const paid = atomicOf(r.amount_paid, r.token);
+    if (r.status === "paid" || r.status === "underpaid") received.set(r.token, (received.get(r.token) ?? 0n) + paid);
+    if (r.status === "open" || r.status === "underpaid") {
+      const owedNow = atomicOf(r.amount_requested, r.token) - paid;
+      if (owedNow > 0n) outstanding.set(r.token, (outstanding.get(r.token) ?? 0n) + owedNow);
+    }
+  }
+  const parts = [`${count("paid")} of ${results.length} paid`];
+  const got = totals(received, deps);
+  if (got) parts.push(`${got} received`);
+  const due = totals(outstanding, deps);
+  if (due) parts.push(`${due} outstanding`);
+  const extras: Array<[CheckResult["status"], string]> = [
+    ["underpaid", "underpaid"], ["cancelled", "cancelled"], ["not_found", "not found"],
+    ["invalid", "invalid"], ["unknown", "couldn't be checked"],
+  ];
+  for (const [status, label] of extras) if (count(status) > 0) parts.push(`${count(status)} ${label}`);
+  return parts.join(" · ");
+}
+
+function label(r: CheckResult): string {
+  return r.id ? `request ${r.id}` : "Solana Pay link";
+}
+
+function detailLine(r: CheckResult): string[] {
+  const from = r.payer ? ` from ${shortAddress(r.payer)}` : "";
+  const link = r.explorer_url ? `: ${r.explorer_url}` : "";
+  if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
+  if (r.status === "underpaid") return [`Underpaid, ${label(r)}: ${r.amount_paid ?? "?"} of ${r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];
+  if (r.status === "open" && r.waited) return [`Open, ${label(r)}: ${r.amount_requested ?? "?"} ${r.token ?? ""}, waiting ${r.waited}`];
+  if (r.error) return [`${r.status === "unknown" ? "Not checked" : "Skipped"}, ${r.input.length > 60 ? `${r.input.slice(0, 57)}...` : r.input}: ${r.error}`];
+  return [];
+}
+
+export function register(server: McpServer, deps: Deps = defaultDeps) {
+  server.registerTool("check_payments", {
+    title: "Check who has paid",
+    description: DESCRIPTION,
+    inputSchema,
+    outputSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, (args) => checkPayments(args, deps));
+}
