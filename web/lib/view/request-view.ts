@@ -5,6 +5,7 @@ import type { PublicRequest } from "../public-api";
 import { formatAmount, isToken, remainingAmount, type Token } from "./money.ts";
 import { shortAddress } from "./format.ts";
 import { LIMITS, cleanText, withoutInvisible } from "./text.ts";
+import { isBrandOwnDomain } from "../safety";
 import type { TransferRequest } from "./pay-url.ts";
 
 export type LiveState =
@@ -84,11 +85,12 @@ function escapeRegExp(s: string): string {
 }
 
 /** Brand words found in requester text (case-insensitive, whole words). */
-export function detectBrandWords(texts: Array<string | null | undefined>): string[] {
+export function detectBrandWords(texts: Array<string | null | undefined>, verifiedDomain?: string | null): string[] {
   // W2-E (QA-01): an invisible character inside a brand word ("Pay<U+E0100>Box") doesn't hide it.
   const haystack = texts.filter((t): t is string => typeof t === "string" && t !== "").map(withoutInvisible).join(" \n ").toLowerCase();
   const found: string[] = [];
   for (const [word, display] of BRAND_WORDS) {
+    if (isBrandOwnDomain(word, verifiedDomain)) continue; // W2-E: the verified domain is this brand's own
     const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(word).replace(/ /g, "\\s+")}($|[^\\p{L}\\p{N}])`, "u");
     if (re.test(haystack)) found.push(display);
   }
@@ -96,12 +98,13 @@ export function detectBrandWords(texts: Array<string | null | undefined>): strin
 }
 
 /** Display names for `brand_word:<w>` flags set by the API. */
-export function brandWordsFromFlags(flags: unknown): string[] {
+export function brandWordsFromFlags(flags: unknown, verifiedDomain?: string | null): string[] {
   if (!Array.isArray(flags)) return [];
   const out: string[] = [];
   for (const flag of flags) {
     if (typeof flag !== "string" || !flag.startsWith("brand_word:")) continue;
     const word = flag.slice("brand_word:".length).toLowerCase();
+    if (isBrandOwnDomain(word, verifiedDomain)) continue; // W2-E: the verified domain is this brand's own
     const display = BRAND_DISPLAY.get(word) ?? cleanText(word, 30);
     if (display) out.push(display);
   }
@@ -213,9 +216,11 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
   const forText = cleanText(req.for, LIMITS.for);
   const note = cleanText(req.note, LIMITS.note);
   const shareLink = `${origin}/r/${encodeURIComponent(req.id)}`;
+  // W2-E: only a domain the server verified over DNS can clear a brand word, never a name.
+  const verifiedDomain = req.from_domain && req.from_domain_verified_at ? req.from_domain : null;
   const brandWords = unique([
-    ...brandWordsFromFlags(req.flags),
-    ...detectBrandWords([req.requester_name, req.payer_name, req.for, req.note]),
+    ...brandWordsFromFlags(req.flags, verifiedDomain),
+    ...detectBrandWords([req.requester_name, req.payer_name, req.for, req.note], verifiedDomain),
   ]);
   const flagged = brandWords.length > 0;
   return {

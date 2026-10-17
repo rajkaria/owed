@@ -5,7 +5,7 @@ import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
-import { brandFlags, sanitizeText } from "@/lib/safety";
+import { brandFlags, sanitizeText, withoutOwnBrandFlags } from "@/lib/safety";
 
 export const runtime = "nodejs";
 
@@ -48,7 +48,8 @@ export async function POST(req: Request): Promise<Response> {
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
     // W2-H (QA-02): a brand word in the verified domain flags the group and every share, like one in the text.
     const domainFlags = domainBrandFlags(fromDomain);
-    for (const share of shares) share.flags = [...new Set([...share.flags, ...domainFlags])];
+    // W2-E: a brand word the verified domain owns isn't a caution.
+    for (const share of shares) share.flags = withoutOwnBrandFlags([...new Set([...share.flags, ...domainFlags])], fromDomain);
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
     for (let i = 0; i < shares.length; i++) await requireCreateSlot(req, body.recipient);
@@ -58,7 +59,7 @@ export async function POST(req: Request): Promise<Response> {
       token: body.token,
       title,
       requesterName,
-      flags: [...new Set([...flags, ...domainFlags])],
+      flags: withoutOwnBrandFlags([...new Set([...flags, ...domainFlags])], fromDomain),
       shares,
       source: body.source,
       fromDomain,

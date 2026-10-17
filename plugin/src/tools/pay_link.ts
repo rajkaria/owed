@@ -13,7 +13,7 @@ import { domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js"
 // W2-E sanctions screen start
 import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
 // W2-E sanctions screen end
-import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
+import { brandFlags, cautionLine, quote, shortAddress, withoutOwnBrandFlags } from "../text.js";
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), or the text of a payment QR code."),
@@ -193,7 +193,11 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   }
 
   // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
-  const caution = cautionLine([...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])]);
+  // W2-E: a brand word is cleared only by a domain this call just verified over DNS (payee.lead is set only then).
+  const caution = cautionLine(withoutOwnBrandFlags(
+    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])],
+    payee.lead !== null ? resolved.fromDomain : null,
+  ));
   // W2-H verified payee end
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);

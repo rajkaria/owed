@@ -85,6 +85,30 @@ export function brandFlags(...texts: Array<string | null | undefined>): string[]
   return BRAND_PATTERNS.filter(({ pattern }) => pattern.test(haystack)).map(({ word }) => `brand_word:${word}`);
 }
 
+const OWED_DOMAINS = ["getowed.xyz", "owed-omega.vercel.app"] as const;
+
+/**
+ * Each brand's own domains (W2-E, QA-06 follow-up; the same as W2-H's list in payee.ts). A brand word is
+ * not a caution when the request's from_domain, verified over DNS by this plugin, is that brand's own
+ * domain or under it: "Owed Support" from a verified getowed.xyz is Owed. A name alone never clears it.
+ */
+export const BRAND_OWN_DOMAINS: Readonly<Partial<Record<BrandWord, readonly string[]>>> = {
+  paybox: ["paybox.sh"], moonpay: ["moonpay.com"], coinbase: ["coinbase.com"], binance: ["binance.com", "binance.us"],
+  phantom: ["phantom.app", "phantom.com"], solflare: ["solflare.com"], "solana foundation": ["solana.org", "solana.com"],
+  circle: ["circle.com"], irs: ["irs.gov"], "owed support": OWED_DOMAINS, "owed team": OWED_DOMAINS, "owed security": OWED_DOMAINS,
+  "owed admin": OWED_DOMAINS, "owed billing": OWED_DOMAINS, getowed: OWED_DOMAINS, anthropic: ["anthropic.com"],
+};
+
+/** Drops `brand_word:<w>` flags that a DNS-verified domain owns. Pass only a domain this plugin verified. */
+export function withoutOwnBrandFlags(flags: readonly string[], verifiedDomain: string | null | undefined): string[] {
+  const d = verifiedDomain?.trim().toLowerCase().replace(/\.$/, "");
+  if (!d) return [...flags];
+  return flags.filter((f) => {
+    const own = f.startsWith("brand_word:") ? BRAND_OWN_DOMAINS[f.slice("brand_word:".length) as BrandWord] : undefined;
+    return !own?.some((o) => d === o || d.endsWith(`.${o}`));
+  });
+}
+
 /** Display names for the brand words in flags like `brand_word:moonpay`; unknown flags are ignored. */
 export function brandWordsFromFlags(flags: string[]): string[] {
   const words = new Set<string>();

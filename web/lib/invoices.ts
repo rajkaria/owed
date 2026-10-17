@@ -4,7 +4,7 @@ import { newReference, requestIdFor } from "./ids";
 import { AmountError, formatUnits, fromAtomic, toAtomic, TOKENS, type Token } from "./money";
 import { domainBrandFlags } from "./payee";
 import { getRequest, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
-import { brandFlags, sanitizeText, TEXT_LIMITS } from "./safety";
+import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "./safety";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 
@@ -235,10 +235,10 @@ export function prepareInvoice(input: CreateInvoiceInput, now: number = Date.now
   const dueDate = checkDueDate(input.dueDate, now);
   const { lines, totalAtomic } = priceItems(input.items, input.token);
   // Brand flags read the raw text, so a brand hidden in a stripped link still flags.
-  const flags = [...new Set([
+  const flags = withoutOwnBrandFlags([...new Set([
     ...brandFlags([input.businessName, input.clientName, input.invoiceNumber, input.notes, ...input.items.map((i) => i.description)]),
     ...domainBrandFlags(input.fromDomain), // W2-H (QA-02): a brand word in the verified domain flags the invoice too
-  ])];
+  ])], input.fromDomain); // W2-E: a brand word the verified domain owns is not a caution
   return {
     businessName,
     clientName,

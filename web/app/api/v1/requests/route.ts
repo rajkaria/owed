@@ -5,7 +5,7 @@ import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
-import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
+import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "@/lib/safety";
 import { x402UrlFor } from "@/lib/x402/url";
 
 export const runtime = "nodejs";
@@ -38,7 +38,8 @@ export async function POST(req: Request): Promise<Response> {
     if (body.from_domain) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
     // A brand word in the verified domain flags the request like one in the text (QA-02): the pay page shows the caution.
-    const allFlags = [...new Set([...flags, ...domainBrandFlags(fromDomain)])];
+    // W2-E: a brand word the verified domain owns ("Owed Support" from getowed.xyz) isn't a caution.
+    const allFlags = withoutOwnBrandFlags([...new Set([...flags, ...domainBrandFlags(fromDomain)])], fromDomain);
 
     const row = await createRequest({
       recipient: body.recipient,

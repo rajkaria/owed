@@ -43,6 +43,43 @@ const URL_PATTERNS: RegExp[] = [
   ),
 ];
 
+const OWED_DOMAINS = ["getowed.xyz", "owed-omega.vercel.app"] as const;
+
+/**
+ * Each brand's own domains (W2-E, QA-06 follow-up; the same as W2-H's lib/payee.ts list). A brand word
+ * in a request's text is not a caution when the request's DNS-verified from_domain is that brand's
+ * own domain or under it: "Owed Support" from a verified getowed.xyz is Owed. A name alone never clears it.
+ */
+export const BRAND_OWN_DOMAINS: Readonly<Record<string, readonly string[]>> = {
+  paybox: ["paybox.sh"],
+  moonpay: ["moonpay.com"],
+  coinbase: ["coinbase.com"],
+  binance: ["binance.com", "binance.us"],
+  phantom: ["phantom.app", "phantom.com"],
+  solflare: ["solflare.com"],
+  "solana foundation": ["solana.org", "solana.com"],
+  circle: ["circle.com"],
+  irs: ["irs.gov"],
+  "owed support": OWED_DOMAINS,
+  "owed team": OWED_DOMAINS,
+  "owed security": OWED_DOMAINS,
+  "owed admin": OWED_DOMAINS,
+  "owed billing": OWED_DOMAINS,
+  getowed: OWED_DOMAINS,
+  anthropic: ["anthropic.com"],
+};
+
+/** True when `domain` (already DNS-verified) is `word`'s own domain or a subdomain of one. */
+export function isBrandOwnDomain(word: string, domain: string | null | undefined): boolean {
+  const d = domain?.trim().toLowerCase().replace(/\.$/, "");
+  return !!d && (BRAND_OWN_DOMAINS[word] ?? []).some((own) => d === own || d.endsWith(`.${own}`));
+}
+
+/** Drops `brand_word:<w>` flags that a DNS-verified from_domain owns. Pass only a verified domain. */
+export function withoutOwnBrandFlags(flags: readonly string[], verifiedDomain: string | null | undefined): string[] {
+  return flags.filter((f) => !(f.startsWith("brand_word:") && isBrandOwnDomain(f.slice("brand_word:".length), verifiedDomain)));
+}
+
 /**
  * Removed outright: format characters (zero-width, bidi overrides, tag characters), and (W2-E, QA-01)
  * everything else that renders as nothing but a model still reads: Unicode tag characters
