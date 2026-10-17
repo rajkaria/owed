@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { checkFixtures } from "../../contract/check.mjs";
 import {
-  base58Decode, base58Encode, check, fromAtomic, isPubkey, isSignature, parseSolanaPayUrl, shapes, toAtomic, USDC_MINT,
+  base58Decode, base58Encode, check, fromAtomic, isPubkey, isSignature, parseSolanaPayUrl, requestIdFor, shapes, toAtomic, USDC_MINT,
 } from "../../contract/shapes.mjs";
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`../../contract/fixtures/${name}`, import.meta.url), "utf8"));
@@ -35,13 +35,13 @@ test("amounts convert with bigint only", () => {
 });
 
 test("Solana Pay URLs: transfer fields, transaction requests, garbage", () => {
-  const url = "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=15&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e&label=Raj&message=dinner&memo=owed%3A7Gh2kQpXa9";
+  const url = "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=15&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e&label=Raj&message=dinner&memo=owed%3AJArQ6g9JvoWr";
   const parsed = parseSolanaPayUrl(url);
   assert.equal(parsed.kind, "transfer");
   assert.equal(parsed.token, "USDC");
   assert.equal(parsed.amount, "15");
   assert.deepEqual(parsed.references, ["8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e"]);
-  assert.equal(parsed.memo, "owed:7Gh2kQpXa9");
+  assert.equal(parsed.memo, "owed:JArQ6g9JvoWr");
   assert.equal(parseSolanaPayUrl("solana:https%3A%2F%2Fshop.example%2Fpay").kind, "transaction");
   assert.equal(parseSolanaPayUrl("solana:https://shop.example/pay").kind, "transaction");
   assert.equal(parseSolanaPayUrl("solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs").token, "SOL");
@@ -81,7 +81,18 @@ test("shapes catch the contract breaks that matter", async () => {
   assert.equal(errorsOf("statusRes", { results: [{ id: "1111111111", status: "not_found" }] }), "");
 
   const created = await fixture("create-request.res.json");
-  assert.match(errorsOf("createRequestRes", { ...created, link: "https://owed.link/r/other" }), /does not end in \/r\/7Gh2kQpXa9/);
-  assert.match(errorsOf("createRequestRes", { ...created, link: "http://owed.link/r/7Gh2kQpXa9" }), /https URL/);
+  assert.match(errorsOf("createRequestRes", { ...created, link: "https://owed.link/r/other" }), /does not end in \/r\/JArQ6g9JvoWr/);
+  assert.match(errorsOf("createRequestRes", { ...created, link: "http://owed.link/r/JArQ6g9JvoWr" }), /https URL/);
   assert.match(errorsOf("errorRes", { error: { code: "boom", message: "x" } }), /not one of/);
+});
+
+test("12-char ids must hash their payment terms; 10-char ids are accepted as older random ids", async () => {
+  const created = await fixture("create-request.res.json");
+  assert.equal(requestIdFor({ recipient: "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs", token: "USDC", amountAtomic: 15_000_000n, reference: created.reference }), created.id);
+  assert.deepEqual(check(shapes.createRequestRes, created).errors, []);
+  const swapped = { ...created, solana_pay_url: created.solana_pay_url.replace("amount=15&", "amount=150&") };
+  assert.ok(check(shapes.createRequestRes, swapped).errors.some((e) => e.includes("is not the hash of its payment terms")));
+  const legacy = { ...created, id: "7Gh2kQpXa9", link: created.link.replace(created.id, "7Gh2kQpXa9"),
+    qr_url: created.qr_url.replace(created.id, "7Gh2kQpXa9"), solana_pay_url: created.solana_pay_url.replace(`owed%3A${created.id}`, "owed%3A7Gh2kQpXa9") };
+  assert.deepEqual(check(shapes.createRequestRes, legacy).errors, []);
 });

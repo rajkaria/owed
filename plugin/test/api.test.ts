@@ -33,7 +33,7 @@ test("createRequest posts JSON to /api/v1/requests with a timeout and no redirec
   const api = makeApi({ base: BASE, fetch: fakeFetch({ "POST /api/v1/requests": () => json(201, fixture("create-request.res.json")) }, calls) });
   const body = fixture("create-request.req.json");
   const res = await api.createRequest(body);
-  assert.equal(res.id, "7Gh2kQpXa9");
+  assert.equal(res.id, "JArQ6g9JvoWr");
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, "https://owed.link/api/v1/requests");
   assert.deepEqual(calls[0]!.body, body);
@@ -45,12 +45,12 @@ test("createRequest posts JSON to /api/v1/requests with a timeout and no redirec
 test("getRequest, status and statusRaw hit their routes and parse fixtures", async () => {
   const calls: Call[] = [];
   const api = makeApi({ base: BASE, fetch: fakeFetch({
-    "GET /api/v1/requests/7Gh2kQpXa9": () => json(200, fixture("get-request.res.json")),
+    "GET /api/v1/requests/JArQ6g9JvoWr": () => json(200, fixture("get-request.res.json")),
     "POST /api/v1/status": () => json(200, fixture("status.res.json")),
     "POST /api/v1/status-raw": () => json(200, fixture("status-raw.res.json")),
   }, calls) });
-  assert.equal((await api.getRequest("7Gh2kQpXa9")).status, "paid");
-  assert.equal((await api.status(["7Gh2kQpXa9", "Bq3wL8mNc2"])).results.length, 2);
+  assert.equal((await api.getRequest("JArQ6g9JvoWr")).status, "paid");
+  assert.equal((await api.status(["JArQ6g9JvoWr", "Bq3wL8mNc2"])).results.length, 2);
   assert.deepEqual(calls[1]!.body, fixture("status.req.json"));
   const raw = fixture("status-raw.req.json");
   assert.equal((await api.statusRaw(raw.solana_pay_url)).status, "open");
@@ -93,7 +93,7 @@ test("network errors, timeouts, 5xx and off-contract replies are upstream_unavai
   }
   const slow = makeApi({ base: BASE, timeoutMs: 30, fetch: fakeFetch({ "POST *": () => "hang" }) });
   const started = Date.now();
-  await rejectsWith(slow.status(["7Gh2kQpXa9"]), "upstream_unavailable");
+  await rejectsWith(slow.status(["JArQ6g9JvoWr"]), "upstream_unavailable");
   assert.ok(Date.now() - started < 1000, "timeout must abort the request");
 });
 

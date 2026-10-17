@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { REQUEST_ID_RE } from "./request-id.js";
 
 // Zod mirror of the Owed HTTP API (/api/v1). web/lib/contract.ts holds the same shapes;
 // both sides parse every file in contract/fixtures/. Response objects are not strict so an
@@ -10,7 +11,7 @@ const BASE58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
 export const tokenSchema = z.enum(["USDC", "SOL"]);
 export const decimalSchema = z.string().max(40).regex(DECIMAL);
 export const addressSchema = z.string().min(32).max(44).regex(BASE58);
-export const requestIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}$/);
+export const requestIdSchema = z.string().regex(REQUEST_ID_RE);
 export const signatureSchema = z.string().min(64).max(90).regex(BASE58);
 const isoTime = z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/);
 const httpsUrl = z.string().max(2048).regex(/^https:\/\//);

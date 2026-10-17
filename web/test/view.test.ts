@@ -130,7 +130,7 @@ test("parses the canonical Owed USDC transfer URL", () => {
   assert.deepEqual(r.value.references, [REFERENCE]);
   assert.equal(r.value.label, "Raj");
   assert.equal(r.value.message, "dinner");
-  assert.equal(r.value.memo, "owed:7Gh2kQpXa9");
+  assert.equal(r.value.memo, "owed:JArQ6g9JvoWr");
 });
 
 test("parses a minimal USDC URL and a SOL URL", () => {
@@ -178,14 +178,14 @@ test("hosted model from the canonical paid request", () => {
     amount: "15 USDC",
   });
   assert.equal(m.claimedName, null);
-  assert.equal(m.shareLink, "https://owed.link/r/7Gh2kQpXa9");
-  assert.equal(m.agentPrompt, "Use the Owed plugin in PayBox to pay https://owed.link/r/7Gh2kQpXa9");
+  assert.equal(m.shareLink, "https://owed.link/r/JArQ6g9JvoWr");
+  assert.equal(m.agentPrompt, "Use the Owed plugin in PayBox to pay https://owed.link/r/JArQ6g9JvoWr");
   assert.equal(pageTitle(m), "Raj is asking you for 15 USDC");
   assert.equal(
     pageDescription(m),
     "15 USDC for \u201cdinner\u201d. Pay with any Solana wallet, or with your AI agent in PayBox.",
   );
-  assert.deepEqual(m.poll, { endpoint: "/api/v1/status", id: "7Gh2kQpXa9" });
+  assert.deepEqual(m.poll, { endpoint: "/api/v1/status", id: "JArQ6g9JvoWr" });
   assert.deepEqual(m.initial, {
     status: "paid",
     amount: "15",
@@ -262,7 +262,7 @@ test("brand words come from API flags and from the text itself", () => {
 });
 
 test("status results map to live states; unknown results change nothing", () => {
-  const paid = stateFromStatus(pickStatusResult(statusRes, "7Gh2kQpXa9"), "15", "USDC");
+  const paid = stateFromStatus(pickStatusResult(statusRes, "JArQ6g9JvoWr"), "15", "USDC");
   assert.deepEqual(paid, {
     status: "paid",
     amount: "15",

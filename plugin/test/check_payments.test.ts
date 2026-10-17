@@ -20,12 +20,12 @@ const row = (id: string, status: string, amount: string, paid?: string, token = 
 
 test("owed ids and links: one batched status call, SPEC-style summary and a line per payment", async () => {
   const { deps, rec } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, statusFixture) } });
-  const result = await checkPayments({ requests: ["7Gh2kQpXa9", " https://owed.link/r/Bq3wL8mNc2 ", "7Gh2kQpXa9"] }, deps);
+  const result = await checkPayments({ requests: ["JArQ6g9JvoWr", " https://owed.link/r/Bq3wL8mNc2 ", "JArQ6g9JvoWr"] }, deps);
   const o = out(result);
   assert.equal(rec.calls.length, 1);
-  assert.deepEqual(rec.calls[0]!.body, { ids: ["7Gh2kQpXa9", "Bq3wL8mNc2"] });
+  assert.deepEqual(rec.calls[0]!.body, { ids: ["JArQ6g9JvoWr", "Bq3wL8mNc2"] });
   assert.deepEqual(o.results[0], {
-    input: "7Gh2kQpXa9", id: "7Gh2kQpXa9", status: "paid", amount_requested: "15", token: "USDC",
+    input: "JArQ6g9JvoWr", id: "JArQ6g9JvoWr", status: "paid", amount_requested: "15", token: "USDC",
     amount_paid: "15", payer: PAID.payer, signature: SIGNATURE, paid_at: PAID.paid_at, explorer_url: `https://solscan.io/tx/${SIGNATURE}`,
   });
   assert.deepEqual(o.results[1], { input: "https://owed.link/r/Bq3wL8mNc2", id: "Bq3wL8mNc2", status: "open", amount_requested: "4.5", token: "USDC" });
@@ -33,29 +33,29 @@ test("owed ids and links: one batched status call, SPEC-style summary and a line
   assert.equal(o.summary, "2 of 3 paid · 30 USDC received · 4.5 USDC outstanding");
   const lines = textOf(result).split("\n");
   assert.equal(lines[0], o.summary);
-  assert.equal(lines[1], `Paid, request 7Gh2kQpXa9: 15 USDC from 9WzD…AWWM: https://solscan.io/tx/${SIGNATURE}`);
+  assert.equal(lines[1], `Paid, request JArQ6g9JvoWr: 15 USDC from 9WzD…AWWM: https://solscan.io/tx/${SIGNATURE}`);
 });
 
 test("summary matches the SPEC example", async () => {
-  const body = { results: [row("7Gh2kQpXa9", "paid", "15", "15"), row("Bq3wL8mNc2", "paid", "15", "15"), row("Cq3wL8mNc2", "open", "15")] };
+  const body = { results: [row("JArQ6g9JvoWr", "paid", "15", "15"), row("Bq3wL8mNc2", "paid", "15", "15"), row("Cq3wL8mNc2", "open", "15")] };
   const { deps } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, body) } });
-  const o = out(await checkPayments({ requests: ["7Gh2kQpXa9", "Bq3wL8mNc2", "Cq3wL8mNc2"] }, deps));
+  const o = out(await checkPayments({ requests: ["JArQ6g9JvoWr", "Bq3wL8mNc2", "Cq3wL8mNc2"] }, deps));
   assert.equal(o.summary, "2 of 3 paid · 30 USDC received · 15 USDC outstanding");
 });
 
 test("underpaid, mixed tokens, cancelled and missing ids are all accounted for", async () => {
   const body = { results: [
-    row("7Gh2kQpXa9", "underpaid", "15", "10"),
+    row("JArQ6g9JvoWr", "underpaid", "15", "10"),
     row("Bq3wL8mNc2", "paid", "0.5", "0.5", "SOL"),
     row("Cq3wL8mNc2", "open", "0.25", undefined, "SOL"),
     row("Dq3wL8mNc2", "cancelled", "3"),
   ] };
   const { deps } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, body) } });
-  const result = await checkPayments({ requests: ["7Gh2kQpXa9", "Bq3wL8mNc2", "Cq3wL8mNc2", "Dq3wL8mNc2", "Eq3wL8mNc2"] }, deps);
+  const result = await checkPayments({ requests: ["JArQ6g9JvoWr", "Bq3wL8mNc2", "Cq3wL8mNc2", "Dq3wL8mNc2", "Eq3wL8mNc2"] }, deps);
   const o = out(result);
   assert.equal(o.summary, "1 of 5 paid · 10 USDC + 0.5 SOL received · 5 USDC + 0.25 SOL outstanding · 1 underpaid · 1 cancelled · 1 not found");
   assert.deepEqual(o.results[4], { input: "Eq3wL8mNc2", id: "Eq3wL8mNc2", status: "not_found", amount_requested: null, token: null, error: "No Owed request has this id." });
-  assert.match(textOf(result), /Underpaid, request 7Gh2kQpXa9: 10 of 15 USDC from 9WzD…AWWM: https:\/\/solscan\.io\/tx\//);
+  assert.match(textOf(result), /Underpaid, request JArQ6g9JvoWr: 10 of 15 USDC from 9WzD…AWWM: https:\/\/solscan\.io\/tx\//);
 });
 
 test("open requests report how long they have waited when the API sends created_at", async () => {
@@ -82,7 +82,7 @@ test("API down: raw URLs are checked on-chain directly; Owed ids report unknown"
     routes: { "POST *": () => "network_error" },
     findPayment: async () => ({ status: "paid", signature: SIGNATURE, payer: SENDER, amountPaidAtomic: 1_000_000n, paidAt: "2026-10-17T05:00:09Z" }),
   });
-  const result = await checkPayments({ requests: [rawUrl, "7Gh2kQpXa9"] }, deps);
+  const result = await checkPayments({ requests: [rawUrl, "JArQ6g9JvoWr"] }, deps);
   const o = out(result);
   assert.deepEqual(rec.findPayment, [{ reference: REFERENCE, recipient: RECIPIENT, token: "USDC", amountAtomic: 1_000_000n }]);
   assert.deepEqual(o.results[0], {
@@ -93,7 +93,7 @@ test("API down: raw URLs are checked on-chain directly; Owed ids report unknown"
   assert.match(o.results[1]!.error!, /unreachable/);
   assert.equal(o.summary, "1 of 2 paid · 1 USDC received · 1 couldn't be checked");
   assert.match(textOf(result), /Paid, Solana Pay link: 1 USDC from 9WzD…AWWM/);
-  assert.match(textOf(result), /Not checked, 7Gh2kQpXa9: Owed's server is unreachable/);
+  assert.match(textOf(result), /Not checked, JArQ6g9JvoWr: Owed's server is unreachable/);
 });
 
 test("offline /p?u= links are checked like the raw URL inside them", async () => {
@@ -128,7 +128,7 @@ test("unreadable inputs are invalid with a reason, and don't stop the rest", asy
     `solana:${RECIPIENT}?amount=1`,
     "hello there",
     `solana:${RECIPIENT}?amount=1&spl-token=Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB&reference=${REFERENCE}`,
-    "7Gh2kQpXa9",
+    "JArQ6g9JvoWr",
   ];
   const o = out(await checkPayments({ requests: inputs }, deps));
   assert.deepEqual(o.results.map((r) => r.status), ["invalid", "invalid", "invalid", "invalid", "paid"]);
@@ -154,7 +154,7 @@ test("RPC failures and the 10 s budget turn into 'unknown', never a hang", async
     findPayment: () => new Promise(() => {}),
   });
   const started = Date.now();
-  const o = out(await checkPayments({ requests: [rawUrl, "7Gh2kQpXa9"] }, deps));
+  const o = out(await checkPayments({ requests: [rawUrl, "JArQ6g9JvoWr"] }, deps));
   assert.ok(Date.now() - started < 1000, "budget exhausted: must answer immediately");
   assert.deepEqual(o.results.map((r) => r.status), ["unknown", "unknown"]);
 
@@ -166,12 +166,12 @@ test("RPC failures and the 10 s budget turn into 'unknown', never a hang", async
 
 test("input schema: 1 to 20 bounded strings, strict", () => {
   const ok = (v: object) => inputSchema.safeParse(v).success;
-  assert.equal(ok({ requests: ["7Gh2kQpXa9"] }), true);
-  assert.equal(ok({ requests: Array(20).fill("7Gh2kQpXa9") }), true);
+  assert.equal(ok({ requests: ["JArQ6g9JvoWr"] }), true);
+  assert.equal(ok({ requests: Array(20).fill("JArQ6g9JvoWr") }), true);
   assert.equal(ok({ requests: [] }), false);
-  assert.equal(ok({ requests: Array(21).fill("7Gh2kQpXa9") }), false);
+  assert.equal(ok({ requests: Array(21).fill("JArQ6g9JvoWr") }), false);
   assert.equal(ok({ requests: [""] }), false);
   assert.equal(ok({ requests: ["x".repeat(2049)] }), false);
-  assert.equal(ok({ requests: ["7Gh2kQpXa9"], extra: 1 }), false);
-  assert.equal(ok({ requests: "7Gh2kQpXa9" }), false);
+  assert.equal(ok({ requests: ["JArQ6g9JvoWr"], extra: 1 }), false);
+  assert.equal(ok({ requests: "JArQ6g9JvoWr" }), false);
 });

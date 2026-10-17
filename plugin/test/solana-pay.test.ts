@@ -105,7 +105,7 @@ test("contract fixture solana_pay_url parses and rebuilds byte-for-byte", () => 
     references: [REF],
     label: "Raj",
     message: "dinner",
-    memo: "owed:7Gh2kQpXa9",
+    memo: "owed:JArQ6g9JvoWr",
   };
   assert.deepEqual(parseLink(created.solana_pay_url as string, HOSTS), { kind: "transfer", request });
   assert.equal(buildTransferUrl(request), created.solana_pay_url);
@@ -128,27 +128,27 @@ test("contract fixture solana_pay_url parses and rebuilds byte-for-byte", () => 
 // --- Owed links ---
 
 test("Owed request links and bare ids parse to kind owed", () => {
-  const owed = { kind: "owed", id: "7Gh2kQpXa9" };
+  const owed = { kind: "owed", id: "JArQ6g9JvoWr" };
   for (const input of [
-    "7Gh2kQpXa9",
-    "  7Gh2kQpXa9\n",
-    "https://owed.link/r/7Gh2kQpXa9",
-    "https://owed.link/r/7Gh2kQpXa9/",
-    "https://owed.link/r/7Gh2kQpXa9?utm_source=chat#pay",
-    "https://OWED.LINK/r/7Gh2kQpXa9",
-    "HTTPS://owed.link/r/7Gh2kQpXa9",
-    "http://owed.link/r/7Gh2kQpXa9",
-    "owed.link/r/7Gh2kQpXa9",
-    "https://owed-omega.vercel.app/r/7Gh2kQpXa9",
+    "JArQ6g9JvoWr",
+    "  JArQ6g9JvoWr\n",
+    "https://owed.link/r/JArQ6g9JvoWr",
+    "https://owed.link/r/JArQ6g9JvoWr/",
+    "https://owed.link/r/JArQ6g9JvoWr?utm_source=chat#pay",
+    "https://OWED.LINK/r/JArQ6g9JvoWr",
+    "HTTPS://owed.link/r/JArQ6g9JvoWr",
+    "http://owed.link/r/JArQ6g9JvoWr",
+    "owed.link/r/JArQ6g9JvoWr",
+    "https://owed-omega.vercel.app/r/JArQ6g9JvoWr",
   ]) {
     assert.deepEqual(parseLink(input, HOSTS), owed, input);
   }
-  assert.deepEqual(parseLink("https://owed.link/r/7Gh2kQpXa9", ["https://owed.link/"]), owed);
-  assert.deepEqual(parseLink("https://localhost:3000/r/7Gh2kQpXa9", ["localhost:3000"]), owed);
+  assert.deepEqual(parseLink("https://owed.link/r/JArQ6g9JvoWr", ["https://owed.link/"]), owed);
+  assert.deepEqual(parseLink("https://localhost:3000/r/JArQ6g9JvoWr", ["localhost:3000"]), owed);
 });
 
 test("bare ids must be exactly 10 base58 characters", () => {
-  for (const id of ["7Gh2kQpXa", "7Gh2kQpXa9Z", "0Gh2kQpXa9", "OGh2kQpXa9", "IGh2kQpXa9", "lGh2kQpXa9", "7Gh2kQp-a9"]) {
+  for (const id of ["7Gh2kQpXa", "JArQ6g9JvoWrZ", "0Gh2kQpXa9", "OGh2kQpXa9", "IGh2kQpXa9", "lGh2kQpXa9", "7Gh2kQp-a9"]) {
     rejects(id, "That isn't an Owed link or a Solana Pay link.");
   }
 });
@@ -158,15 +158,15 @@ test("Owed links with a bad id, wrong path or foreign host are refused", () => {
   rejects("https://owed.link/r/0Gh2kQpXa9", "That Owed link has an invalid request id.");
   rejects("https://owed.link/r/", "That Owed link has an invalid request id.");
   rejects("https://owed.link/r", "That Owed link has an invalid request id.");
-  rejects("https://owed.link/r/7Gh2kQpXa9/extra", "That Owed link isn't a payment request.");
+  rejects("https://owed.link/r/JArQ6g9JvoWr/extra", "That Owed link isn't a payment request.");
   rejects("https://owed.link/", "That Owed link isn't a payment request.");
-  rejects("https://owed.link/g/7Gh2kQpXa9", "That Owed link isn't a payment request.");
+  rejects("https://owed.link/g/JArQ6g9JvoWr", "That Owed link isn't a payment request.");
   const foreign = "That web link isn't an Owed link. Owed pays links from owed.link and solana: payment links only.";
-  rejects("https://evil.example/r/7Gh2kQpXa9", foreign);
-  rejects("https://owed.link.evil.example/r/7Gh2kQpXa9", foreign);
-  rejects("https://owed.link@evil.example/r/7Gh2kQpXa9", foreign);
-  rejects("https://owed.link:8443/r/7Gh2kQpXa9", foreign);
-  rejects("https://owed.link/r/7Gh2kQpXa9", "That web link isn't a Solana Pay link. Owed pays solana: payment links.", []);
+  rejects("https://evil.example/r/JArQ6g9JvoWr", foreign);
+  rejects("https://owed.link.evil.example/r/JArQ6g9JvoWr", foreign);
+  rejects("https://owed.link@evil.example/r/JArQ6g9JvoWr", foreign);
+  rejects("https://owed.link:8443/r/JArQ6g9JvoWr", foreign);
+  rejects("https://owed.link/r/JArQ6g9JvoWr", "That web link isn't a Solana Pay link. Owed pays solana: payment links.", []);
 });
 
 test("stateless /p?u= links return the inner transfer, however the inner URL is encoded", () => {
@@ -195,7 +195,7 @@ test("stateless /p links without exactly one solana: u are refused", () => {
   rejects("https://owed.link/p", missing);
   rejects("https://owed.link/p?u=", missing);
   rejects(`https://owed.link/p?u=${inner}&u=${inner}`, missing);
-  rejects(`https://owed.link/p?u=${encodeURIComponent("https://owed.link/r/7Gh2kQpXa9")}`, missing);
+  rejects(`https://owed.link/p?u=${encodeURIComponent("https://owed.link/r/JArQ6g9JvoWr")}`, missing);
   rejects(`https://owed.link/p?u=${encodeURIComponent("bitcoin:1BoatSLRHtKNngkdXEeobR76b53LETtpyT")}`, missing);
   rejects(`https://owed.link/p?u=${encodeURIComponent("solana:notanaddress")}`, "The recipient in this link isn't a valid Solana address.");
   assert.deepEqual(parseLink(`https://owed.link/p?u=${encodeURIComponent("solana:https://example.com/solana-pay")}`, HOSTS), {
@@ -255,11 +255,11 @@ test("percent-encoding is applied on build", () => {
     references: [],
     label: "Café & Co",
     message: "a=b?c#d%e+f/g",
-    memo: "owed:7Gh2kQpXa9",
+    memo: "owed:JArQ6g9JvoWr",
   });
   assert.equal(
     url,
-    `solana:${WALLET}?amount=1&label=Caf%C3%A9%20%26%20Co&message=a%3Db%3Fc%23d%25e%2Bf%2Fg&memo=owed%3A7Gh2kQpXa9`,
+    `solana:${WALLET}?amount=1&label=Caf%C3%A9%20%26%20Co&message=a%3Db%3Fc%23d%25e%2Bf%2Fg&memo=owed%3AJArQ6g9JvoWr`,
   );
 });
 
@@ -271,7 +271,7 @@ test("unknown schemes and plain text are refused", () => {
     "mailto:raj@example.com",
     "javascript:alert(1)",
     "data:text/html,hi",
-    "ftp://owed.link/r/7Gh2kQpXa9",
+    "ftp://owed.link/r/JArQ6g9JvoWr",
     "pay me 15 usdc",
     "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
   ]) {
@@ -370,7 +370,7 @@ const ROUND_TRIP: TransferRequest[] = [
   { recipient: WALLET, amount: "18446744073709.551615", splToken: USDC_MINT, references: [] },
   { recipient: WALLET, amount: "3", splToken: USDC_MINT, references: [REF], label: "&=?#%+/;,:@$!'()*~" },
   { recipient: WALLET, amount: "12.34", splToken: USDC_MINT, references: [REF], message: "Café 日本 🍣 مرحبا" },
-  { recipient: WALLET, amount: "15", splToken: USDC_MINT, references: [REF], memo: "owed:7Gh2kQpXa9" },
+  { recipient: WALLET, amount: "15", splToken: USDC_MINT, references: [REF], memo: "owed:JArQ6g9JvoWr" },
   { recipient: WALLET, amount: "1", references: [], message: "line1\nline2\tend\r\n" },
   { recipient: WALLET, amount: "1", references: [], label: `"<b>Raj</b>" & 'co'` },
   { recipient: WALLET, amount: "1.50", splToken: USDC_MINT, references: [REF] },
@@ -440,7 +440,7 @@ test("isSolanaAddress accepts base58 strings that decode to exactly 32 bytes", (
 test("isSolanaAddress rejects everything else", () => {
   for (const value of [
     "",
-    "7Gh2kQpXa9",
+    "JArQ6g9JvoWr",
     WALLET.slice(0, 31),
     WALLET.slice(0, 40),
     `${WALLET}1`,

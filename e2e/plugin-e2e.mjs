@@ -329,7 +329,7 @@ async function expectedPayment(args, baseUrl, warn) {
     return { source, recipient: parsed.recipient, amount: parsed.amount ?? args.amount ?? null, token: parsed.token, splToken: parsed.splToken, references: parsed.references, memo: parsed.memo };
   };
   if (link.startsWith("solana:")) return fromUrl(link, "solana: URL");
-  const id = link.match(/(?:^|\/r\/)([1-9A-HJ-NP-Za-km-z]{10})(?:[/?#]|$)/)?.[1];
+  const id = link.match(/(?:^|\/r\/)([1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?)(?:[/?#]|$)/)?.[1];
   if (!id) return null;
   const origin = /^https?:\/\//.test(link) ? new URL(link).origin : new URL(baseUrl).origin;
   try {

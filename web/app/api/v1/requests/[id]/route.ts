@@ -11,7 +11,7 @@ const CHAIN_BUDGET_MS = 2500;
 export async function GET(_req: Request, ctx: RouteContext<"/api/v1/requests/[id]">): Promise<Response> {
   try {
     const { id } = await ctx.params;
-    if (!isRequestId(id)) throw new ApiError("invalid_input", "id must be a 10-character Owed id");
+    if (!isRequestId(id)) throw new ApiError("invalid_input", "id must be a 12-character Owed id");
     let row = await getRequest(id);
     if (!row) throw new ApiError("not_found", "no request with this id");
     if (row.status === "open" || row.status === "underpaid") {

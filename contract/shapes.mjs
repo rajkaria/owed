@@ -2,6 +2,8 @@
 // Every shape must accept its file in contract/fixtures/ (check.mjs enforces this), so the smoke test and the
 // fixtures can't drift apart silently. Amount checks are string/bigint only: no floats anywhere.
 
+import { createHash } from "node:crypto";
+
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const TOKEN_DECIMALS = { USDC: 6, SOL: 9 };
 export const TEAM_WALLET = "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs";
@@ -148,7 +150,7 @@ const object = (fields, refine) => (value, path, ctx) => {
   if (refine && before === ctx.errors.length) refine(value, path, ctx);
 };
 
-const id = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{10}$/, label: "a 10-char base58 id" });
+const id = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/, label: "a 12-char base58 id (10 for requests made before ids were derived)" });
 const pubkey = string({ test: isPubkey, label: "a base58 32-byte key" });
 const signature = string({ test: isSignature, label: "a base58 64-byte signature" });
 const amount = string({ max: 40, pattern: AMOUNT_RE, label: "a decimal amount" });
@@ -182,6 +184,13 @@ function decimalsFit(amountKey) {
   };
 }
 
+/** Request id = last 12 base58 chars of sha256 over the payment terms (plugin/src/request-id.ts, web/lib/ids.ts). */
+export function requestIdFor({ recipient, token, amountAtomic, reference }) {
+  const asset = token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-request:v1\n${recipient}\n${asset}\n${amountAtomic}\n${reference}`, "utf8").digest();
+  return base58Encode(digest).slice(-12);
+}
+
 /** solana_pay_url must carry the same recipient/amount/token/reference as the JSON next to it. */
 function urlMatchesFields(value, path, ctx) {
   const parsed = parseSolanaPayUrl(value.solana_pay_url);
@@ -191,6 +200,13 @@ function urlMatchesFields(value, path, ctx) {
   if ("token" in value && parsed.token !== value.token) ctx.errors.push(`${path}.solana_pay_url: spl-token is ${parsed.token ?? "unknown"}, .token is ${value.token}`);
   if ("reference" in value && !parsed.references.includes(value.reference)) ctx.errors.push(`${path}.solana_pay_url: does not carry .reference`);
   if ("id" in value && parsed.memo !== null && parsed.memo !== `owed:${value.id}`) ctx.errors.push(`${path}.solana_pay_url: memo ${show(parsed.memo)} is not owed:${value.id}`);
+  // 12-char ids commit to the terms; 10-char ids are random ids from before that change.
+  if (typeof value.id === "string" && value.id.length === 12 && typeof value.reference === "string" && parsed.amount !== null
+    && TOKEN_DECIMALS[parsed.token] !== undefined) {
+    let expected = null;
+    try { expected = requestIdFor({ recipient: parsed.recipient, token: parsed.token, amountAtomic: toAtomic(parsed.amount, TOKEN_DECIMALS[parsed.token]), reference: value.reference }); } catch { /* amount errors are reported elsewhere */ }
+    if (expected !== null && expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of its payment terms (expected ${expected})`);
+  }
 }
 
 const statusFields = {

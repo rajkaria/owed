@@ -53,7 +53,7 @@ test("contract: rejects bad money, tokens, statuses and error codes", () => {
   assert.equal(bad({ id: "short" }), false);
   assert.equal(errorResSchema.safeParse({ error: { code: "teapot", message: "x" } }).success, false);
   assert.equal(statusReqSchema.safeParse({ ids: [] }).success, false);
-  assert.equal(statusReqSchema.safeParse({ ids: Array(21).fill("7Gh2kQpXa9") }).success, false);
+  assert.equal(statusReqSchema.safeParse({ ids: Array(21).fill("JArQ6g9JvoWr") }).success, false);
 });
 
 test("contract: get-request accepts nulls for absent requester text", () => {
