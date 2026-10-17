@@ -99,3 +99,4 @@ venv/
 *.egg-info/
 .ipynb_checkpoints/
 # <<< hackathon-skill: public-repo guard <<<
+.env*
