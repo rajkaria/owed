@@ -206,6 +206,28 @@ it("POST /status-raw: 60 per IP per minute, then 429 before any chain read", asy
   assert.equal((await post(statusRawRoute, "/api/v1/status-raw", { solana_pay_url: url }, { "x-real-ip": "192.0.2.51" })).status, 200);
 });
 
+test("POST /status-raw still answers from the chain when the database is down (the /p page needs it)", async () => {
+  const realFetch = globalThis.fetch;
+  const realError = console.error;
+  const logged: string[] = [];
+  console.error = (...args: unknown[]) => { logged.push(args.join(" ")); };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).startsWith(NEON)) throw new TypeError("fetch failed");
+    const calls = JSON.parse(String(init?.body ?? "null"));
+    const answer = (c: { id: number }) => ({ jsonrpc: "2.0", id: c.id, result: [] });
+    return Response.json(Array.isArray(calls) ? calls.map(answer) : answer(calls));
+  }) as typeof fetch;
+  try {
+    const res = await post(statusRawRoute, "/api/v1/status-raw", { solana_pay_url: `solana:${wallet()}?amount=1&reference=${wallet()}` });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).status, "open");
+    assert.match(logged.join("\n"), /status-raw rate limit skipped/);
+  } finally {
+    globalThis.fetch = realFetch;
+    console.error = realError;
+  }
+});
+
 it("take(): all rules or none; the first full rule in the caller's order is reported", async () => {
   const rules = [{ key: "t:a", max: 2, windowSeconds: 60, scope: "a" }, { key: "t:b", max: 1, windowSeconds: 60, scope: "b" }];
   assert.equal((await take(rules)).allowed, true);

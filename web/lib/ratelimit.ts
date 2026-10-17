@@ -1,5 +1,5 @@
 import "server-only";
-import { sql, transaction } from "./db";
+import { DbError, sql, transaction } from "./db";
 import { ApiError } from "./http";
 import { normalizeDomain } from "./payee";
 
@@ -150,9 +150,19 @@ export async function takeX402Attempt(requestId: string, ip: string): Promise<Ra
   ]);
 }
 
-/** Before POST /status-raw reads the chain for an arbitrary link: per client IP. */
+/**
+ * Before POST /status-raw reads the chain for an arbitrary link: per client IP. It fails open when the
+ * database is down: /status-raw needs only the chain, and the stateless /p page relies on it then.
+ */
 export async function requireStatusRawSlot(req: Request): Promise<void> {
-  const slot = await take([{ key: `status-raw:ip:${clientIp(req)}`, max: STATUS_RAW_LIMITS.perIp, windowSeconds: STATUS_RAW_LIMITS.windowSeconds, scope: "ip" }]);
+  let slot: RateDecision;
+  try {
+    slot = await take([{ key: `status-raw:ip:${clientIp(req)}`, max: STATUS_RAW_LIMITS.perIp, windowSeconds: STATUS_RAW_LIMITS.windowSeconds, scope: "ip" }]);
+  } catch (e) {
+    if (!(e instanceof DbError)) throw e;
+    console.error(`status-raw rate limit skipped: ${e.message}`);
+    return;
+  }
   if (!slot.allowed) {
     throw new ApiError("rate_limited", "too many link checks from this client in the last minute, try again shortly", {
       "Retry-After": String(slot.retryAfterSeconds ?? 60),
