@@ -18,7 +18,7 @@ const base = opt("--base-url", "https://www.getowed.xyz");
 const bundle = opt("--bundle", join(root, "plugin/dist/plugin.mjs"));
 const create = argv.includes("--create");
 const only = opt("--only", null);
-const HOSTS = [new URL(base).host, "www.getowed.xyz", "owed-omega.vercel.app", "solana-rpc.publicnode.com", "api.mainnet-beta.solana.com", "cloudflare-dns.com", "dns.google"];
+const HOSTS = [new URL(base).host, "www.getowed.xyz", "owed-omega.vercel.app", "solana-rpc.publicnode.com", "api.mainnet-beta.solana.com", "cloudflare-dns.com", "dns.google", "public.chainalysis.com"];
 
 const QA = "B7QBb26C4Cijm6BCLntASHhGouMSx6ayVWqkyFYYGTTp"; // QA wallet: no funds, nobody pays it
 const TEAM = "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs"; // funded team wallet: only ever the unsigned sender
