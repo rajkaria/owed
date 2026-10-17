@@ -35,7 +35,7 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 
 - Pending vs failing: a route Vercel answers with `x-matched-path: /404` is not deployed yet and shows as `PEND`.
   `--strict` turns those into failures (use it from L2 on; set repo variable `SMOKE_STRICT=1` for CI).
-- Read-only by default. `--create` writes exactly one real request: 0.01 USDC to the team wallet, `source: "smoke"`,
+- Read-only by default. `--create` writes exactly one real request: 0.01 USDC to the team wallet, `source: "web"`, requester "Owed smoke",
   with a URL and a control character in the requester text and "PayBox" in the note, then checks they were
   stripped/flagged and that the QR, pay page and preview image serve. `--id <id>` runs the same reads on an
   existing request. `--page <path|url>` adds a page that must return 200 HTML. `--json` for machines.

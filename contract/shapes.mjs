@@ -201,6 +201,7 @@ const statusFields = {
   payer: optional(pubkey),
   signature: optional(signature),
   paid_at: optional(iso),
+  created_at: optional(iso), // W1-C asked for it; the plugin turns it into "waited"
 };
 function statusConsistent(value, path, ctx) {
   if (["open", "paid", "underpaid", "cancelled"].includes(value.status)) {
@@ -220,7 +221,7 @@ export const shapes = {
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
     requester_name: optional(string({ max: 40 })), kind: optional(oneOf("single")), group_id: optional(string({ max: 40 })),
-    source: oneOf("plugin", "web", "smoke"),
+    source: oneOf("plugin", "web"),
   }, decimalsFit("amount")),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,

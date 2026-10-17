@@ -7,7 +7,7 @@
 // contract/shapes.mjs (which must accept every file in contract/fixtures/ before anything runs).
 // A route that is not deployed yet (Vercel answers 404 with x-matched-path: /404) is PENDING, not a failure,
 // unless --strict is passed. Nothing is written unless --create is passed: then exactly one real request for
-// 0.01 USDC to the team wallet is created with source "smoke", and its id, QR, pay page and preview image are
+// 0.01 USDC to the team wallet is created (source "web", requester "Owed smoke"), and its id, QR, pay page and preview image are
 // checked end to end. --id <id> runs the same read-only checks against an existing request.
 import { readFile } from "node:fs/promises";
 import { realpathSync } from "node:fs";
@@ -24,7 +24,7 @@ const SMOKE_REQUEST = {
   payer_name: "Smoke test", requester_name: "Owed smoke",
   // Untrusted-text probes (SPEC §6): the API must strip the URL and the control character and flag "PayBox".
   for: "smoke check https://example.com/x", note: "Owed smoke run, mentions PayBox\u0007",
-  source: "smoke",
+  source: "web",
 };
 
 export async function loadFixtures(dir = FIXTURES) {
@@ -180,10 +180,10 @@ export async function runSmoke({ base, strict = false, create = false, id = null
   });
   const invalidCode = (json, problems) => { if (json.error.code !== "invalid_input") problems.push(`error code ${json.error.code}, expected invalid_input`); };
   await api("create rejects bad amount", "POST", "/api/v1/requests", {
-    json: { ...fixtures["create-request.req"], amount: "1.2.3", source: "smoke" }, expect: 400, shape: "errorRes", refine: invalidCode,
+    json: { ...fixtures["create-request.req"], amount: "1.2.3", source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
   });
   await api("create rejects bad recipient", "POST", "/api/v1/requests", {
-    json: { ...fixtures["create-request.req"], recipient: "0x3806c85df527e5336f05277ab8cc3932b9abe42a", source: "smoke" }, expect: 400, shape: "errorRes", refine: invalidCode,
+    json: { ...fixtures["create-request.req"], recipient: "0x3806c85df527e5336f05277ab8cc3932b9abe42a", source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
   });
   await api("create rejects malformed JSON", "POST", "/api/v1/requests", { body: "{\"recipient\":", expect: 400, shape: "errorRes" });
   await api("status of unknown id", "POST", "/api/v1/status", {
