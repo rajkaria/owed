@@ -5,6 +5,7 @@ import { AmountError, toAtomic } from "@/lib/money";
 import { takeCreateSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
+import { x402UrlFor } from "@/lib/x402/url";
 
 export const runtime = "nodejs";
 
@@ -59,7 +60,7 @@ export async function POST(req: Request): Promise<Response> {
       solana_pay_url: solanaPayUrl(row),
       qr_url: `${base}/api/qr/${row.id}.png`,
       reference: row.reference,
-      x402_url: null,
+      x402_url: x402UrlFor(base, row),
       created_at: row.createdAt,
       flags: row.flags,
     };
