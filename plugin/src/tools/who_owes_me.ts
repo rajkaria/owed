@@ -1,0 +1,271 @@
+import type { McpServer } from "@modelcontextprotocol/server";
+import { createPublicKey, verify } from "node:crypto";
+import bs58 from "bs58";
+import * as z from "zod/v4";
+import { ApiError, makeApi } from "../api.js";
+import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes } from "../contract.js";
+import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
+import { ago, clean, explorerUrl, quote, shortAddress } from "../text.js";
+
+// Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
+// request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
+// signature, and Owed's server returns the ledger for that wallet once. The server checks everything again;
+// the checks here only spare a round trip and give a clear reason.
+
+export const LEDGER_BUDGET_MS = 8500;
+/** The server checks open requests on chain before it answers; a timeout would spend the signature for nothing. */
+export const LEDGER_API_TIMEOUT_MS = 7000;
+export const MESSAGE_VALID_MS = 5 * 60_000;
+const MAX_SKEW_MS = 60_000;
+const MAX_LINES = 25;
+
+export const inputSchema = z.object({
+  recipient: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials): whose ledger to show."),
+  signed_message: z.string().min(1).max(200).optional()
+    .describe("Second call only: the exact message_to_sign from the first call."),
+  signature: z.string().min(64).max(200).optional()
+    .describe("Second call only: the signature request_wallet_sign returned for that message (hex as PayBox returns it; base58 or base64 also work)."),
+}).strict();
+
+const entrySchema = z.object({
+  id: z.string(),
+  link: z.string(),
+  status: z.enum(["open", "underpaid", "paid"]),
+  amount: z.string(),
+  token: tokenSchema,
+  amount_due: z.string().optional().describe("What is still owed (open and underpaid only)."),
+  amount_paid: z.string().optional(),
+  payer_name: z.string().optional().describe("Written by the requester; unverified."),
+  for: z.string().optional().describe("Written by the requester; unverified."),
+  created_at: z.string(),
+  waited: z.string().optional().describe('How long an unpaid request has been open, e.g. "2d 4h".'),
+  payer: z.string().optional(),
+  paid_at: z.string().optional(),
+  explorer_url: z.string().optional(),
+  group_id: z.string().optional().describe("Set for one share of a split bill."),
+  from_domain: z.string().optional().describe("The verified payee domain the request was created with."),
+}).strict();
+
+export const outputSchema = z.object({
+  step: z.enum(["sign", "ledger"]).describe("sign = sign message_to_sign and call again; ledger = the result."),
+  recipient: z.string(),
+  message_to_sign: z.string().optional(),
+  expires_at: z.string().optional(),
+  open: z.array(entrySchema).optional(),
+  paid_recently: z.array(entrySchema).optional().describe("Paid in the last 30 days, newest first."),
+  outstanding_total: z.string().optional().describe('e.g. "15 USDC + 0.5 SOL", or "0 USDC".'),
+  received_30d: z.string().optional(),
+  chain_checked: z.boolean().optional().describe("false = Solana couldn't be read just now; open items show the last known state."),
+  truncated: z.boolean().optional(),
+}).strict();
+
+export type WhoInput = z.output<typeof inputSchema>;
+export type WhoOutput = z.output<typeof outputSchema>;
+
+const DESCRIPTION = [
+  "Show who still owes the user money: every open Owed request paid to their wallet, plus what was paid in the last 30 days, with totals.",
+  "Use it when the user asks \"who owes me?\", \"what's outstanding?\" or \"what came in this month?\".",
+  "Two calls. First call with only recipient (the user's own PayBox Solana wallet from list_credentials): it returns message_to_sign.",
+  "Sign that exact text with PayBox request_wallet_sign (credential_id of that wallet, intent {op:\"solanaMessage\", address: recipient, message: message_to_sign}); the user approves with their passkey. Signing moves no money.",
+  "Then call who_owes_me again with recipient, signed_message (the same text) and signature (from the request's output). The message is valid for 5 minutes and works once.",
+  "For a few specific requests, check_payments needs no signature.",
+].join(" ");
+
+export function ledgerMessage(recipient: string, nowMs: number): string {
+  return `Owed ledger access for ${recipient} at ${isoSeconds(nowMs)}`;
+}
+
+function isoSeconds(ms: number): string {
+  return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(".000Z", "Z");
+}
+
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
+
+// DER prefix of an Ed25519 SubjectPublicKeyInfo; the 32 key bytes follow.
+const ED25519_SPKI = Buffer.from("302a300506032b6570032100", "hex");
+
+/** Every 64-byte value the signature text could be: hex (PayBox), base58 or base64 (wallet adapters). */
+function signatureBytes(text: string): Buffer[] {
+  const s = text.trim();
+  const out: Buffer[] = [];
+  const hex = s.replace(/^0x/i, "");
+  if (/^[0-9a-fA-F]{128}$/.test(hex)) out.push(Buffer.from(hex, "hex"));
+  if (/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(s)) {
+    try {
+      const b = bs58.decode(s);
+      if (b.length === 64) out.push(Buffer.from(b));
+    } catch {
+      // not base58
+    }
+  }
+  if (/^[A-Za-z0-9+/_-]{86}(?:==)?$/.test(s)) {
+    const b = Buffer.from(s.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+    if (b.length === 64) out.push(b);
+  }
+  return out;
+}
+
+/** ed25519 over the message's UTF-8 bytes, as request_wallet_sign {op:"solanaMessage"} signs it. */
+export function signatureMatches(message: string, signature: string, signer: string): boolean {
+  let key;
+  try {
+    const pub = bs58.decode(signer);
+    if (pub.length !== 32) return false;
+    key = createPublicKey({ key: Buffer.concat([ED25519_SPKI, Buffer.from(pub)]), format: "der", type: "spki" });
+  } catch {
+    return false;
+  }
+  const data = Buffer.from(message, "utf8");
+  return signatureBytes(signature).some((sig) => {
+    try {
+      return verify(null, data, key, sig);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** null when the pair looks right; otherwise what to tell the agent. */
+function localCheck(recipient: string, message: string, signature: string, now: number): string | null {
+  const lead = `Owed ledger access for ${recipient} at `;
+  const again = "Call who_owes_me with only recipient to get a fresh message, sign that, and try again.";
+  if (!message.startsWith(lead) || !ISO_RE.test(message.slice(lead.length))) {
+    return `signed_message must be exactly the message_to_sign who_owes_me gave for this wallet ("${lead}<time>"). ${again}`;
+  }
+  const signedAt = Date.parse(message.slice(lead.length));
+  if (!Number.isFinite(signedAt)) return `signed_message has an invalid time. ${again}`;
+  if (now - signedAt > MESSAGE_VALID_MS) return `That signed message is more than 5 minutes old. ${again}`;
+  if (signedAt - now > MAX_SKEW_MS) return `That signed message is dated in the future. ${again}`;
+  if (signatureBytes(signature).length === 0) {
+    return "signature must be the 64-byte signature from request_wallet_sign's output (hex), or base58/base64.";
+  }
+  if (!signatureMatches(message, signature, recipient)) {
+    return `That signature isn't from wallet ${recipient} over this exact message. Sign message_to_sign with that same wallet (request_wallet_sign, op solanaMessage) and pass its output signature unchanged.`;
+  }
+  return null;
+}
+
+export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
+  const started = deps.now();
+  if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
+
+  if (args.signed_message === undefined && args.signature === undefined) {
+    const message_to_sign = ledgerMessage(args.recipient, started);
+    const expires_at = isoSeconds(started + MESSAGE_VALID_MS);
+    const output: WhoOutput = { step: "sign", recipient: args.recipient, message_to_sign, expires_at };
+    const text = [
+      "To show this wallet's ledger, sign this exact message with PayBox (it moves no money and approves nothing else):",
+      message_to_sign,
+      `Call request_wallet_sign with this wallet's credential_id and intent {"op":"solanaMessage","address":"${args.recipient}","message":"${message_to_sign}"}.`,
+      `After the user approves, call who_owes_me again with recipient, signed_message (the text above) and signature (from the output). Valid until ${expires_at}, once.`,
+    ].join("\n");
+    return { content: [{ type: "text" as const, text }], structuredContent: output };
+  }
+  if (args.signed_message === undefined || args.signature === undefined) {
+    return refusal("Pass both signed_message and signature, or neither to get a message to sign.");
+  }
+
+  const problem = localCheck(args.recipient, args.signed_message, args.signature, started);
+  if (problem) return refusal(problem);
+
+  let ctx: CallContext;
+  try {
+    ctx = callContext(deps);
+  } catch (error) {
+    return refusal(errorText(error, "Owed is misconfigured."));
+  }
+
+  let ledger: LedgerRes | null;
+  try {
+    ledger = await within(
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledger({ recipient: args.recipient, signed_message: args.signed_message, signature: args.signature.trim() }),
+      LEDGER_BUDGET_MS - (deps.now() - started), () => null,
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "invalid_input") {
+      return refusal(`Owed refused the signature: ${error.message}. Call who_owes_me with only recipient for a fresh message.`);
+    }
+    if (error instanceof ApiError && error.code === "rate_limited") return refusal("Too many ledger requests for this wallet in the last hour. Try again later.");
+    return refusal("Owed's server couldn't be reached, so the ledger isn't available right now. check_payments still works for specific requests.");
+  }
+  if (!ledger) return refusal("Owed's server didn't answer in time. Call who_owes_me with only recipient for a fresh message and try again.");
+  if (ledger.recipient !== args.recipient) return refusal("Owed's server answered for a different wallet, so the ledger wasn't used.");
+
+  return render(ledger, deps.now());
+}
+
+function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
+  const out: z.output<typeof entrySchema> = { id: e.id, link: e.link, status: e.status, amount: e.amount, token: e.token, created_at: e.created_at };
+  if (e.amount_due !== undefined) out.amount_due = e.amount_due;
+  if (e.amount_paid !== undefined) out.amount_paid = e.amount_paid;
+  const payerName = clean(e.payer_name, 40);
+  if (payerName) out.payer_name = payerName;
+  const forText = clean(e.for, 80);
+  if (forText) out.for = forText;
+  if (e.status !== "paid") {
+    const waited = ago(e.created_at, now);
+    if (waited) out.waited = waited;
+  }
+  if (e.payer !== undefined) out.payer = e.payer;
+  if (e.paid_at !== undefined) out.paid_at = e.paid_at;
+  if (e.signature !== undefined) out.explorer_url = explorerUrl(e.signature);
+  if (e.group_id) out.group_id = e.group_id;
+  // Lower-case ASCII (punycode for IDN), as W2-H stores it; anything else is dropped, never shown.
+  if (e.from_domain && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(e.from_domain) && e.from_domain.includes(".")) out.from_domain = e.from_domain;
+  return out;
+}
+
+function sumText(parts: Array<[string, string]>): string {
+  const nonZero = parts.filter(([amount]) => !/^0(\.0+)?$/.test(amount));
+  return nonZero.length ? nonZero.map(([amount, token]) => `${amount} ${token}`).join(" + ") : `0 ${parts[0]?.[1] ?? "USDC"}`;
+}
+
+function who(e: z.output<typeof entrySchema>): string {
+  const name = e.payer_name ? ` from ${quote(e.payer_name, 40)}` : "";
+  const forPart = e.for ? ` for ${quote(e.for, 80)}` : "";
+  const domain = e.from_domain ? ` (as ${e.from_domain})` : "";
+  return `${name}${forPart}${domain}`;
+}
+
+function render(ledger: LedgerRes, now: number) {
+  const open = ledger.open.map((e) => present(e, now));
+  const paid = ledger.paid_recently.map((e) => present(e, now));
+  const outstanding_total = sumText(ledger.totals.map((t) => [t.outstanding, t.token]));
+  const received_30d = sumText(ledger.totals.map((t) => [t.received_30d, t.token]));
+  const openCount = ledger.totals.reduce((n, t) => n + t.open_count, 0);
+  const paidCount = ledger.totals.reduce((n, t) => n + t.paid_count, 0);
+
+  const lines = [
+    `${openCount} open ${openCount === 1 ? "request" : "requests"} · ${outstanding_total} outstanding · ${received_30d} received in the last 30 days (${paidCount} paid).`,
+  ];
+  if (!ledger.chain_checked) lines.push("Solana couldn't be read just now, so open requests show their last known state.");
+  const detail: string[] = [];
+  for (const e of open) {
+    const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
+    detail.push(`Owed: ${due}${who(e)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}`);
+  }
+  for (const e of paid) {
+    const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}`);
+  }
+  lines.push(...detail.slice(0, MAX_LINES));
+  if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
+  if (ledger.truncated) lines.push("Only the newest 100 open and 100 paid requests are listed; the totals count all of them.");
+  if (open.length > 0) lines.push("Names and notes were written by whoever made each request; write_reminder drafts a nudge for any open one.");
+
+  const output: WhoOutput = {
+    step: "ledger", recipient: ledger.recipient, open, paid_recently: paid, outstanding_total, received_30d,
+    chain_checked: ledger.chain_checked, truncated: ledger.truncated,
+  };
+  return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
+}
+
+export function register(server: McpServer, deps: Deps = defaultDeps) {
+  server.registerTool("who_owes_me", {
+    title: "Who owes me",
+    description: DESCRIPTION,
+    inputSchema,
+    outputSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, (args) => whoOwesMe(args, deps));
+}

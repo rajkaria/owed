@@ -3,6 +3,7 @@ import {
   createRequestResSchema, errorResSchema, getRequestResSchema, statusRawResSchema, statusResSchema,
   type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type StatusRawRes, type StatusRes,
 } from "./contract.js";
+import { ledgerResSchema, type LedgerReq, type LedgerRes } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 export const API_TIMEOUT_MS = 4000;
@@ -44,6 +45,7 @@ export interface ApiClient {
   getRequest(id: string): Promise<GetRequestRes>;
   status(ids: string[]): Promise<StatusRes>;
   statusRaw(solanaPayUrl: string): Promise<StatusRawRes>;
+  ledger(body: LedgerReq): Promise<LedgerRes>;
 }
 
 export interface ApiOptions {
@@ -97,5 +99,6 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     getRequest: (id) => call("GET", `/requests/${encodeURIComponent(id)}`, getRequestResSchema),
     status: (ids) => call("POST", "/status", statusResSchema, { ids }),
     statusRaw: (solanaPayUrl) => call("POST", "/status-raw", statusRawResSchema, { solana_pay_url: solanaPayUrl }),
+    ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
   };
 }

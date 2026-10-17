@@ -7,6 +7,7 @@ import {
   createRequestReqSchema, createRequestResSchema, errorResSchema, getRequestResSchema, statsResSchema,
   statusRawReqSchema, statusRawResSchema, statusReqSchema, statusResSchema,
 } from "../src/contract.ts";
+import { ledgerReqSchema, ledgerResSchema } from "../src/contract.ts";
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -19,6 +20,8 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "status-raw.res.json": statusRawResSchema,
   "status.req.json": statusReqSchema,
   "status.res.json": statusResSchema,
+  "ledger.req.json": ledgerReqSchema,
+  "ledger.res.json": ledgerResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();
