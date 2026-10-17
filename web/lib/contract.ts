@@ -249,6 +249,10 @@ const LedgerEntry = z.object({
   signature: z.string().optional(),
   paid_at: isoTime.optional(),
   group_id: z.string().nullable(),
+  group_title: z.string().nullable(),
+  group_link: z.url().nullable(),
+  invoice_number: z.string().nullable(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   from_domain: z.string().nullable(),
 });
 

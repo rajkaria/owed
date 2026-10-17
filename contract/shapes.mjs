@@ -317,10 +317,23 @@ const ledgerEntry = object({
   id, kind: oneOf("single", "split_share", "invoice"), link: httpsUrl, amount: positiveAmount, token,
   status: oneOf("open", "underpaid", "paid"), payer_name: untrusted(40), for: untrusted(80), created_at: iso,
   amount_due: optional(amount), amount_paid: optional(amount), payer: optional(pubkey), signature: optional(signature), paid_at: optional(iso),
-  group_id: nullable(string({ max: 40 })), from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+  group_id: nullable(string({ max: 40 })), group_title: untrusted(60), group_link: nullable(httpsUrl),
+  invoice_number: untrusted(20), due_date: nullable(string({ pattern: /^\d{4}-\d{2}-\d{2}$/, label: "a YYYY-MM-DD date" })),
+  from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
 }, (value, path, ctx) => {
   decimalsFit("amount")(value, path, ctx);
-  if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
+  // Invoices are paid on their invoice page; requests and split shares on their own pay page.
+  const page = value.kind === "invoice" ? "i" : "r";
+  if (!new URL(value.link).pathname.endsWith(`/${page}/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /${page}/${value.id}`);
+  const share = value.kind === "split_share";
+  if (share !== (value.group_id !== null)) ctx.errors.push(`${path}.group_id: ${share ? "missing" : "set"} for kind ${value.kind}`);
+  if (share !== (value.group_link !== null)) ctx.errors.push(`${path}.group_link: ${share ? "missing" : "set"} for kind ${value.kind}`);
+  if (!share && value.group_title !== null) ctx.errors.push(`${path}.group_title: set for kind ${value.kind}`);
+  if (value.group_link !== null && value.group_id !== null && !new URL(value.group_link).pathname.endsWith(`/g/${value.group_id}`)) {
+    ctx.errors.push(`${path}.group_link: does not end in /g/${value.group_id}`);
+  }
+  if ((value.kind === "invoice") !== (value.due_date !== null)) ctx.errors.push(`${path}.due_date: ${value.kind === "invoice" ? "missing" : "set"} for kind ${value.kind}`);
+  if (value.kind !== "invoice" && value.invoice_number !== null) ctx.errors.push(`${path}.invoice_number: set for kind ${value.kind}`);
   const settled = value.status !== "open";
   for (const key of ["amount_paid", "payer", "signature", "paid_at"]) {
     if (settled !== (key in value)) ctx.errors.push(`${path}.${key}: ${settled ? "missing" : "set"} for status ${value.status}`);

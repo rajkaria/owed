@@ -258,6 +258,11 @@ export const ledgerEntrySchema = z.object({
   signature: signatureSchema.optional(),
   paid_at: isoTime.optional(),
   group_id: z.string().max(40).nullable(),
+  // Split shares: the bill's title and board; invoices: number and due date. Optional so an older server still parses.
+  group_title: z.string().max(240).nullable().optional(),
+  group_link: httpsUrl.nullable().optional(),
+  invoice_number: z.string().max(80).nullable().optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   from_domain: z.string().max(253).nullable(),
 });
 

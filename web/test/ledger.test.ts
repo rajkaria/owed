@@ -7,6 +7,8 @@ import nacl from "tweetnacl";
 import { POST } from "@/app/api/v1/ledger/route";
 import { LedgerResponse } from "@/lib/contract";
 import { requestIdFor } from "@/lib/ids";
+import { createGroup } from "@/lib/groups";
+import { createInvoice } from "@/lib/invoices";
 import { getLedger, LEDGER_MAX_ROWS } from "@/lib/ledger";
 import { parseJsonExact } from "@/lib/solana";
 import { isoSeconds, ledgerPrefix, spendOnce, checkSignedMessage, SIGNATURES_PER_HOUR } from "@/lib/verify-signature";
@@ -99,14 +101,14 @@ before(async () => {
   }) as typeof fetch;
   process.env.DATABASE_URL = "postgresql://owed:pw@ep-test-pooler.us-east-1.aws.neon.tech/neondb";
   delete process.env.HELIUS_API_KEY;
-  process.env.OWED_BASE_URL = "https://owed-omega.vercel.app";
+  process.env.OWED_BASE_URL = "https://www.getowed.xyz";
   const dir = new URL("db/migrations/", WEB);
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) await pg.exec(readFileSync(new URL(f, dir), "utf8"));
 });
 
 beforeEach(async () => {
   if (!mod) return;
-  await pg.exec("delete from requests; delete from signature_nonces;");
+  await pg.exec("delete from invoices; delete from requests; delete from groups; delete from signature_nonces;");
   unusedRefs.clear();
   rpcDown = false;
   rpcCalls = 0;
@@ -158,7 +160,7 @@ async function insert(spec: RowSpec): Promise<string> {
 }
 
 async function post(body: unknown) {
-  const res = await POST(new Request("https://owed-omega.vercel.app/api/v1/ledger", {
+  const res = await POST(new Request("https://www.getowed.xyz/api/v1/ledger", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }));
   return { status: res.status, json: (await res.json()) as { error: { code: string; message: string } } };
@@ -186,7 +188,7 @@ it("one fresh signature returns the ledger; the same signature again is refused"
   assert.deepEqual(ledger.paid_recently.map((e) => e.id), [paid]);
   const o = ledger.open.find((e) => e.id === open)!;
   assert.deepEqual({ status: o.status, amount: o.amount, amount_due: o.amount_due, payer_name: o.payer_name, for: o.for, link: o.link, from_domain: o.from_domain },
-    { status: "open", amount: "1", amount_due: "1", payer_name: "Priya", for: "coffee", link: `https://owed-omega.vercel.app/r/${open}`, from_domain: null });
+    { status: "open", amount: "1", amount_due: "1", payer_name: "Priya", for: "coffee", link: `https://www.getowed.xyz/r/${open}`, from_domain: null });
   const u = ledger.open.find((e) => e.id === part)!;
   assert.deepEqual({ status: u.status, amount_due: u.amount_due, amount_paid: u.amount_paid, signature: u.signature }, { status: "underpaid", amount_due: "2", amount_paid: "1", signature: PAID_SIGS[0] });
   assert.equal(ledger.paid_recently[0].payer, PAYER);
@@ -215,7 +217,7 @@ it("a stale, future, mis-worded or wrong-wallet signature is refused before any 
   assert.match(worded.json.error.message, /must read "Owed ledger access for/);
   const extra = await post({ ...signedBody(), scope: "all" });
   assert.equal(extra.status, 400);
-  const notJson = await POST(new Request("https://owed-omega.vercel.app/api/v1/ledger", { method: "POST", body: "{" }));
+  const notJson = await POST(new Request("https://www.getowed.xyz/api/v1/ledger", { method: "POST", body: "{" }));
   assert.equal(notJson.status, 400);
   assert.equal((await pg.query<{ n: number }>("select count(*)::int as n from signature_nonces")).rows[0].n, 0);
   assert.equal(rpcCalls, 0);
@@ -250,7 +252,7 @@ it("a wallet gets 30 fresh signatures an hour; old rows are purged as it goes", 
 
 it("an open request paid on chain since the last check is listed as paid, written once", async () => {
   const id = await insert({ recipient: SOL_PAYEE, token: "SOL", amountAtomic: 3_027_000n, reference: SOL_REF });
-  const ledger = await getLedger(SOL_PAYEE, { base: "https://owed-omega.vercel.app" });
+  const ledger = await getLedger(SOL_PAYEE, { base: "https://www.getowed.xyz" });
   assert.equal(ledger.chain_checked, true);
   assert.deepEqual(ledger.open, []);
   assert.equal(ledger.paid_recently.length, 1);
@@ -266,7 +268,7 @@ it("an open request paid on chain since the last check is listed as paid, writte
 it("when the chain can't be read, the stored state is listed and chain_checked is false", async () => {
   await insert({ amountAtomic: 1_000_000n });
   rpcDown = true;
-  const ledger = await getLedger(ME, { base: "https://owed-omega.vercel.app", chainBudgetMs: 600 });
+  const ledger = await getLedger(ME, { base: "https://www.getowed.xyz", chainBudgetMs: 600 });
   assert.equal(ledger.chain_checked, false);
   assert.equal(ledger.open.length, 1);
   assert.deepEqual(ledger.totals, [{ token: "USDC", outstanding: "1", received_30d: "0", open_count: 1, paid_count: 0 }]);
@@ -274,20 +276,48 @@ it("when the chain can't be read, the stored state is listed and chain_checked i
 
 it("past 100 rows the list is cut, and the totals still count every row", async () => {
   for (let i = 0; i < LEDGER_MAX_ROWS + 5; i++) await insert({ amountAtomic: 10_000n, createdAt: new Date(Date.now() - i * 60_000).toISOString() });
-  const ledger = await getLedger(ME, { base: "https://owed-omega.vercel.app" });
+  const ledger = await getLedger(ME, { base: "https://www.getowed.xyz" });
   assert.equal(ledger.truncated, true);
   assert.equal(ledger.open.length, LEDGER_MAX_ROWS);
   assert.deepEqual(ledger.totals, [{ token: "USDC", outstanding: "1.05", received_30d: "0", open_count: 105, paid_count: 0 }]);
 });
 
-it("from_domain comes through once W2-H's column exists", async () => {
-  const id = await insert({ amountAtomic: 1_000_000n });
-  await pg.exec("alter table requests add column if not exists from_domain text");
-  await pg.query("update requests set from_domain = 'example.com' where id = $1", [id]);
-  try {
-    const ledger = await getLedger(ME, { base: "https://owed-omega.vercel.app" });
-    assert.equal(ledger.open[0].from_domain, "example.com");
-  } finally {
-    await pg.exec("alter table requests drop column from_domain");
-  }
+it("split shares and invoices are listed as such, on the configured base, with their verified domain", async () => {
+  const BASE = "https://www.getowed.xyz";
+  const plain = await insert({ amountAtomic: 4_500_000n, payerName: "Sam", forText: "taxi", createdAt: new Date(Date.now() - 60_000).toISOString() });
+  const { group, shares } = await createGroup({
+    recipient: ME, token: "USDC", title: "Pizza night", requesterName: "Raj", flags: [], source: "plugin", fromDomain: "getowed.xyz",
+    shares: [{ name: "Alex", amountAtomic: 1_500_000n, flags: [] }, { name: "Jo", amountAtomic: 1_500_000n, flags: [] }],
+  });
+  const due = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const { request: invoice } = await createInvoice({
+    recipient: ME, token: "USDC", businessName: "Kestrel Studio", clientName: "Lumen Analytics", invoiceNumber: "2026-114", notes: null,
+    dueDate: due, items: [{ description: "Logo refresh", quantity: "2", unit_price: "12.5" }], source: "plugin",
+  });
+  for (const r of [...shares, invoice]) unusedRefs.add(r.reference);
+
+  const res = await post(signedBody());
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  const ledger = LedgerResponse.parse(res.json);
+  assert.equal(ledger.chain_checked, true);
+  const byId = new Map(ledger.open.map((e) => [e.id, e]));
+  const pick = (id: string) => {
+    const e = byId.get(id)!;
+    return { kind: e.kind, link: e.link, payer_name: e.payer_name, for: e.for, group_id: e.group_id, group_title: e.group_title,
+      group_link: e.group_link, invoice_number: e.invoice_number, due_date: e.due_date, from_domain: e.from_domain };
+  };
+  assert.deepEqual(pick(shares[0].id), {
+    kind: "split_share", link: `${BASE}/r/${shares[0].id}`, payer_name: "Alex", for: "Pizza night", group_id: group.id,
+    group_title: "Pizza night", group_link: `${BASE}/g/${group.id}`, invoice_number: null, due_date: null, from_domain: "getowed.xyz",
+  });
+  assert.equal(pick(shares[1].id).payer_name, "Jo");
+  assert.deepEqual(pick(invoice.id), {
+    kind: "invoice", link: `${BASE}/i/${invoice.id}`, payer_name: "Lumen Analytics", for: "Invoice 2026-114", group_id: null,
+    group_title: null, group_link: null, invoice_number: "2026-114", due_date: due, from_domain: null,
+  });
+  assert.deepEqual(pick(plain), {
+    kind: "single", link: `${BASE}/r/${plain}`, payer_name: "Sam", for: "taxi", group_id: null,
+    group_title: null, group_link: null, invoice_number: null, due_date: null, from_domain: null,
+  });
+  assert.deepEqual(ledger.totals, [{ token: "USDC", outstanding: "32.5", received_30d: "0", open_count: 4, paid_count: 0 }]);
 });

@@ -20,6 +20,7 @@ export type LedgerStatus = "open" | "underpaid" | "paid";
 export interface LedgerEntry {
   id: string;
   kind: RequestRow["kind"];
+  /** Where the payer pays: /i/<id> for an invoice, /r/<id> for a request or one share of a split bill. */
   link: string;
   amount: string;
   token: Token;
@@ -34,7 +35,13 @@ export interface LedgerEntry {
   signature?: string;
   paid_at?: string;
   group_id: string | null;
-  /** W2-H verified payee: the domain checked at creation (display only). */
+  /** Split shares: the bill's title and its board (/g/<group_id>). The share's own name is payer_name. */
+  group_title: string | null;
+  group_link: string | null;
+  /** Invoices: the invoice number (null when the invoice shows its id) and the due date, YYYY-MM-DD. */
+  invoice_number: string | null;
+  due_date: string | null;
+  /** W2-H verified payee: the domain checked at creation (display only; the plugin checks DNS itself). */
   from_domain: string | null;
 }
 
@@ -62,21 +69,26 @@ interface Listed {
   open: boolean;
   total: number;
   groupId: string | null;
-  fromDomain: string | null;
+  groupTitle: string | null;
+  invoiceNumber: string | null;
+  dueDate: string | null;
 }
 
-// from_domain arrives with W2-H's 0009; read through to_jsonb so this works before and after it.
-const LIST = `
-  (select id, true as is_open, count(*) over () as total, group_id, to_jsonb(r) ->> 'from_domain' as from_domain
+// Split shares (0002) and invoices (0003) are request rows; their group or invoice adds the title and number.
+const LISTED_COLUMNS = `r.id, count(*) over () as total, r.group_id, g.title as group_title,
+         i.invoice_number, to_char(i.due_date, 'YYYY-MM-DD') as due_date
      from requests r
-    where recipient = $1 and status in ('open', 'underpaid')
-    order by created_at desc, id
+     left join groups g on g.id = r.group_id
+     left join invoices i on i.id = r.invoice_id`;
+const LIST = `
+  (select true as is_open, ${LISTED_COLUMNS}
+    where r.recipient = $1 and r.status in ('open', 'underpaid')
+    order by r.created_at desc, r.id
     limit $2)
   union all
-  (select id, false as is_open, count(*) over () as total, group_id, to_jsonb(r) ->> 'from_domain' as from_domain
-     from requests r
-    where recipient = $1 and status = 'paid' and paid_at > now() - make_interval(days => $3)
-    order by paid_at desc, id
+  (select false as is_open, ${LISTED_COLUMNS}
+    where r.recipient = $1 and r.status = 'paid' and r.paid_at > now() - make_interval(days => $3)
+    order by r.paid_at desc, r.id
     limit $2)`;
 
 // Totals for the rows a truncated listing left out, by the same rules as contribution().
@@ -116,10 +128,12 @@ function contribution(row: RequestRow, now: number): Contribution {
 
 function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
   const status = row.status as LedgerStatus;
+  const share = row.kind === "split_share" && listed.groupId !== null;
+  const invoice = row.kind === "invoice";
   const out: LedgerEntry = {
     id: row.id,
     kind: row.kind,
-    link: `${base}/r/${row.id}`,
+    link: `${base}/${invoice ? "i" : "r"}/${row.id}`,
     amount: fromAtomic(row.amountAtomic, row.token),
     token: row.token,
     status,
@@ -127,7 +141,11 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
     for: row.forText,
     created_at: row.createdAt,
     group_id: listed.groupId,
-    from_domain: listed.fromDomain,
+    group_title: share ? listed.groupTitle : null,
+    group_link: share ? `${base}/g/${listed.groupId}` : null,
+    invoice_number: invoice ? listed.invoiceNumber : null,
+    due_date: invoice ? listed.dueDate : null,
+    from_domain: row.fromDomain ?? null,
   };
   const paid = row.paidAmountAtomic ?? 0n;
   if (status === "open") out.amount_due = out.amount;
@@ -142,7 +160,7 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
 }
 
 export interface LedgerOptions {
-  /** Public origin for /r/<id> links. */
+  /** Public origin for /r/, /i/ and /g/ links (OWED_BASE_URL in production). */
   base: string;
   now?: number;
   chainBudgetMs?: number;
@@ -151,7 +169,8 @@ export interface LedgerOptions {
 export async function getLedger(recipient: string, { base, now = Date.now(), chainBudgetMs = CHAIN_BUDGET_MS }: LedgerOptions): Promise<Ledger> {
   const listedRows = await sql(LIST, [recipient, LEDGER_MAX_ROWS, PAID_WINDOW_DAYS]);
   const listed = new Map<string, Listed>(listedRows.map((r) => [r.id!, {
-    id: r.id!, open: r.is_open === "t", total: Number(r.total), groupId: r.group_id, fromDomain: r.from_domain,
+    id: r.id!, open: r.is_open === "t", total: Number(r.total), groupId: r.group_id, groupTitle: r.group_title,
+    invoiceNumber: r.invoice_number, dueDate: r.due_date,
   }]));
   const totalOpen = listedRows.find((r) => r.is_open === "t")?.total;
   const totalPaid = listedRows.find((r) => r.is_open !== "t")?.total;
