@@ -27,6 +27,7 @@ const PRINT_CSS = `
   html { font-size: 11px; color-scheme: light; }
   html:has([data-print-dense]) { font-size: 9.5px; }
   [data-print-dense] td { line-height: 1.25; }
+  html:has([data-print-dense]) [data-invoice-footer] { display: none; }
   html, body { background: #ffffff !important; }
   a { color: inherit; text-decoration: none; }
 }`;
@@ -122,13 +123,15 @@ function Items({ model }: { model: InvoiceModel }) {
         <caption className="sr-only">Line items, written by the sender</caption>
         <thead>
           <tr className="border-b border-line text-xs uppercase tracking-wider text-muted">
-            <th scope="col" className="py-2 pr-3 font-medium">Description</th>
+            <th scope="col" className="py-2 pr-3 font-medium">
+              Description<span className="hidden print:inline"> · amounts in {model.token}</span>
+            </th>
             <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">Qty</th>
             <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">
-              Unit price<span className="hidden print:inline"> ({model.token})</span>
+              Unit price
             </th>
             <th scope="col" className="py-2 text-right font-medium">
-              Amount<span className="hidden print:inline"> ({model.token})</span>
+              Amount
             </th>
           </tr>
         </thead>
@@ -330,7 +333,7 @@ export default async function InvoicePage({ params }: PageProps<"/i/[id]">) {
         </div>
       </main>
 
-      <footer className="mt-12 border-t border-line pt-5 text-sm leading-relaxed text-muted print:mt-4 print:pt-2 print:text-[0.8rem]">
+      <footer data-invoice-footer className="mt-12 border-t border-line pt-5 text-sm leading-relaxed text-muted print:mt-4 print:pt-2 print:text-[0.8rem]">
         <p>
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Owed never holds
           money: you pay the sender directly, in one Solana transaction.{" "}
