@@ -4,7 +4,7 @@
 import type { PublicRequest } from "../public-api";
 import { formatAmount, isToken, remainingAmount, type Token } from "./money.ts";
 import { shortAddress } from "./format.ts";
-import { LIMITS, cleanText } from "./text.ts";
+import { LIMITS, cleanText, withoutInvisible } from "./text.ts";
 import type { TransferRequest } from "./pay-url.ts";
 
 export type LiveState =
@@ -68,6 +68,14 @@ const BRAND_WORDS: Array<[string, string]> = [
   ["circle", "Circle"],
   ["refund", "refund"],
   ["irs", "IRS"],
+  // W2-E (QA-06): Owed's own name, as phrases the ordinary word "owed" never forms, and the model maker.
+  ["owed support", "Owed Support"],
+  ["owed team", "Owed team"],
+  ["owed security", "Owed Security"],
+  ["owed admin", "Owed admin"],
+  ["owed billing", "Owed billing"],
+  ["getowed", "getowed"],
+  ["anthropic", "Anthropic"],
 ];
 const BRAND_DISPLAY = new Map(BRAND_WORDS);
 
@@ -77,7 +85,8 @@ function escapeRegExp(s: string): string {
 
 /** Brand words found in requester text (case-insensitive, whole words). */
 export function detectBrandWords(texts: Array<string | null | undefined>): string[] {
-  const haystack = texts.filter(Boolean).join(" \n ").toLowerCase();
+  // W2-E (QA-01): an invisible character inside a brand word ("Pay<U+E0100>Box") doesn't hide it.
+  const haystack = texts.filter((t): t is string => typeof t === "string" && t !== "").map(withoutInvisible).join(" \n ").toLowerCase();
   const found: string[] = [];
   for (const [word, display] of BRAND_WORDS) {
     const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(word).replace(/ /g, "\\s+")}($|[^\\p{L}\\p{N}])`, "u");

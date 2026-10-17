@@ -4,6 +4,7 @@ import {
   type CreateGroupReq, type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type GroupRes,
   type StatusRawRes, type StatusRes,
   invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
+  ledgerResSchema, type LedgerReq, type LedgerRes,
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -48,6 +49,9 @@ export interface ApiClient {
   statusRaw(solanaPayUrl: string): Promise<StatusRawRes>;
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
   createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
+  ledger(body: LedgerReq): Promise<LedgerRes>;
+  getGroup(id: string): Promise<GroupRes>;
+  getInvoice(id: string): Promise<InvoiceRes>;
 }
 
 export interface ApiOptions {
@@ -103,5 +107,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     statusRaw: (solanaPayUrl) => call("POST", "/status-raw", statusRawResSchema, { solana_pay_url: solanaPayUrl }),
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
     createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
+    ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
+    getGroup: (id) => call("GET", `/groups/${encodeURIComponent(id)}`, groupResSchema),
+    getInvoice: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceResSchema),
   };
 }

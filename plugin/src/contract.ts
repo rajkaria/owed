@@ -85,14 +85,21 @@ const paymentFields = {
   paid_at: isoTime.optional(),
 };
 
+// A result for an id the server doesn't know ("not_found") or can't read ("invalid") carries only id and status
+// (QA-05); every other status names the amount and token, as contract/shapes.mjs requires.
 export const statusResultSchema = z.object({
   id: requestIdSchema,
   status: requestStatusSchema,
-  amount_requested: decimalSchema,
-  token: tokenSchema,
+  amount_requested: decimalSchema.optional(),
+  token: tokenSchema.optional(),
   ...paymentFields,
-  // Not in the fixtures yet; when the API adds it, check_payments reports how long an open request has waited.
+  // check_payments turns it into how long an open request has waited.
   created_at: isoTime.optional(),
+}).superRefine((r, ctx) => {
+  if (r.status === "not_found" || r.status === "invalid") return;
+  for (const key of ["amount_requested", "token"] as const) {
+    if (r[key] === undefined) ctx.addIssue({ code: "custom", path: [key], message: `missing for status ${r.status}` });
+  }
 });
 
 export const statusResSchema = z.object({ results: z.array(statusResultSchema).max(20) });
@@ -235,3 +242,56 @@ export type CreateGroupReq = z.infer<typeof createGroupReqSchema>;
 export type GroupRes = z.infer<typeof groupResSchema>;
 export type CreateInvoiceReq = z.infer<typeof createInvoiceReqSchema>;
 export type InvoiceRes = z.infer<typeof invoiceResSchema>;
+
+// W2-D: POST /api/v1/ledger (who_owes_me). A fresh recipient signature unlocks the ledger once.
+export const ledgerReqSchema = z.object({
+  recipient: addressSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const ledgerEntrySchema = z.object({
+  id: requestIdSchema,
+  kind: z.string().max(20),
+  link: httpsUrl,
+  amount: decimalSchema,
+  token: tokenSchema,
+  status: z.enum(["open", "underpaid", "paid"]),
+  payer_name: z.string().max(40).nullable(),
+  for: z.string().max(80).nullable(),
+  created_at: isoTime,
+  amount_due: decimalSchema.optional(),
+  amount_paid: decimalSchema.optional(),
+  payer: addressSchema.optional(),
+  signature: signatureSchema.optional(),
+  paid_at: isoTime.optional(),
+  group_id: z.string().max(40).nullable(),
+  // Split shares: the bill's title and board; invoices: number and due date. Optional so an older server still parses.
+  group_title: z.string().max(240).nullable().optional(),
+  group_link: httpsUrl.nullable().optional(),
+  invoice_number: z.string().max(80).nullable().optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  from_domain: z.string().max(253).nullable(),
+  flags: z.array(z.string().max(80)).max(32).optional(),
+});
+
+export const ledgerResSchema = z.object({
+  recipient: addressSchema,
+  caution: z.string().max(400).optional(),
+  generated_at: isoTime,
+  chain_checked: z.boolean(),
+  open: z.array(ledgerEntrySchema).max(100),
+  paid_recently: z.array(ledgerEntrySchema).max(100),
+  totals: z.array(z.object({
+    token: tokenSchema,
+    outstanding: decimalSchema,
+    received_30d: decimalSchema,
+    open_count: z.number().int().nonnegative(),
+    paid_count: z.number().int().nonnegative(),
+  })).max(2),
+  truncated: z.boolean(),
+});
+
+export type LedgerReq = z.infer<typeof ledgerReqSchema>;
+export type LedgerRes = z.infer<typeof ledgerResSchema>;
+export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;

@@ -1,0 +1,118 @@
+{
+ "name": "helius-webhooks-api",
+ "note": "Helius webhooks API exchanges (api-mainnet.helius-rpc.com/v0/webhooks), captured by test/fixtures/helius/capture.mjs. authHeader and wallet replaced with placeholders; the API key never leaves the query string.",
+ "captured_at": "2026-10-17T13:29:03.984Z",
+ "hook_url": "https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius",
+ "addresses": [
+  "FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c",
+  "GkAtnhVsGDwe8FX5pp4fF5Zh5rdNQcSQ9dwcZhsGHkfa"
+ ],
+ "exchanges": [
+  {
+   "name": "create",
+   "method": "POST",
+   "path": "",
+   "request": {
+    "webhookURL": "https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius",
+    "webhookType": "raw",
+    "transactionTypes": [
+     "ANY"
+    ],
+    "accountAddresses": [
+     "FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c"
+    ],
+    "authHeader": "<authHeader>"
+   },
+   "status": 201,
+   "body": "{\"webhookID\":\"1b527abf-9126-478a-97a3-be47fdd82ec0\",\"project\":\"<wallet>\",\"wallet\":\"<wallet>\",\"webhookURL\":\"https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius\",\"accountAddresses\":[\"FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c\"],\"transactionTypes\":[\"ANY\"],\"webhookType\":\"raw\",\"authHeader\":\"<authHeader>\",\"txnStatus\":\"all\",\"active\":true}"
+  },
+  {
+   "name": "update",
+   "method": "PUT",
+   "path": "/1b527abf-9126-478a-97a3-be47fdd82ec0",
+   "request": {
+    "webhookURL": "https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius",
+    "webhookType": "raw",
+    "transactionTypes": [
+     "ANY"
+    ],
+    "accountAddresses": [
+     "FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c",
+     "GkAtnhVsGDwe8FX5pp4fF5Zh5rdNQcSQ9dwcZhsGHkfa"
+    ],
+    "authHeader": "<authHeader>"
+   },
+   "status": 200,
+   "body": "{\"webhookID\":\"1b527abf-9126-478a-97a3-be47fdd82ec0\",\"project\":\"<wallet>\",\"wallet\":\"<wallet>\",\"webhookURL\":\"https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius\",\"accountAddresses\":[\"FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c\",\"GkAtnhVsGDwe8FX5pp4fF5Zh5rdNQcSQ9dwcZhsGHkfa\"],\"transactionTypes\":[\"ANY\"],\"webhookType\":\"raw\",\"authHeader\":\"<authHeader>\",\"txnStatus\":\"all\",\"active\":true}"
+  },
+  {
+   "name": "get",
+   "method": "GET",
+   "path": "/1b527abf-9126-478a-97a3-be47fdd82ec0",
+   "request": null,
+   "status": 200,
+   "body": "{\"webhookID\":\"1b527abf-9126-478a-97a3-be47fdd82ec0\",\"project\":\"<wallet>\",\"wallet\":\"<wallet>\",\"webhookURL\":\"https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius\",\"accountAddresses\":[\"FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c\",\"GkAtnhVsGDwe8FX5pp4fF5Zh5rdNQcSQ9dwcZhsGHkfa\"],\"transactionTypes\":[\"ANY\"],\"webhookType\":\"raw\",\"authHeader\":\"<authHeader>\",\"txnStatus\":\"all\",\"active\":true}"
+  },
+  {
+   "name": "list",
+   "method": "GET",
+   "path": "",
+   "request": null,
+   "status": 200,
+   "body": "[{\"webhookID\":\"1b527abf-9126-478a-97a3-be47fdd82ec0\",\"project\":\"<wallet>\",\"wallet\":\"<wallet>\",\"webhookURL\":\"https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius\",\"transactionTypes\":[\"ANY\"],\"webhookType\":\"raw\",\"authHeader\":\"<authHeader>\",\"txnStatus\":\"all\",\"active\":true}]",
+   "note": "filtered to the webhook created by this capture"
+  },
+  {
+   "name": "update-unknown-id",
+   "method": "PUT",
+   "path": "/bf1805a8-657d-4d78-b79d-e265cd7a1962",
+   "request": {
+    "webhookURL": "https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius",
+    "webhookType": "raw",
+    "transactionTypes": [
+     "ANY"
+    ],
+    "accountAddresses": [
+     "FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c"
+    ],
+    "authHeader": "<authHeader>"
+   },
+   "status": 404,
+   "body": "{\"message\":\"Webhook bf1805a8-657d-4d78-b79d-e265cd7a1962 not found\",\"error\":\"Not Found\",\"statusCode\":404}"
+  },
+  {
+   "name": "list-wrong-key",
+   "method": "GET",
+   "path": "",
+   "request": null,
+   "status": 401,
+   "body": "Unauthorized"
+  },
+  {
+   "name": "delete",
+   "method": "DELETE",
+   "path": "/1b527abf-9126-478a-97a3-be47fdd82ec0",
+   "request": null,
+   "status": 200,
+   "body": "{\"message\":\"Webhook deleted successfully\"}"
+  },
+  {
+   "name": "update-after-delete",
+   "method": "PUT",
+   "path": "/1b527abf-9126-478a-97a3-be47fdd82ec0",
+   "request": {
+    "webhookURL": "https://owed-git-w3a-notify-rajkaria67-1831s-projects.vercel.app/api/hooks/helius",
+    "webhookType": "raw",
+    "transactionTypes": [
+     "ANY"
+    ],
+    "accountAddresses": [
+     "FNYU85WvZPHhAY3EnUqLoUaKTabN14Q3C4qUQCvCXP8c"
+    ],
+    "authHeader": "<authHeader>"
+   },
+   "status": 404,
+   "body": "{\"message\":\"Webhook 1b527abf-9126-478a-97a3-be47fdd82ec0 not found\",\"error\":\"Not Found\",\"statusCode\":404}"
+  }
+ ]
+}

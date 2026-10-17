@@ -5,8 +5,16 @@
 export const LIMITS = { name: 40, for: 80, note: 140, ogFor: 40 } as const;
 
 // Control characters, zero-width characters and bidi overrides (used to make
-// "dinner" display as something else).
-const INVISIBLE = /[\u0000-\u001F\u007F-\u009F­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿]/g;
+// "dinner" display as something else), plus (W2-E, QA-01) every format character, tag characters,
+// variation selectors, fillers that render as blanks and the Braille blank: the same set as
+// lib/safety.ts and the plugin's text.ts.
+const INVISIBLE =
+  /[\p{Cc}\p{Cf}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu;
+
+/** Text without the invisible characters above (for matching, not display). */
+export function withoutInvisible(input: string): string {
+  return input.normalize("NFKC").replace(INVISIBLE, "");
+}
 
 const SCHEME_URL = /\b(?:https?|ftp|solana|ethereum|bitcoin|data|javascript|mailto|tg|wc):\/{0,2}\S+/gi;
 const WWW_URL = /\bwww\.\S+/gi;

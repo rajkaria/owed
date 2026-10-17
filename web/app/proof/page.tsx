@@ -11,7 +11,7 @@ import { formatUtc, shortAddress, solscanAccount, solscanTx } from "@/lib/view/f
 import { groupDigits } from "@/lib/view/money";
 import { loadProof, PROOF_LIMIT, type ProofPayment, type ProofSummary } from "./data";
 
-// Real mainnet payments made to or from the team's own wallets (requests.is_team, lib/team.ts).
+// Real mainnet payments made from the team's own wallets (requests.is_team, lib/team.ts).
 // Served from the cache and re-read in the background at most every 30 s. A failed re-read keeps the
 // last good page; only a build that can't reach the database renders the "couldn't be read" notice,
 // never an empty list that looks real.
@@ -21,7 +21,7 @@ const cachedProof = unstable_cache(() => loadProof(), ["proof", "v1"], { revalid
 
 const TITLE = "Proof: real payments on Solana mainnet";
 const DESCRIPTION =
-  "Every payment the Owed team has made or received with Owed, a PayBox plugin, on Solana mainnet, each with its transaction on Solscan.";
+  "Every payment the Owed team has made with Owed, a PayBox plugin, on Solana mainnet, each with its transaction on Solscan.";
 
 export const metadata: Metadata = {
   title: { absolute: `${TITLE} · Owed` },
@@ -138,7 +138,7 @@ export default async function ProofPage() {
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Proof</h1>
         <p className="mt-5 max-w-3xl text-lg leading-relaxed text-muted">
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. This page lists
-          every payment the Owed team has made or received with it on Solana mainnet, newest first, each with its
+          every payment the Owed team has made with it from its own wallets on Solana mainnet, newest first, each with its
           transaction on Solscan. Nothing here is staged.
         </p>
 
@@ -172,8 +172,9 @@ export default async function ProofPage() {
             Which payments are listed
           </h2>
           <p className="mt-2">
-            A paid request appears here when it pays one of the team&apos;s wallets or one of them paid it. Requests stay
-            private otherwise: each one is reachable only by its own link. The amount is what the chain shows arrived.
+            A paid request appears here when one of the team&apos;s wallets below paid it. Who it paid doesn&apos;t count,
+            because anyone can create a request to our wallet. Requests stay private otherwise: each one is reachable only
+            by its own link. The amount is what the chain shows arrived.
           </p>
           {wallets.length > 0 && (
             <p className="mt-3">
