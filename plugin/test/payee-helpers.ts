@@ -21,7 +21,7 @@ export function hasDohFixture(name: string): boolean {
 }
 
 export const vectors = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/payee-vectors.json", import.meta.url)), "utf8")) as {
-  domains: Array<{ input: string; ascii: string; unicode: string; warnings: string[] }>;
+  domains: Array<{ input: string; ascii: string; unicode: string; warnings: string[]; flags: string[] }>;
   invalid: string[];
 };
 
@@ -64,4 +64,19 @@ export function withTxt(fixture: DohFixture, values: string[]): DohFixture {
       return { ...r, body: JSON.stringify(body) };
     }),
   };
+}
+
+/**
+ * The real example.com NODATA capture re-addressed to `domain` and carrying these TXT values: what an attacker who
+ * owns `domain` (and so its DNS) would publish. For tests of names no real fixture can cover (QA-02).
+ */
+export function dohFor(domain: string, values: string[]): Record<string, Route> {
+  const base = dohFixture("nodata-signed");
+  const qname = `_owed.${domain}`;
+  const moved: DohFixture = {
+    ...base,
+    query: { domain, qname, type: "TXT" },
+    responses: base.responses.map((r) => ({ ...r, url: r.url.replace("_owed.example.com", qname), body: r.body.replaceAll("_owed.example.com", qname) })),
+  };
+  return dohRoutes(withTxt(moved, values));
 }
