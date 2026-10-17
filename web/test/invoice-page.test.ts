@@ -27,7 +27,9 @@ test("open invoice: lines, totals and links come straight from the API, formatte
   assert.equal(m.issued, "Oct 17, 2026");
   assert.equal(m.due, "Oct 31, 2026");
   assert.equal(m.overdue, false);
-  assert.deepEqual(m.lines[2], { description: "Call to review terms (hours)", quantity: "1.5", unitPrice: "0.1 USDC", amount: "0.15 USDC" });
+  assert.deepEqual(m.lines[2], {
+    description: "Call to review terms (hours)", quantity: "1.5", unitPrice: "0.1 USDC", amount: "0.15 USDC", unitPriceValue: "0.1", amountValue: "0.15",
+  });
   assert.deepEqual(m.initial, { status: "open" });
   assert.equal(m.agentPrompt, `Use the Owed plugin in PayBox to pay this invoice: ${m.requestLink}`);
   assert.ok(m.requestLink.endsWith(`/r/${m.id}`));

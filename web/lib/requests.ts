@@ -209,6 +209,15 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
   }
 }
 
+/**
+ * Which of these transactions already settle a stored request (signature -> request id). A
+ * transaction naming two requests' references pays only one; the other must find its own (QA-03).
+ */
+async function claimedSignatures(signatures: readonly string[]): Promise<Map<string, string>> {
+  const rows = await sql(`select paid_signature, id from requests where paid_signature = any($1::text[])`, [signatures]);
+  return new Map(rows.map((r) => [r.paid_signature!, r.id!]));
+}
+
 const RECHECK_MS = 3000;
 const lastChecked = new Map<string, number>();
 
@@ -234,8 +243,9 @@ export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptio
   }
 
   const checks = await findPayments(
-    due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic })),
+    due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic, requestId: r.id })),
     rpc,
+    { claimed: claimedSignatures },
   );
   if (lastChecked.size > 10_000) lastChecked.clear();
   for (const r of due) lastChecked.set(r.id, now);
