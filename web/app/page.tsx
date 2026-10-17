@@ -71,7 +71,7 @@ const SAFETY = [
   "Owed never holds money. Every payment goes straight from the payer's wallet to yours in one Solana transaction.",
   "Owed charges no fees.",
   "A request counts as paid only when a confirmed transaction sends the full amount of the right token to your address.",
-  "Notes appear exactly as the requester wrote them, in quotes, marked as unverified. Requests that mention names like MoonPay or PayBox carry a warning.",
+  "Notes appear in quotes, marked as unverified, with links and hidden characters removed. Requests that mention names like MoonPay or PayBox carry a warning.",
 ];
 
 export default async function Home() {
@@ -94,7 +94,7 @@ export default async function Home() {
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted">
               Your agent asks one person, splits a bill or sends an invoice, and any Solana wallet or PayBox agent can pay
-              it. Before your agent pays a request, Owed checks the payee against the sender&apos;s own domain.
+              it. Before your agent pays a request from a domain, Owed checks that the domain lists the wallet.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a
@@ -165,7 +165,7 @@ export default async function Home() {
               <p className="text-sm font-semibold text-accent">Step 2</p>
               <h3 className="mt-1 text-lg font-semibold">Turn on Owed</h3>
               <p className="mt-2 leading-relaxed text-muted">
-                Open{" "}
+                Owed is in the PayBox developer portal and not yet listed in the public marketplace. Once it is, open{" "}
                 <a href={PAYBOX_PLUGINS_URL} className="font-medium text-accent underline-offset-4 hover:underline">
                   app.paybox.sh/plugins
                 </a>{" "}
