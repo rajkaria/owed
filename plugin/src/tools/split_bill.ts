@@ -9,7 +9,7 @@ import {
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { MAX_SPLIT, splitEvenly, USDC_MINT, type Token } from "../money.js";
 import { idMatchesTerms } from "../request-id.js";
-import { screenRecipient, type Screening } from "../screen.js";
+import type { Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
 import { clean, quote, shareText } from "../text.js";
@@ -124,7 +124,9 @@ function remainderNote(plan: Plan, names: string[], token: Token, fromAtomic: De
 export async function splitBill(
   args: SplitInput,
   deps: Deps = defaultDeps,
-  screen: (addr: string) => Promise<Screening> = screenRecipient,
+  // W2-E sanctions screen start
+  screen: (addr: string) => Promise<Screening> = (addr) => deps.screenRecipient(addr, deps),
+  // W2-E sanctions screen end
   checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();
@@ -164,15 +166,20 @@ export async function splitBill(
   const total = deps.fromAtomic(totalAtomic, token);
   const amounts = plan.amounts.map((a) => deps.fromAtomic(a, token));
 
-  const screening = await screen(args.recipient);
+  // W2-E sanctions screen start
+  // The screen runs beside the DNS check, never before it: together with the API call they must fit 10 s.
+  if (args.from_domain !== undefined && !checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
+  const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
+  const [screening, check] = await Promise.all([
+    screen(args.recipient),
+    args.from_domain !== undefined && checkDomain ? checkDomain(args.from_domain, args.recipient, deps, budget) : undefined,
+  ]);
   if (!screening.ok) return refusal(screening.message);
+  // W2-E sanctions screen end
 
   let fromDomain: string | undefined;
   let domainLines: string[] = [];
-  if (args.from_domain !== undefined) {
-    if (!checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
-    const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
-    const check = await checkDomain(args.from_domain, args.recipient, deps, budget);
+  if (check) {
     if (!check.ok) return refusal(check.message);
     fromDomain = check.from_domain;
     domainLines = check.lines;

@@ -1,6 +1,7 @@
 import { makeApi, owedHosts, resolveBaseUrl, type ApiClient } from "./api.js";
 import { DEFAULT_RPC_URLS, findPayment, makeRpc, payerReadiness, type Rpc } from "./chain.js";
 import { fromAtomic, toAtomic } from "./money.js";
+import { screenRecipient } from "./screen.js";
 import { buildTransferUrl, isSolanaAddress, newReference, parseLink } from "./solana-pay.js";
 import { buildTransferTx } from "./tx.js";
 
@@ -22,6 +23,8 @@ export interface Deps {
   buildTransferTx: typeof buildTransferTx;
   findPayment: typeof findPayment;
   payerReadiness: typeof payerReadiness;
+  /** Sanctions screen (W2-E): called as `deps.screenRecipient(address, deps)` so it uses this Deps' fetch. */
+  screenRecipient: typeof screenRecipient;
 }
 
 export const defaultDeps: Deps = {
@@ -30,6 +33,7 @@ export const defaultDeps: Deps = {
   rpc: () => makeRpc(DEFAULT_RPC_URLS),
   now: () => Date.now(),
   toAtomic, fromAtomic, parseLink, buildTransferUrl, newReference, isSolanaAddress, buildTransferTx, findPayment, payerReadiness,
+  screenRecipient,
 };
 
 export interface CallContext {

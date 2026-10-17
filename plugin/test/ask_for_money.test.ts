@@ -25,7 +25,7 @@ test("hosted: creates the request through the API and returns the SPEC text and 
     solana_pay_url: created.solana_pay_url, qr_url: created.qr_url, reference: created.reference,
     recipient: RECIPIENT, amount: "15", token: "USDC", payer_name: "Priya", for: "dinner",
     share_text: `Hey Priya, it's Raj. Your share for "dinner" is 15 USDC. Pay with any Solana wallet here: https://owed.link/r/JArQ6g9JvoWr`,
-    status: "open",
+    status: "open", screening: "clear",
   });
   assert.equal(textOf(result).split("\n")[0], 'Request ready: 15 USDC from Priya for "dinner". Send this link: https://owed.link/r/JArQ6g9JvoWr');
   assert.match(textOf(result), /Message to send: Hey Priya/);

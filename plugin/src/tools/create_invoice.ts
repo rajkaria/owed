@@ -9,7 +9,7 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { USDC_MINT, type Token } from "../money.js";
 import { checkFromDomain } from "../payee.js";
 import { idMatchesTerms } from "../request-id.js";
-import { screenRecipient, type Screening } from "../screen.js";
+import type { Screening } from "../screen.js";
 import { cautionLine, clean, quote } from "../text.js";
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
@@ -186,7 +186,9 @@ export function invoiceShareText(i: InvoiceShareInput): string {
 export async function createInvoice(
   args: InvoiceInput,
   deps: Deps = defaultDeps,
-  screen: (addr: string) => Promise<Screening> = screenRecipient,
+  // W2-E sanctions screen start
+  screen: (addr: string) => Promise<Screening> = (addr) => deps.screenRecipient(addr, deps),
+  // W2-E sanctions screen end
   checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();

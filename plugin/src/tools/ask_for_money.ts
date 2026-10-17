@@ -5,6 +5,9 @@ import { addressSchema, decimalSchema, requestIdSchema, tokenSchema, type Create
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
+// W2-E sanctions screen start
+import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
+// W2-E sanctions screen end
 import type { TransferRequest } from "../solana-pay.js";
 import { clean, quote, shareText } from "../text.js";
 // W2-H verified payee start
@@ -41,6 +44,9 @@ export const outputSchema = z.object({
   // W2-H verified payee start
   from_domain: z.string().optional().describe("The verified domain payers see on the request (lower-case ASCII). Absent offline: offline links carry no domain."),
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  screening: z.enum(["clear", "unavailable", "skipped"]).describe("Recipient sanctions screen (Chainalysis): clear = on no sanctions list; unavailable = the screen couldn't be reached, so the address wasn't screened."),
+  // W2-E sanctions screen end
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -59,6 +65,9 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the user has a domain that publishes their wallet in DNS (_owed.<domain> TXT owed-pay=<wallet>), pass it as from_domain: Owed checks it first and payers see the request as verified from that domain.",
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  "The recipient is screened against sanctions lists (Chainalysis) first: a listed address is refused, and if the screen can't be reached the request is still made and says so.",
+  // W2-E sanctions screen end
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
@@ -78,10 +87,20 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
+  // W2-E sanctions screen start
+  // The screen (≤2.5 s) runs beside the DNS check (≤4 s), never before it, so the API keeps its 4 s of PayBox's 10 s.
+  const [screening, check] = await Promise.all([
+    deps.screenRecipient(args.recipient, deps),
+    // W2-H verified payee start
+    args.from_domain !== undefined ? checkFromDomain(args.from_domain, args.recipient, deps, ASK_PAYEE_BUDGET_MS) : undefined,
+    // W2-H verified payee end
+  ]);
+  if (!screening.ok) return refusal(screening.message);
+  // W2-E sanctions screen end
+
   // W2-H verified payee start
   let fromDomain: { domain: string; lines: string[] } | undefined;
-  if (args.from_domain !== undefined) {
-    const check = await checkFromDomain(args.from_domain, args.recipient, deps, ASK_PAYEE_BUDGET_MS);
+  if (check) {
     if (!check.ok) return refusal(check.message);
     fromDomain = { domain: check.from_domain, lines: check.lines };
   }
@@ -135,6 +154,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain.domain }),
     // W2-H verified payee end
+    // W2-E sanctions screen start
+    screening: screening.screening,
+    // W2-E sanctions screen end
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -151,6 +173,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     lines.push(`Offline links can't carry a domain, so payers will see this one as unverified, not as from ${fromDomain.domain}.`);
   }
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  if (screening.screening === "unavailable") lines.push(SCREENING_UNAVAILABLE_LINE);
+  // W2-E sanctions screen end
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
 
