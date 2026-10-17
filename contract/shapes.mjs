@@ -413,6 +413,10 @@ function cancelSigned(message, signature, id, recipient, path, ctx) {
 }
 const cancelProof = object({ at: iso, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) });
 
+// W3-S SNS names: "name.sns" or "sub.name.sns", lower case, as the server stores it after resolving it.
+const snsName = string({ max: 140, pattern: /^[^.\s]{1,63}(\.[^.\s]{1,63})?\.sns$/u, test: (t) => t === t.toLowerCase(), label: "a lower-case SNS name ending in .sns" });
+const snsSource = oneOf("sol_record_v2", "sol_record_v1", "owner");
+
 const getRequestFields = {
   id, kind: oneOf("single", "split_share", "invoice"), recipient: pubkey, amount: positiveAmount, token,
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
@@ -422,8 +426,11 @@ const getRequestFields = {
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
+  sns_name: optional(nullable(snsName)), sns_source: optional(nullable(snsSource)), sns_resolved_at: optional(nullable(iso)), // W3-S
 };
 function getRequestConsistent(value, path, ctx) {
+  // W3-S: a stored name always says which rule picked the wallet, and when.
+  if (value.sns_name && (!value.sns_source || !value.sns_resolved_at)) ctx.errors.push(`${path}.sns_name: set without sns_source and sns_resolved_at`);
   payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
   decimalsFit("amount")(value, path, ctx);
   if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
@@ -462,14 +469,17 @@ export const shapes = {
     requester_name: optional(string({ max: 40 })), kind: optional(oneOf("single")), group_id: optional(string({ max: 40 })),
     source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
     expires_in_days: optional(expiresInDays), // W3-C
+    sns_name: optional(string({ min: 1, max: 140 })), // W3-S
   }, decimalsFit("amount")),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
     x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
     expires_at: optional(nullable(iso)), // W3-C
     chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
+    sns_name: optional(nullable(snsName)), sns_source: optional(nullable(snsSource)), // W3-S
   }, (value, path, ctx) => {
     payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
+    if (value.sns_name && !value.sns_source) ctx.errors.push(`${path}.sns_source: sns_name is set but sns_source is ${show(value.sns_source)}`); // W3-S
     urlMatchesFields(value, path, ctx);
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
   }),
@@ -788,4 +798,12 @@ Object.assign(fixtureShapes, {
   "base.create-request.res.json": "baseCreateRequestRes",
   "base.get-request.res.json": "baseGetRequestRes",
   "base.status.res.json": "statusRes",
+});
+
+// ---------------------------------------------------------------------------------------------- W3-S SNS names
+// A request created for an SNS name (bonfida.sns): same shapes, sns_* fields set. Captured from a local server.
+Object.assign(fixtureShapes, {
+  "sns.create-request.req.json": "createRequestReq",
+  "sns.create-request.res.json": "createRequestRes",
+  "sns.get-request.res.json": "getRequestRes",
 });

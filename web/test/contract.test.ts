@@ -54,6 +54,10 @@ const SCHEMAS: Record<string, ZodType> = {
   "ledger.schedules.res.json": LedgerResponse,
   "schedules.create.req.json": CreateScheduleBody,
   "schedules.create.res.json": ScheduleResponse,
+  // W3-S
+  "sns.create-request.req.json": CreateRequestBody,
+  "sns.create-request.res.json": CreateRequestResponse,
+  "sns.get-request.res.json": GetRequestResponse,
 };
 
 test("every contract fixture has a schema", () => {

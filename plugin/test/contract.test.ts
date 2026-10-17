@@ -44,6 +44,10 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "ledger.schedules.res.json": ledgerResSchema,
   "schedules.create.req.json": createScheduleReqSchema,
   "schedules.create.res.json": scheduleResSchema,
+  // W3-S
+  "sns.create-request.req.json": createRequestReqSchema,
+  "sns.create-request.res.json": createRequestResSchema,
+  "sns.get-request.res.json": getRequestResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

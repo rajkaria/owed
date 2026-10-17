@@ -15,11 +15,17 @@ import {
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { clean, shortAddress } from "../text.js";
+// W3-S SNS names start
+import { snsSourceSchema } from "../contract.js";
+import { pointsTo, sourceText, type SnsResult } from "../sns.js";
+import { resolveName, SNS_BUDGET_MS } from "../sns-payee.js";
+// W3-S SNS names end
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).optional().describe("An Owed link or id, or a Solana Pay transfer link (solana:...): checks the domain the request claims against the wallet it pays."),
   address: z.union([addressSchema, evmAddressSchema]).optional().describe("A Solana (or Base 0x) wallet address to check, together with domain (instead of link)."), // W3-B: 0x
   domain: z.string().min(1).max(253).optional().describe("The domain to check, e.g. \"example.com\". Required with address. With link, checks the link's wallet against this domain instead of the one the request claims (use it when the user expects a particular sender)."),
+  name: z.string().min(1).max(140).optional().describe("An SNS name to check, e.g. \"example.sns\": Owed reads Solana itself and says which wallet it points to. Alone, it resolves the name; with link or address, it checks that the name points to that wallet. A link to a request made for an SNS name is checked against that name automatically."), // W3-S
 }).strict();
 
 export const statusSchema = z.enum(["verified", "unverified", "dns_unavailable", "invalid_domain", "no_domain"]);
@@ -39,6 +45,17 @@ export const outputSchema = z.object({
   amount: z.string().nullable().optional(),
   token: tokenSchema.optional(),
   request_status: z.string().optional(),
+  // W3-S SNS names start
+  sns: z.object({
+    name: z.string().nullable().describe("The name checked, normalized (lower-case); null if it isn't a name Owed accepts."),
+    status: z.enum(["verified", "resolved", "mismatch", "invalid_name", "sol_tld", "not_found", "tokenized", "bad_record", "no_wallet", "unavailable"])
+      .describe("verified: the name points to address. resolved: name given alone, wallet is what it points to. mismatch: it points to another wallet."),
+    wallet: z.string().nullable().describe("The wallet the name points to right now, if any."),
+    source: snsSourceSchema.nullable().describe("Which SNS rule picked the wallet."),
+    warnings: z.array(z.string()),
+    message: z.string().optional().describe("Why the name couldn't be resolved."),
+  }).optional().describe("The SNS name check, when a name was given or the request names one."),
+  // W3-S SNS names end
 }).strict();
 
 export type VerifyInput = z.output<typeof inputSchema>;
@@ -53,6 +70,7 @@ const DESCRIPTION = [
   "Pass link (an Owed link or id, or a Solana Pay link) to check the domain the request claims, optionally with domain to check against the sender the user expects; or pass address and domain.",
   "Verified means the domain publishes the wallet: it proves who controls the domain, not that the request is fair. Always show the full domain and any warnings, which flag lookalike spellings and internationalized names.",
   "pay_link runs the same check automatically before paying a request that names a domain.",
+  "Pass name (an SNS name like example.sns) to see which wallet it points to on Solana, or with link/address to check it points there; Owed refuses .sol names (SNS moved to .sns), tokenized names and names with lookalike characters.", // W3-S
 ].join(" ");
 
 interface Target {
@@ -62,16 +80,18 @@ interface Target {
   amount: string | null;
   token?: Token;
   requestStatus?: string;
+  snsName?: string | null; // W3-S: the SNS name the request was made for
 }
 
 export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDeps) {
   const started = deps.now();
   if (args.link !== undefined && args.address !== undefined) return refusal("Pass either link, or address with domain, not both.");
-  if (args.link === undefined && (args.address === undefined || args.domain === undefined)) {
-    return refusal("Pass link (an Owed or Solana Pay link), or both address and domain.");
+  if (args.link === undefined && args.name === undefined && (args.address === undefined || args.domain === undefined)) { // W3-S: or name
+    return refusal("Pass link (an Owed or Solana Pay link), both address and domain, or an SNS name.");
   }
 
   let target: Target;
+  let snsDone: SnsResult | undefined; // W3-S: a name given alone, already resolved
   if (args.link !== undefined) {
     let ctx: CallContext;
     try {
@@ -82,6 +102,18 @@ export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDep
     const resolved = await resolveLink(args.link.trim(), ctx, deps);
     if (typeof resolved === "string") return refusal(resolved);
     target = resolved;
+  } else if (args.address === undefined) {
+    // W3-S: a name alone resolves to the wallet it points to; a domain given with it is checked against that wallet.
+    const named = await resolveName(args.name!, deps, SNS_BUDGET_MS);
+    if (!named.ok) {
+      const output: VerifyOutput = {
+        status: "no_domain", domain: "", display_domain: "", dnssec: false, records: 0, warnings: [],
+        address: "", record_name: null, expected_record: "", sns: snsOutput(named, null),
+      };
+      return { content: [{ type: "text" as const, text: `Couldn't resolve the name: ${named.message}` }], structuredContent: output };
+    }
+    target = { address: named.wallet, claimed: null, requestId: null, amount: null, snsName: named.name };
+    snsDone = named;
   } else {
     // W3-B Base requests start: a Base (0x) wallet is checked in its EIP-55 form.
     const evm = args.address!.startsWith("0x") ? parseEvmAddress(args.address!) : null;
@@ -93,10 +125,21 @@ export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDep
 
   const domain = args.domain ?? target.claimed;
   const expected_record = `${RECORD_PREFIX}${target.address}`;
+  // W3-S SNS names start: the name asked about, or the one the request was made for, against the wallet.
+  const snsName = args.name ?? target.snsName ?? null;
+  const snsPromise = snsName === null ? undefined
+    : snsDone ? Promise.resolve(snsDone)
+      : target.address.startsWith("0x") ? Promise.resolve<SnsResult>({ ok: false, name: null, code: "no_wallet", message: "SNS names point to Solana wallets, and this is a Base (0x) address." })
+        : resolveName(snsName, deps, Math.min(SNS_BUDGET_MS, VERIFY_BUDGET_MS - (deps.now() - started)));
+  const snsResult = snsPromise ? await snsPromise : undefined;
+  const sns = snsResult ? snsOutput(snsResult, snsDone ? null : target.address) : undefined;
+  const snsText = snsResult ? snsTextLines(snsResult, snsDone ? null : target.address, target.snsName ?? null) : [];
+  // W3-S SNS names end
   const extra = {
     ...(args.link !== undefined && { request_id: target.requestId, claimed_domain: target.claimed, amount: target.amount }),
     ...(target.token && { token: target.token }),
     ...(target.requestStatus && { request_status: target.requestStatus }),
+    ...(sns && { sns }), // W3-S
   };
 
   if (domain === null || domain === undefined) {
@@ -104,11 +147,11 @@ export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDep
       status: "no_domain", domain: "", display_domain: "", dnssec: false, records: 0, warnings: [],
       address: target.address, record_name: null, expected_record, ...extra,
     };
-    const text = [
+    const text = (sns ? [...snsText, requestLine(target)] : [ // W3-S: a name check stands on its own
       `This request doesn't name a domain, so there's nothing to verify. It pays ${target.address}.`,
       requestLine(target),
       "To check it against a domain you expect, call verify_payee again with that domain.",
-    ].filter(Boolean).join("\n");
+    ]).filter(Boolean).join("\n");
     return { content: [{ type: "text" as const, text }], structuredContent: output };
   }
 
@@ -117,7 +160,7 @@ export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDep
     ...payee, address: target.address,
     record_name: payee.domain ? `${RECORD_LABEL}.${payee.domain}` : null, expected_record, ...extra,
   };
-  const lines = [...mismatchLine(args.domain, target.claimed), ...resultLines(payee, target.address, domain), requestLine(target), ...payee.warnings];
+  const lines = [...mismatchLine(args.domain, target.claimed), ...resultLines(payee, target.address, domain), requestLine(target), ...payee.warnings, ...snsText]; // W3-S: + the name check
   return { content: [{ type: "text" as const, text: lines.filter(Boolean).join("\n") }], structuredContent: output };
 }
 
@@ -228,8 +271,30 @@ async function resolveLink(link: string, ctx: CallContext, deps: Deps): Promise<
   return {
     address: rq.recipient, claimed: rq.from_domain ?? null, requestId: rq.id,
     amount: deps.fromAtomic(amountAtomic, token), token, requestStatus: rq.status,
+    snsName: rq.sns_name ?? null, // W3-S
   };
 }
+
+// W3-S SNS names start
+/** The structured name check. `expected` is the wallet it must point to, or null when the name was given alone. */
+function snsOutput(r: SnsResult, expected: string | null): NonNullable<VerifyOutput["sns"]> {
+  if (!r.ok) return { name: r.name, status: r.code, wallet: null, source: null, warnings: [], message: r.message };
+  const status = expected === null ? "resolved" : r.wallet === expected ? "verified" : "mismatch";
+  return { name: r.name, status, wallet: r.wallet, source: r.source, warnings: r.warnings };
+}
+
+function snsTextLines(r: SnsResult, expected: string | null, requestName: string | null): string[] {
+  const madeFor = requestName ? ` This request was made for ${requestName}.` : "";
+  if (!r.ok) return [`Name not verified: ${r.message}${madeFor}`];
+  if (expected === null) {
+    return [`${pointsTo(r.name, r.wallet, r.source)}: ${r.wallet}. Read from Solana just now; it proves who controls the name, not that a request is fair.`, ...r.warnings];
+  }
+  if (r.wallet === expected) {
+    return [`Verified on-chain: ${pointsTo(r.name, r.wallet, r.source)}, the wallet this pays. That proves who controls the name, not that the request is fair.`, ...r.warnings];
+  }
+  return [`Not verified: ${r.name} points to ${shortAddress(r.wallet)} (${sourceText(r.source)}), not to ${shortAddress(expected)}, the wallet this pays. Don't treat it as ${r.name}'s.${madeFor}`, ...r.warnings];
+}
+// W3-S SNS names end
 
 export function register(server: McpServer, deps: Deps = defaultDeps) {
   server.registerTool("verify_payee", {

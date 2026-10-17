@@ -30,6 +30,8 @@ export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancell
 export const expiresInDaysSchema = z.number().int().min(1).max(90);
 export const errorCodeSchema = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 
+export const snsSourceSchema = z.enum(["sol_record_v2", "sol_record_v1", "owner"]); // W3-S
+
 export const createRequestReqSchema = z.object({
   recipient: anyAddress, // W3-B: a 0x address with chain "base"
   amount: decimalSchema,
@@ -44,6 +46,7 @@ export const createRequestReqSchema = z.object({
   from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
   expires_in_days: expiresInDaysSchema.optional(), // W3-C
   chain: chainSchema.optional(), // W3-B: absent = solana
+  sns_name: z.string().min(1).max(140).optional(), // W3-S: the plugin resolved it to recipient first
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -59,6 +62,8 @@ export const createRequestResSchema = z.object({
   expires_at: isoTime.nullable().optional(), // W3-C
   chain: chainSchema.optional(), // W3-B: absent = solana
   pay_url: payUrl.optional(), // W3-B: what a wallet opens (solana:, or ethereum: EIP-681 on Base)
+  sns_name: z.string().max(140).nullable().optional(), // W3-S: the name the server re-resolved to recipient
+  sns_source: snsSourceSchema.nullable().optional(),
 });
 
 export const paidInfoSchema = z.object({
@@ -94,6 +99,10 @@ export const getRequestResSchema = z.object({
   cancelled: z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable().optional(),
   chain: chainSchema.optional(), // W3-B: absent = solana
   pay_url: payUrl.optional(), // W3-B
+  // W3-S: display copy only. pay_link re-resolves the name itself before paying.
+  sns_name: z.string().max(140).nullable().optional(),
+  sns_source: snsSourceSchema.nullable().optional(),
+  sns_resolved_at: isoTime.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();

@@ -18,9 +18,14 @@ import { brandFlags, cautionLine, quote, shortAddress, withoutOwnBrandFlags } fr
 import { evmAddressSchema } from "../contract.js";
 import { payBaseRequest } from "../base-request.js";
 // W3-B Base requests end
+// W3-S SNS names start
+import { tokenSchema } from "../contract.js";
+import { looksLikeSnsName } from "../sns.js";
+import { resolveName, SNS_BUDGET_MS, snsBrandFlags, snsForPayment, snsLead, snsLines } from "../sns-payee.js";
+// W3-S SNS names end
 
 export const inputSchema = z.object({
-  link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), or the text of a payment QR code."),
+  link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), the text of a payment QR code, or an SNS name (example.sns) with amount."), // W3-S: or an SNS name
   sender: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id. For a request on Base, the user's Base (0x) wallet address."), // W3-B: 0x for Base
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
@@ -28,6 +33,7 @@ export const inputSchema = z.object({
   // W2-H verified payee start
   allow_unverified: z.boolean().optional().describe("Only when the user explicitly accepts it: pay a request that names a domain even though DNS can't be checked right now. Never pays a domain that doesn't publish the wallet."),
   // W2-H verified payee end
+  token: tokenSchema.optional().describe("Only when link is an SNS name: the token to send, \"USDC\" (default) or \"SOL\"."), // W3-S
 }).strict();
 
 const PROPOSAL_KEY = "io.paybox/transactionProposal";
@@ -57,6 +63,7 @@ const DESCRIPTION = [
   "It also screens the recipient against sanctions lists (Chainalysis) and refuses a listed address before proposing anything.",
   // W2-E sanctions screen end
   "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
+  "To pay an SNS name (\"pay example.sns 2 USDC\"), pass the name as link with amount (and token for SOL): the tool resolves it on Solana itself and proposes a transfer to the wallet it names. A request made for an SNS name is paid only if the name still points to its wallet. .sol names are refused (SNS moved to .sns).", // W3-S
 ].join(" ");
 
 interface Resolved {
@@ -72,6 +79,12 @@ interface Resolved {
   /** The domain the request claims to come from (server-supplied, untrusted until DNS says so). */
   fromDomain?: string | null;
   // W2-H verified payee end
+  // W3-S SNS names start
+  /** An Owed request's SNS name (server-supplied, re-resolved before paying). */
+  snsName?: string | null;
+  /** A name resolved in this call (link was a bare name): already verified. */
+  snsResolved?: Extract<Awaited<ReturnType<typeof resolveName>>, { ok: true }>;
+  // W3-S SNS names end
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -85,17 +98,29 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     return refusal(errorText(error, "Owed is misconfigured."));
   }
 
+  // W3-S SNS names start: a bare name is paid to the wallet it names, resolved here and now.
+  const x402 = args.rail === "x402";
+  let resolved: Resolved;
   let parsed;
+  if (looksLikeSnsName(args.link)) {
+    if (x402) return refusal(REFUSE_X402_NOT_OWED);
+    const named = await resolveName(args.link, deps, SNS_BUDGET_MS);
+    if (!named.ok) return refusal(`${named.message} Nothing was sent.`);
+    const token = args.token ?? "USDC";
+    resolved = {
+      request: { recipient: named.wallet, references: [], ...(token === "USDC" && { splToken: USDC_MINT }) },
+      token, name: null, notes: [], flags: [], snsResolved: named,
+    };
+  } else {
+  // W3-S SNS names end
   try {
     parsed = deps.parseLink(args.link.trim(), ctx.hosts);
   } catch (error) {
     return refusal(errorText(error, "This isn't a payment link Owed can read."));
   }
   if (parsed.kind === "transaction") return refusal(REFUSE_TRANSACTION_REQUEST);
-  const x402 = args.rail === "x402";
   if (x402 && parsed.kind !== "owed") return refusal(REFUSE_X402_NOT_OWED);
 
-  let resolved: Resolved;
   if (parsed.kind === "owed") {
     const result = await resolveOwed(parsed.id, ctx, deps);
     if (typeof result === "string") return refusal(result);
@@ -111,7 +136,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     const memo = r.memo?.startsWith("owed:") ? undefined : r.memo;
     resolved = { request: r, token, name: r.label, notes: [r.message, memo], flags: [] };
   }
+  } // W3-S: end of "not an SNS name"
   const { request, token } = resolved;
+  // W3-S: token names what to send to a bare SNS name; for a link it must agree with the link.
+  if (args.token !== undefined && args.token !== token) return refusal(`This link asks for ${token}, not ${args.token}. Nothing was sent.`);
   if (x402 && token !== "USDC") return refusal(REFUSE_X402_NOT_USDC);
   // W3-B: from here on the request is on Solana, so the sender must be a Solana wallet.
   if (!deps.isSolanaAddress(args.sender)) return refusal("This request is on Solana: sender must be the user's own PayBox Solana wallet address, not a 0x address.");
@@ -120,13 +148,17 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
 
   let amountAtomic: bigint;
   try {
-    if (request.amount !== undefined) {
+    if (request.amount !== undefined) { // a bare SNS name never sets one (W3-S)
       amountAtomic = deps.toAtomic(request.amount, token);
       if (args.amount !== undefined && deps.toAtomic(args.amount, token) !== amountAtomic) {
         return refusal(`This link already sets the amount to ${deps.fromAtomic(amountAtomic, token)} ${token}; it can't be changed.`);
       }
     } else {
-      if (args.amount === undefined) return refusal(`This link doesn't set an amount. Ask the user how much ${token} to send and pass it as amount.`);
+      if (args.amount === undefined) {
+        // W3-S: a bare SNS name
+        if (resolved.snsResolved) return refusal(`How much ${token} should go to ${resolved.snsResolved.name}? Ask the user and pass it as amount.`);
+        return refusal(`This link doesn't set an amount. Ask the user how much ${token} to send and pass it as amount.`);
+      }
       amountAtomic = deps.toAtomic(args.amount, token);
     }
   } catch (error) {
@@ -156,6 +188,9 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const payeeCheck = payeeForPayment(resolved.fromDomain, request.recipient, args.allow_unverified === true, deps,
     Math.min(PAYEE_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
   // W2-H verified payee end
+  // W3-S: a request made for an SNS name is paid only if the name still points to its wallet (beside the DNS check).
+  const snsCheck = snsForPayment(resolved.snsName, request.recipient, args.allow_unverified === true, deps,
+    Math.min(SNS_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
   // W2-E sanctions screen start
   // Beside the balance and DNS checks (≤2.5 s), so it adds no time; a listed recipient is refused before any proposal.
   const screenCheck = deps.screenRecipient(request.recipient, deps);
@@ -177,6 +212,13 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const payee = await payeeCheck;
   if (!payee.ok) return refusal(payee.refuse);
   // W2-H verified payee end
+  // W3-S SNS names start
+  const snsPayee = await snsCheck;
+  if (!snsPayee.ok) return refusal(snsPayee.refuse);
+  const named = resolved.snsResolved;
+  const snsLead_ = named ? snsLead(named) : snsPayee.lead;
+  const snsText = named ? snsLines(named) : snsPayee.lines;
+  // W3-S SNS names end
   if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   // Over x402 the facilitator pays the network fee, so a wallet without SOL can still pay.
   const feeOnly = x402 && readiness.reason !== undefined && FEE_SHORTFALL.test(readiness.reason);
@@ -206,7 +248,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
   // W2-E: a brand word is cleared only by a domain this call just verified over DNS (payee.lead is set only then).
   const caution = cautionLine(withoutOwnBrandFlags(
-    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])],
+    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain), ...snsBrandFlags(named?.name ?? resolved.snsName)])], // W3-S: + brand words in the name
     payee.lead !== null ? resolved.fromDomain : null,
   ));
   // W2-H verified payee end
@@ -214,7 +256,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const name = quote(resolved.name, 40);
   const preview = [
     // W2-H verified payee start
-    `Pay ${amount} ${token} to ${payee.lead ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`,
+    `Pay ${amount} ${token} to ${payee.lead ?? snsLead_ ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`, // W3-S: or the verified SNS name
     // W2-H verified payee end
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
@@ -223,7 +265,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
   // W2-H verified payee start
-  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines,
+  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines.filter((l) => !(snsLead_ && l.startsWith("Payee not verified: no domain"))), ...snsText, // W3-S
     // W2-E sanctions screen start
     screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
     // W2-E sanctions screen end
@@ -290,6 +332,7 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     // W2-H verified payee start
     fromDomain: rq.from_domain,
     // W2-H verified payee end
+    snsName: rq.sns_name, // W3-S
   };
 }
 

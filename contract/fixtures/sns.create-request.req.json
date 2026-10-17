@@ -1,0 +1,10 @@
+{
+  "recipient": "Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v",
+  "amount": "5",
+  "token": "USDC",
+  "payer_name": "Priya",
+  "for": "dinner",
+  "requester_name": "Raj",
+  "source": "plugin",
+  "sns_name": "bonfida.sns"
+}
