@@ -15,7 +15,7 @@ const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction
 
 /**
  * One POST /api/v1/status for every share that can still change, every 4 s while the tab is
- * visible; backs off on errors and stops once every share is paid or cancelled. What shows
+ * visible; backs off on errors and stops once every share is paid, cancelled or expired. What shows
  * comes from the API, so a hard refresh shows the same board.
  */
 function useLiveBoard(initial: BoardModel): BoardModel {
@@ -83,6 +83,7 @@ const SEGMENT: Record<ShareStatus, string> = {
   underpaid: "bg-warn",
   open: "bg-sunken",
   cancelled: "bg-line",
+  expired: "bg-line", // W3-C
 };
 
 function Chip({ status }: { status: ShareStatus }) {
@@ -104,6 +105,7 @@ function Chip({ status }: { status: ShareStatus }) {
     );
   }
   if (status === "cancelled") return <span className={`${base} bg-sunken text-muted`}>Cancelled</span>;
+  if (status === "expired") return <span className={`${base} bg-sunken text-muted`}>Expired</span>; // W3-C
   return (
     <span className={`${base} bg-sunken text-fg`}>
       <span className="relative flex size-2" aria-hidden="true">
@@ -112,6 +114,19 @@ function Chip({ status }: { status: ShareStatus }) {
       </span>
       Waiting
     </span>
+  );
+}
+
+// W3-C: when the shares stop taking payments, or that they already have.
+function BoardExpiry({ at, ended }: { at: string; ended: boolean }) {
+  const when = formatUtc(at);
+  if (!when) return null;
+  return (
+    <p className="mt-3 text-sm text-muted">
+      {ended ? "This split expired " : "Shares stop taking payments "}
+      <LocalTime iso={at} fallback={when} />
+      {ended ? ". Unpaid shares no longer take payments." : "."}
+    </p>
   );
 }
 
@@ -238,6 +253,7 @@ export function GroupBoard({ initial, badge }: { initial: BoardModel; badge?: Re
             />
           ))}
         </div>
+        {model.expiresAt && <BoardExpiry at={model.expiresAt} ended={model.shares.some((s) => s.status === "expired")} />}
         {p.done && p.paid === p.count && (
           <p className="mt-4 flex items-center gap-2 font-medium text-paid">
             <CheckIcon width={18} height={18} strokeWidth={2.5} />

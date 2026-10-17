@@ -168,6 +168,7 @@ export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }
           actions={<Actions model={model} />}
           qr={<QrPanel model={model} />}
           recipient={<Recipient model={model} />}
+          expiresAt={model.expiresAt ?? null}
         />
       </main>
 

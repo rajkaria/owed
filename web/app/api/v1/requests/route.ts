@@ -68,6 +68,7 @@ export async function POST(req: Request): Promise<Response> {
       flags: allFlags,
       source: body.source,
       fromDomain,
+      expiresInDays: body.expires_in_days ?? null, // W3-C: the database computes expires_at from its own clock
       chain: body.chain, // W3-B
     });
 
@@ -82,6 +83,7 @@ export async function POST(req: Request): Promise<Response> {
       created_at: row.createdAt,
       flags: row.flags,
       from_domain: row.fromDomain,
+      expires_at: row.expiresAt ?? null, // W3-C
       // W3-B Base requests: the chain, and the link a wallet opens (the solana: URL, or EIP-681 on Base).
       chain: row.chain ?? "solana",
       pay_url: payUrl(row),

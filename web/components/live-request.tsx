@@ -18,7 +18,9 @@ const MAX_BACKOFF_MS = 30000;
 
 /**
  * Polls the status API every 4 s while the request is open and the tab is
- * visible. Stops for good once the request is paid, underpaid or cancelled.
+ * visible. Stops for good once the request is paid, underpaid, cancelled or
+ * expired (W3-C: the server says "expired" once expires_at passes, so an open
+ * page flips to Expired within one poll and stops asking).
  * What shows on screen always comes from the API, so a hard refresh after a
  * flip shows the same thing.
  */
@@ -207,12 +209,52 @@ function UnderpaidCard({
   );
 }
 
-function CancelledCard() {
+// W3-C: cancelled by the recipient's own wallet (a signed message), or past its expiry. No pay buttons, no QR.
+function CancelledCard({ at }: { at?: string | null }) {
+  const when = at ? formatUtc(at) : null;
   return (
-    <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
-      <h2 className="text-xl font-semibold tracking-tight">This request was cancelled</h2>
-      <p className="mt-2 text-muted">Don&apos;t send money to this link.</p>
+    <section aria-labelledby="ended-title" className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
+      <h2 id="ended-title" className="text-xl font-semibold tracking-tight">
+        This request was cancelled
+      </h2>
+      <p className="mt-2 text-muted">
+        {at && when ? (
+          <>
+            Cancelled <LocalTime iso={at} fallback={when} /> by the wallet it pays, with a signed message.{" "}
+          </>
+        ) : null}
+        Don&apos;t send money to this link.
+      </p>
     </section>
+  );
+}
+
+function ExpiredCard({ at, asker }: { at?: string | null; asker: string }) {
+  const when = at ? formatUtc(at) : null;
+  return (
+    <section aria-labelledby="ended-title" className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
+      <h2 id="ended-title" className="text-xl font-semibold tracking-tight">
+        This request has expired
+      </h2>
+      <p className="mt-2 text-muted">
+        {at && when ? (
+          <>
+            It stopped taking payments <LocalTime iso={at} fallback={when} />.{" "}
+          </>
+        ) : null}
+        Don&apos;t send money to this link. If you still owe {asker}, ask for a new one.
+      </p>
+    </section>
+  );
+}
+
+function ExpiresNote({ at }: { at: string }) {
+  const when = formatUtc(at);
+  if (!when) return null;
+  return (
+    <p className="mt-2 text-sm text-muted">
+      Expires <LocalTime iso={at} fallback={when} />. After that this link stops taking payments.
+    </p>
   );
 }
 
@@ -251,7 +293,10 @@ export function LiveRequest({
   actions,
   qr,
   recipient,
+  expiresAt = null,
 }: {
+  /** W3-C: when an open request stops taking payments. */
+  expiresAt?: string | null;
   initial: LiveState;
   poll: PollTarget | null;
   requested: string | null;
@@ -286,6 +331,7 @@ export function LiveRequest({
         <>
           <div className="[grid-area:status]">
             <Waiting tracking={poll !== null} />
+            {expiresAt && <ExpiresNote at={expiresAt} />}
           </div>
           <div className="[grid-area:actions]">{actions}</div>
           <div className="[grid-area:side]">{qr}</div>
@@ -296,7 +342,8 @@ export function LiveRequest({
           {state.status === "underpaid" && (
             <UnderpaidCard state={state} token={token} requested={requested} asker={asker} />
           )}
-          {state.status === "cancelled" && <CancelledCard />}
+          {state.status === "cancelled" && <CancelledCard at={state.at} />}
+          {state.status === "expired" && <ExpiredCard at={state.at} asker={asker} />}
         </div>
       )}
       <div className="[grid-area:recipient]">{recipient}</div>

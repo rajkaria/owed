@@ -221,7 +221,7 @@ export const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 export const TX_HASH_RE = /^0x[0-9a-f]{64}$/;
 
 const statusFields = {
-  status: oneOf("open", "paid", "underpaid", "cancelled", "not_found", "invalid"),
+  status: oneOf("open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"), // W3-C: + expired
   amount_requested: optional(positiveAmount),
   token: optional(token),
   amount_paid: optional(amount),
@@ -229,10 +229,12 @@ const statusFields = {
   signature: optional(string({ test: (t) => isSignature(t) || TX_HASH_RE.test(t), label: "a base58 64-byte signature or a 0x transaction hash (Base)" })), // W3-B
   paid_at: optional(iso),
   created_at: optional(iso), // W1-C asked for it; the plugin turns it into "waited"
+  expires_at: optional(iso), // W3-C: when an expiring request ends
+  cancelled_at: optional(iso), // W3-C
   chain: optional(oneOf("base")), // W3-B: set on Base requests
 };
 function statusConsistent(value, path, ctx) {
-  if (["open", "paid", "underpaid", "cancelled"].includes(value.status)) {
+  if (["open", "paid", "underpaid", "cancelled", "expired"].includes(value.status)) {
     for (const key of ["amount_requested", "token"]) if (!(key in value)) ctx.errors.push(`${path}.${key}: missing for status ${value.status}`);
   }
   if (value.status === "paid" || value.status === "underpaid") {
@@ -389,12 +391,53 @@ function ledgerTotals(value, path, ctx) {
 }
 const totalsEntry = object({ token, outstanding: amount, received_30d: amount, open_count: integer(), paid_count: integer() });
 
+// W3-C: expiry and cancel. A cancellation's proof is ed25519 over "Owed cancel <id> for <recipient> at <ISO>"
+// by the recipient's wallet, checked for real wherever it appears.
+const expiresInDays = (value, path, ctx) => {
+  if (!Number.isInteger(value) || value < 1 || value > 90) ctx.errors.push(`${path}: expected a whole number of days from 1 to 90, got ${show(value)}`);
+};
+const CANCEL_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+function cancelSigned(message, signature, id, recipient, path, ctx) {
+  const lead = `Owed cancel ${id ?? ""}`;
+  const match = /^Owed cancel ([1-9A-HJ-NP-Za-km-z]{10,12}) for ([1-9A-HJ-NP-Za-km-z]{32,44}) at (.+)$/.exec(message);
+  if (!match || (id && match[1] !== id) || match[2] !== recipient || !CANCEL_ISO.test(match[3])) {
+    return void ctx.errors.push(`${path}.signed_message: must read "${lead}${id ? "" : "<id>"} for ${recipient} at <UTC time>"`);
+  }
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(signature) && !ed25519Verifies(message, signature, recipient)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${recipient} over signed_message`);
+  }
+}
+const cancelProof = object({ at: iso, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) });
+
+const getRequestFields = {
+  id, kind: oneOf("single", "split_share", "invoice"), recipient: pubkey, amount: positiveAmount, token,
+  payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
+  status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
+  solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
+  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
+  flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
+  expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
+  chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
+};
+function getRequestConsistent(value, path, ctx) {
+  payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
+  decimalsFit("amount")(value, path, ctx);
+  if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
+  urlMatchesFields(value, path, ctx);
+  if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);
+  if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
+  // W3-C: expired needs an expiry in the past of something; a cancelled request carries the signed proof.
+  if (value.status === "expired" && !value.expires_at) ctx.errors.push(`${path}.expires_at: status is expired but expires_at is ${show(value.expires_at)}`);
+  if (value.expires_at && Date.parse(value.expires_at) <= Date.parse(value.created_at)) ctx.errors.push(`${path}.expires_at: not after created_at`);
+  if (value.cancelled) cancelSigned(value.cancelled.signed_message, value.cancelled.signature, value.id, value.recipient, `${path}.cancelled`, ctx);
+}
+
 export const shapes = {
   createGroupReq: object({
     recipient: pubkey, total: positiveAmount, token, title: string({ min: 1, max: 60 }),
     people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount) }), { min: 2, max: 20 }),
     requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"),
-    from_domain: optional(string({ min: 1, max: 253 })),
+    from_domain: optional(string({ min: 1, max: 253 })), expires_in_days: optional(expiresInDays),
   }, peopleFitTotal),
   groupRes: object({
     id: groupId, link: httpsUrl, title: untrusted(60), recipient: pubkey, token, total: positiveAmount,
@@ -403,42 +446,30 @@ export const shapes = {
     from_domain_verified_at: optional(nullable(iso)),
     share_count: integer({ min: 2 }), paid_count: integer(), amount_received: amount,
     shares: array(object({
-      id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"),
+      id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled", "expired"),
       link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, paid: nullable(paidInfo),
       from_domain: optional(nullable(domain)),
     }), { min: 2, max: 20 }),
+    expires_at: optional(iso), // W3-C
   }, groupConsistent),
   createRequestReq: object({
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
     requester_name: optional(string({ max: 40 })), kind: optional(oneOf("single")), group_id: optional(string({ max: 40 })),
     source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
+    expires_in_days: optional(expiresInDays), // W3-C
   }, decimalsFit("amount")),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
     x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
+    expires_at: optional(nullable(iso)), // W3-C
     chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
   }, (value, path, ctx) => {
     payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
     urlMatchesFields(value, path, ctx);
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
   }),
-  getRequestRes: object({
-    id, kind: oneOf("single", "split_share", "invoice"), recipient: pubkey, amount: positiveAmount, token,
-    payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
-    status: oneOf("open", "paid", "underpaid", "cancelled"),
-    solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
-    paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
-    flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
-    chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
-  }, (value, path, ctx) => {
-    payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
-    decimalsFit("amount")(value, path, ctx);
-    if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
-    urlMatchesFields(value, path, ctx);
-    if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);
-    if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
-  }),
+  getRequestRes: object(getRequestFields, getRequestConsistent), // W3-C: fields and checks moved above, + expiry and cancel
   statusReq: object({ ids: array(id, { min: 1, max: 20 }) }),
   statusRes: object({ results: array(object({ id, ...statusFields }, statusConsistent), { max: 20 }) }),
   statusRawReq: object({ solana_pay_url: string({ max: 2048, pattern: /^solana:/, label: "a solana: URL" }) }),
@@ -552,6 +583,7 @@ Object.assign(shapes, {
     items: array(object({ description: string({ min: 1, max: 80 }), quantity: optional(invoiceQuantity), unit_price: positiveAmount }), { min: 1, max: 20 }),
     due_date: invoiceDate, invoice_number: optional(string({ min: 1, max: 20 })), notes: optional(string({ min: 1, max: 280 })),
     from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
+    expires_in_days: optional(expiresInDays), // W3-C
   }, invoiceItemsFit),
   invoiceRes: object({
     id, link: httpsUrl, request_link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
@@ -559,10 +591,11 @@ Object.assign(shapes, {
     business_name: untrusted(60), client_name: untrusted(60), invoice_number: untrusted(20), notes: untrusted(280),
     issue_date: invoiceDate, due_date: invoiceDate,
     items: array(object({ description: untrusted(80), quantity: invoiceQuantity, unit_price: positiveAmount, amount: positiveAmount }), { min: 1, max: 20 }),
-    total: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"), paid: nullable(invoicePaid),
+    total: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), paid: nullable(invoicePaid),
     created_at: iso, flags: array(flag),
     from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
     from_domain_verified_at: nullable(iso),
+    expires_at: optional(iso), cancelled_at: optional(iso), // W3-C
   }, invoiceConsistent),
 });
 
@@ -570,6 +603,25 @@ Object.assign(fixtureShapes, {
   "invoices.create.req.json": "createInvoiceReq",
   "invoices.create.res.json": "invoiceRes",
   "invoices.get.res.json": "invoiceRes",
+});
+
+// ---------------------------------------------------------------------------------------------- W3-C cancel
+// POST /api/v1/requests/:id/cancel. Appended with Object.assign, like the invoice shapes.
+
+Object.assign(shapes, {
+  cancelReq: object({ recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) },
+    (value, path, ctx) => cancelSigned(value.signed_message, value.signature, null, value.recipient, path, ctx)),
+  cancelRes: object({ ...getRequestFields, already_cancelled: oneOf(true, false) }, (value, path, ctx) => {
+    getRequestConsistent(value, path, ctx);
+    if (value.status !== "cancelled" && value.status !== "paid") ctx.errors.push(`${path}.status: ${value.status} after a cancel`);
+    if (!value.cancelled) ctx.errors.push(`${path}.cancelled: missing after a cancel`);
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "cancel.req.json": "cancelReq",
+  "cancel.res.json": "cancelRes",
+  "status.ended.res.json": "statusRes",
 });
 
 // ---------------------------------------------------------------------------------------------- Base requests (W3-B)
@@ -609,11 +661,13 @@ Object.assign(shapes, {
     recipient: evmAddress, amount: positiveAmount, token: oneOf("USDC"), chain: oneOf("base"),
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
     requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
+    expires_in_days: optional(integer({ min: 1 })), // W3-C
   }, decimalsFit("amount")),
   baseCreateRequestRes: object({
     id, link: httpsUrl, solana_pay_url: (value, path, ctx) => { if (value !== null) ctx.errors.push(`${path}: must be null on a Base request`); },
     qr_url: httpsUrl, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag),
     from_domain: optional(nullable(domain)), chain: oneOf("base"), pay_url: eip681,
+    expires_at: optional(nullable(iso)), // W3-C
   }, (value, path, ctx) => {
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
     const m = /address=(0x[0-9a-fA-F]{40})&uint256=([0-9]+)$/.exec(value.pay_url);
@@ -625,12 +679,13 @@ Object.assign(shapes, {
   baseGetRequestRes: object({
     id, kind: oneOf("single"), recipient: evmAddress, amount: positiveAmount, token: oneOf("USDC"),
     payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
-    status: oneOf("open", "paid", "underpaid", "cancelled"),
+    status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
     solana_pay_url: (value, path, ctx) => { if (value !== null) ctx.errors.push(`${path}: must be null on a Base request`); },
     reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
     paid: optional(nullable(object({ signature: txHash, payer: evmAddress, amount, at: iso, rail: oneOf("base_transfer", "x402") }))),
     flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
     chain: oneOf("base"), pay_url: eip681,
+    expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   }, (value, path, ctx) => {
     baseTermsMatch(value, path, ctx);
     if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);

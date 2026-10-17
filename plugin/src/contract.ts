@@ -24,7 +24,10 @@ const anyAddress = z.union([addressSchema, evmAddressSchema]);
 const anySignature = z.union([signatureSchema, txHashSchema]);
 const payUrl = z.string().max(2048).regex(/^(solana|ethereum):/);
 
-export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancelled", "not_found", "invalid"]);
+// W3-C: + "expired" (an open request past its expires_at; the server computes it).
+export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"]);
+/** W3-C: optional expiry on creation, whole days. The server sets expires_at from its own clock. */
+export const expiresInDaysSchema = z.number().int().min(1).max(90);
 export const errorCodeSchema = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 
 export const createRequestReqSchema = z.object({
@@ -39,6 +42,7 @@ export const createRequestReqSchema = z.object({
   group_id: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
   chain: chainSchema.optional(), // W3-B: absent = solana
 }).strict();
 
@@ -52,6 +56,7 @@ export const createRequestResSchema = z.object({
   created_at: isoTime,
   flags: z.array(z.string().max(80)).max(32),
   from_domain: z.string().max(253).nullable().optional(), // W2-H verified payee
+  expires_at: isoTime.nullable().optional(), // W3-C
   chain: chainSchema.optional(), // W3-B: absent = solana
   pay_url: payUrl.optional(), // W3-B: what a wallet opens (solana:, or ethereum: EIP-681 on Base)
 });
@@ -84,6 +89,9 @@ export const getRequestResSchema = z.object({
   // W2-H verified payee: display copy only. pay_link re-checks the domain's DNS itself.
   from_domain: z.string().max(253).nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  // W3-C: when it stops taking payments, and the recipient's signed cancellation (display; never trusted for paying).
+  expires_at: isoTime.nullable().optional(),
+  cancelled: z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable().optional(),
   chain: chainSchema.optional(), // W3-B: absent = solana
   pay_url: payUrl.optional(), // W3-B
 });
@@ -107,6 +115,8 @@ export const statusResultSchema = z.object({
   ...paymentFields,
   // check_payments turns it into how long an open request has waited.
   created_at: isoTime.optional(),
+  expires_at: isoTime.optional(), // W3-C
+  cancelled_at: isoTime.optional(),
   chain: chainSchema.optional(), // W3-B: "base" on Base requests (their payment links go to Basescan)
 }).superRefine((r, ctx) => {
   if (r.status === "not_found" || r.status === "invalid") return;
@@ -145,6 +155,7 @@ export const createGroupReqSchema = z.object({
   requester_name: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(),
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
 }).strict();
 
 export const groupShareSchema = z.object({
@@ -176,6 +187,7 @@ export const groupResSchema = z.object({
   paid_count: z.number().int().nonnegative(),
   amount_received: decimalSchema,
   shares: z.array(groupShareSchema).min(2).max(20),
+  expires_at: isoTime.optional(), // W3-C
 });
 
 export const errorResSchema = z.object({
@@ -205,6 +217,7 @@ export const createInvoiceReqSchema = z.object({
   notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional(),
   from_domain: z.string().min(1).max(253).optional(),
   source: z.enum(["plugin", "web"]),
+  expires_in_days: expiresInDaysSchema.optional(), // W3-C
 }).strict();
 
 export const invoiceResSchema = z.object({
@@ -236,6 +249,8 @@ export const invoiceResSchema = z.object({
   flags: z.array(z.string().max(80)).max(32),
   from_domain: z.string().max(253).nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  expires_at: isoTime.optional(), // W3-C
+  cancelled_at: isoTime.optional(),
 });
 
 export type Token = z.infer<typeof tokenSchema>;
@@ -309,3 +324,16 @@ export const ledgerResSchema = z.object({
 export type LedgerReq = z.infer<typeof ledgerReqSchema>;
 export type LedgerRes = z.infer<typeof ledgerResSchema>;
 export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
+
+// W3-C: POST /api/v1/requests/:id/cancel (cancel_request). The recipient's wallet signs
+// "Owed cancel <id> for <recipient> at <ISO time>"; the server accepts it once, within 5 minutes.
+export const cancelReqSchema = z.object({
+  recipient: addressSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const cancelResSchema = getRequestResSchema.extend({ already_cancelled: z.boolean() });
+
+export type CancelReq = z.infer<typeof cancelReqSchema>;
+export type CancelRes = z.infer<typeof cancelResSchema>;

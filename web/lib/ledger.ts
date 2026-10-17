@@ -104,6 +104,7 @@ const LISTED_COLUMNS = `r.id, count(*) over () as total, r.group_id, g.title as 
 const LIST = `
   (select true as is_open, ${LISTED_COLUMNS}
     where r.recipient = $1 and r.status in ('open', 'underpaid')
+      and (r.status <> 'open' or r.expires_at is null or r.expires_at > now()) -- W3-C: an expired request is no longer owed
     order by r.created_at desc, r.id
     limit $2)
   union all
@@ -122,6 +123,7 @@ const REST_TOTALS = `
     from requests
    where recipient = $1 and not (id = any($2::text[]))
      and (status in ('open', 'underpaid') or (status = 'paid' and paid_at > now() - make_interval(days => $3)))
+     and (status <> 'open' or expires_at is null or expires_at > now()) -- W3-C: an expired request is no longer owed
    group by token`;
 
 interface Contribution {

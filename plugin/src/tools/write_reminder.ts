@@ -44,7 +44,7 @@ const unpaidShareSchema = z.object({
 }).strict();
 
 export const outputSchema = z.object({
-  status: z.enum(["open", "underpaid", "paid", "cancelled"]),
+  status: z.enum(["open", "underpaid", "paid", "cancelled", "expired"]), // W3-C: + expired
   kind: z.enum(["single", "split_share", "invoice", "group"]).optional()
     .describe("group = a whole split bill (its board link); split_share = one person's share."),
   text: z.string().nullable().describe("The reminder to send, or null when there is nothing to chase."),
@@ -80,6 +80,8 @@ const DESCRIPTION = [
 interface Facts {
   status: ReminderOutput["status"];
   kind: NonNullable<ReminderOutput["kind"]>;
+  /** W3-C: when an expired request stopped taking payments. */
+  expiresAt?: string;
   id?: string;
   link: string;
   amount: string;
@@ -166,6 +168,10 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
   }
   if (facts.status === "cancelled") {
     return text("This request was cancelled, so there is nothing to chase.", base);
+  }
+  // W3-C: an expired link takes no payment, so a reminder would send the payer to a dead end.
+  if (facts.status === "expired") {
+    return text(`This request expired${facts.expiresAt ? ` at ${facts.expiresAt}` : ""}, so its link no longer takes payments and there is nothing to chase with it. If it's still owed, make a new request with ask_for_money and send that.`, base);
   }
 
   // QA-20: anyone can create a request that pays the user's wallet. One that name-drops a brand scams use
@@ -299,6 +305,7 @@ async function owedFacts(id: string, invoiceLink: boolean, ctx: CallContext, dep
     recipient: r.recipient,
     claimedDomain: r.from_domain || undefined,
     flags: r.flags,
+    ...(r.expires_at && { expiresAt: r.expires_at }), // W3-C
     ...(r.chain === "base" && { base: true }), // W3-B
   };
 }
@@ -333,6 +340,7 @@ async function invoiceFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: 
     recipient: inv.recipient,
     claimedDomain: inv.from_domain || undefined,
     flags: inv.flags,
+    ...(inv.expires_at && { expiresAt: inv.expires_at }), // W3-C
   };
 }
 
@@ -360,8 +368,11 @@ async function groupFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: nu
     }
     unpaid.push({ name: clean(share.name, 40) || `Share ${index + 1}`, amountDue: left, link: `${ctx.base}/r/${share.id}` });
   });
+  // W3-C: nothing left to chase because the unpaid shares were cancelled or expired is not "everyone paid".
+  const ended = g.shares.filter((share) => share.status === "cancelled" || share.status === "expired");
   return {
-    status: unpaid.length === 0 ? "paid" : "open",
+    status: unpaid.length > 0 ? "open" : ended.length === 0 ? "paid" : ended.every((share) => share.status === "cancelled") ? "cancelled" : "expired",
+    ...(g.expires_at && { expiresAt: g.expires_at }),
     kind: "group",
     id: g.id,
     link: `${ctx.base}/g/${g.id}`,

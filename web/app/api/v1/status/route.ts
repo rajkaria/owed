@@ -18,6 +18,9 @@ function result(row: RequestRow): StatusResult {
     created_at: row.createdAt,
     ...(row.chain === "base" && { chain: "base" as const }), // W3-B: Base payments carry 0x payers and transaction hashes
   };
+  // W3-C: when an expiring request ends, and when a cancelled one was cancelled.
+  if (row.expiresAt) out.expires_at = row.expiresAt;
+  if (row.cancelledAt) out.cancelled_at = row.cancelledAt;
   if ((row.status === "paid" || row.status === "underpaid") && row.paidAmountAtomic != null) {
     out.amount_paid = fromAtomic(row.paidAmountAtomic, row.token);
     out.payer = row.paidPayer ?? undefined;

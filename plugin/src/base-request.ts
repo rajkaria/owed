@@ -6,6 +6,7 @@ import { checkFromDomain, domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } f
 import { proposeX402 } from "./paybox.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "./request-id.js";
 import { brandFlags, cautionLine, clean, quote, shortAddress } from "./text.js";
+import { expiryLine, expiryProblem } from "./expiry.js"; // W3-C on Base
 
 // W3-B Base requests, plugin side. USDC on Base (eip155:8453):
 // - ask_for_money with chain "base" creates a hosted request whose link opens an EIP-681 USDC
@@ -31,6 +32,7 @@ export interface BaseAskArgs {
   note?: string;
   requester_name?: string;
   from_domain?: string;
+  expires_in_days?: number; // W3-C
 }
 
 /** The Base share message: same shape as text.ts shareText, with "any Base wallet". Inputs already clean()ed. */
@@ -87,6 +89,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     ...(text.note && { note: text.note }),
     ...(text.requesterName && { requester_name: text.requesterName }),
     ...(fromDomain && { from_domain: fromDomain.domain }),
+    ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
   };
 
   let res: CreateRequestRes;
@@ -113,6 +116,10 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
   if (fromDomain && res.from_domain !== fromDomain.domain) {
     return refusal(`Owed's server didn't attach ${fromDomain.domain} to the request, so the link wasn't used. Try again, or ask without from_domain.`);
   }
+  // W3-C: the server must have set the expiry that was asked for.
+  const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
+  if (expiry) return refusal(expiry);
+  const expiresAt = args.expires_in_days !== undefined && res.expires_at ? res.expires_at : undefined;
 
   const share_text = baseShareText({ ...text, amount, link: res.link });
   const output = {
@@ -123,6 +130,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     share_text, status: "open" as const,
     ...(fromDomain && { from_domain: fromDomain.domain }),
     chain: "base" as const, pay_url: payUrl,
+    ...(expiresAt && { expires_at: expiresAt }), // W3-C
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -131,6 +139,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     `Message to send: ${share_text}`,
     `It pays ${shortAddress(recipient)} on Base (USDC ${shortAddress(BASE_USDC)}). check_payments reads it from Base.`,
     ...(fromDomain ? fromDomain.lines : []),
+    ...(expiresAt && args.expires_in_days !== undefined ? [expiryLine(expiresAt, args.expires_in_days)] : []), // W3-C
   ];
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

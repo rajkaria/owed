@@ -8,7 +8,7 @@ import { cleanText, LIMITS } from "@/lib/view/text";
 
 export const TITLE_LIMIT = 60;
 
-export type ShareStatus = "open" | "paid" | "underpaid" | "cancelled";
+export type ShareStatus = "open" | "paid" | "underpaid" | "cancelled" | "expired"; // W3-C: + expired
 
 export interface BoardShare {
   id: string;
@@ -38,9 +38,11 @@ export interface BoardModel {
   fromDomain: string | null;
   fromDomainVerifiedAt: string | null;
   shares: BoardShare[];
+  /** W3-C: when the shares stop taking payments (ISO), or null. */
+  expiresAt: string | null;
 }
 
-const STATUSES: readonly ShareStatus[] = ["open", "paid", "underpaid", "cancelled"];
+const STATUSES: readonly ShareStatus[] = ["open", "paid", "underpaid", "cancelled", "expired"];
 
 export function boardFromGroup(g: PublicGroup, origin: string): BoardModel {
   const token: Token = isToken(g.token) ? g.token : "USDC";
@@ -71,6 +73,7 @@ export function boardFromGroup(g: PublicGroup, origin: string): BoardModel {
       at: s.paid?.at ?? null,
       payLink: `${origin}/r/${encodeURIComponent(s.id)}`,
     })),
+    expiresAt: g.expires_at ?? null, // W3-C
   };
 }
 
@@ -90,7 +93,7 @@ export function applyStatus(model: BoardModel, json: unknown): BoardModel {
   for (const r of results) if (r && typeof r === "object" && typeof (r as { id?: unknown }).id === "string") byId.set((r as { id: string }).id, r);
   let changed = false;
   const shares = model.shares.map((share): BoardShare => {
-    if (share.status === "paid" || share.status === "cancelled" || !byId.has(share.id)) return share;
+    if (share.status === "paid" || share.status === "cancelled" || share.status === "expired" || !byId.has(share.id)) return share;
     const next = stateFromStatus(byId.get(share.id), share.amount, model.token);
     if (!next || next.status === "open") return share;
     changed = true;
@@ -100,7 +103,7 @@ export function applyStatus(model: BoardModel, json: unknown): BoardModel {
     if (next.status === "underpaid") {
       return { ...share, status: "underpaid", paidAmount: next.amountPaid, payer: next.payer, signature: next.signature, at: next.at };
     }
-    return { ...share, status: "cancelled" };
+    return { ...share, status: next.status }; // W3-C: cancelled or expired
   });
   return changed ? { ...model, shares } : model;
 }
@@ -110,7 +113,7 @@ export interface Progress {
   count: number;
   /** What has arrived across all shares, as a decimal string. */
   received: string;
-  /** Every share is paid or cancelled. */
+  /** Every share is paid, cancelled or expired. */
   done: boolean;
   /** One segment per share, sized by its amount (basis points of the total). */
   segments: Array<{ id: string; status: ShareStatus; basisPoints: number }>;
@@ -127,7 +130,7 @@ export function progress(model: BoardModel): Progress {
     paid: model.shares.filter((s) => s.status === "paid").length,
     count: model.shares.length,
     received: fromAtomic(received, decimals),
-    done: model.shares.every((s) => s.status === "paid" || s.status === "cancelled"),
+    done: model.shares.every((s) => s.status === "paid" || s.status === "cancelled" || s.status === "expired"),
     segments: model.shares.map((s) => {
       const amount = toAtomic(s.amount, decimals) ?? BigInt(0);
       return { id: s.id, status: s.status, basisPoints: total > BigInt(0) ? Number((amount * BigInt(10000)) / total) : 0 };
