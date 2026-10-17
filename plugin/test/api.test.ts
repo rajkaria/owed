@@ -51,7 +51,8 @@ test("getRequest, status and statusRaw hit their routes and parse fixtures", asy
     "POST /api/v1/status-raw": () => json(200, fixture("status-raw.res.json")),
   }, calls) });
   assert.equal((await api.getRequest("JArQ6g9JvoWr")).status, "paid");
-  assert.equal((await api.status(["JArQ6g9JvoWr", "Bq3wL8mNc2"])).results.length, 2);
+  const status = await api.status(["JArQ6g9JvoWr", "Bq3wL8mNc2", "111111111111"]);
+  assert.deepEqual(status.results.map((r) => r.status), ["paid", "open", "not_found"]); // not_found carries id + status only (QA-05)
   assert.deepEqual(calls[1]!.body, fixture("status.req.json"));
   const raw = fixture("status-raw.req.json");
   assert.equal((await api.statusRaw(raw.solana_pay_url)).status, "open");

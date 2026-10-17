@@ -206,3 +206,21 @@ test("the live demo record (captured): getowed.xyz publishes the team wallet and
   assert.equal(await requireVerifiedDomain("GetOwed.xyz", RECIPIENT, { fetch: replay(live).fetch }), "getowed.xyz");
   assert.equal((await verifyDomain("getowed.xyz", OTHER, { fetch: replay(live).fetch })).status, "unverified");
 });
+
+test("QA-21: the server's DNS re-check plus 1 s for the slot and insert fits inside the plugin's 4 s API timeout", async () => {
+  const { PAYEE_BUDGET_MS, DOH_TIMEOUT_MS } = await import("@/lib/payee");
+  const api = readFileSync(new URL("../../plugin/src/api.ts", import.meta.url), "utf8");
+  const pluginTimeout = Number(/export const API_TIMEOUT_MS = (\d+)/.exec(api)?.[1]);
+  assert.equal(pluginTimeout, 4000);
+  assert.ok(PAYEE_BUDGET_MS + 1000 <= pluginTimeout, `${PAYEE_BUDGET_MS} + 1000 > ${pluginTimeout}`);
+  assert.equal(PAYEE_BUDGET_MS, 2 * DOH_TIMEOUT_MS, "both resolvers still get a turn");
+});
+
+test("QA-21: a hanging Cloudflare is dropped after 1.5 s and dns.google still answers inside the 3 s budget", async () => {
+  const f = withTxt(doh("nodata-signed"), [`owed-pay=${RECIPIENT}`]);
+  const r = replay(f, { "cloudflare-dns.com": () => new Promise<Response>(() => {}) });
+  const t0 = Date.now();
+  assert.equal((await verifyDomain("example.com", RECIPIENT, { fetch: r.fetch })).status, "verified");
+  const ms = Date.now() - t0;
+  assert.ok(ms >= 1400 && ms < 2800, `took ${ms} ms`);
+});
