@@ -16,7 +16,7 @@ export type LiveState =
       payer: string | null;
       signature: string | null;
       at: string | null;
-      rail: "solana_pay" | "x402" | "base_transfer" | null;
+      rail: "solana_pay" | "x402" | "base_transfer" | "moonpay_card" | null;
     }
   | {
       status: "underpaid";
@@ -157,7 +157,7 @@ export function stateFromStatus(result: unknown, requested: string | null, token
         payer: key(r.payer),
         signature: sig(r.signature),
         at: iso(r.paid_at),
-        rail: r.rail === "x402" || r.rail === "solana_pay" || r.rail === "base_transfer" ? r.rail : null,
+        rail: r.rail === "x402" || r.rail === "solana_pay" || r.rail === "base_transfer" || r.rail === "moonpay_card" ? r.rail : null,
       };
     case "underpaid": {
       const amountPaid = dec(r.amount_paid);

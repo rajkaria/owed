@@ -57,7 +57,7 @@ function RequesterDetails({ model }: { model: PayModel }) {
   );
 }
 
-function Actions({ model }: { model: PayModel }) {
+function Actions({ model, card }: { model: PayModel; card?: ReactNode }) {
   return (
     <div className="flex flex-col gap-3">
       <a
@@ -67,6 +67,7 @@ function Actions({ model }: { model: PayModel }) {
         <WalletIcon />
         Open in wallet
       </a>
+      {card /* pay by card (MoonPay): <CardPay>, wired by the page when MoonPay is configured */}
       <div className="grid grid-cols-2 gap-3">
         <CopyButton
           text={model.shareLink}
@@ -140,7 +141,7 @@ function Recipient({ model }: { model: PayModel }) {
   );
 }
 
-export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }) {
+export function PayView({ model, badge, card }: { model: PayModel; badge?: ReactNode; card?: ReactNode }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-4 pb-10 pt-5 sm:px-6 md:pt-8">
       <header className="flex items-center justify-between">
@@ -168,7 +169,7 @@ export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }
               <RequesterDetails model={model} />
             </>
           }
-          actions={<Actions model={model} />}
+          actions={<Actions model={model} card={card} />}
           qr={<QrPanel model={model} />}
           recipient={<Recipient model={model} />}
           expiresAt={model.expiresAt ?? null}

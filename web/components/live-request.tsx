@@ -129,7 +129,9 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
           <h2 id="receipt-title" className="text-xl font-semibold tracking-tight text-paid">
             Paid
           </h2>
-          <p className="text-sm text-muted">Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</p>
+          <p className="text-sm text-muted">
+            {state.rail === "moonpay_card" ? "Paid by card via MoonPay, confirmed on Solana" : `Confirmed on ${state.signature?.startsWith("0x") ? "Base" : "Solana"}`}
+          </p>
         </div>
       </div>
       {state.amount && (
@@ -137,7 +139,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
       )}
       <dl className="mt-4 divide-y divide-line border-y border-line">
         {state.payer && (
-          <Row label="From">
+          <Row label={state.rail === "moonpay_card" ? "Sent by MoonPay from" : "From"}>
             <span className="font-mono" title={state.payer}>
               {shortAddress(state.payer)}
             </span>
@@ -148,7 +150,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
             <LocalTime iso={state.at} fallback={when} />
           </Row>
         )}
-        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : state.rail === "base_transfer" ? "USDC transfer on Base" : "Solana Pay"}</Row>}
+        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : state.rail === "base_transfer" ? "USDC transfer on Base" : state.rail === "moonpay_card" ? "Card, via MoonPay" : "Solana Pay"}</Row>}
       </dl>
       {state.signature && (
         <p className="mt-4">
