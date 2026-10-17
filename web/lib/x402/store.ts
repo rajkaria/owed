@@ -1,6 +1,7 @@
 import "server-only";
 import { isoUtc, isUniqueViolation, sql, transaction } from "../db";
 import type { Credit } from "../validate";
+import { watchSoon } from "../notify/helius"; // W3-A
 
 // x402_receipts (migration 0004): one row per settlement attempt, and the step that marks a
 // request paid over x402. See the migration for the states.
@@ -113,6 +114,7 @@ export const store: Store = {
           params: [receipt.requestId, credit.signature, credit.payer, credit.amountAtomic, credit.at],
         },
       ]);
+      if (updated.length > 0) watchSoon(); // W3-A: a paid request leaves the Helius watch
       return updated.length > 0;
     } catch (e) {
       if (isUniqueViolation(e, "requests_paid_signature_key")) {

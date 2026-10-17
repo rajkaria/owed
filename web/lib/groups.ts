@@ -7,6 +7,7 @@ import { AmountError, fromAtomic, TOKENS, USDC_MINT, type Token } from "./money"
 import { getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
+import { watchSoon } from "./notify/helius"; // W3-A
 
 // Split bills. A group is one bill split into shares; each share is an ordinary request
 // row (kind 'split_share'), so its pay page, /status, check_payments and pay_link all work
@@ -188,6 +189,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
     ];
     try {
       const results = await transaction(queries);
+      watchSoon(); // W3-A: Helius watches every share's reference key
       const createdAt = results[0][0].created_at!;
       const fromDomainVerifiedAt = results[0][0].from_domain_verified_at;
       const group: GroupRow = {

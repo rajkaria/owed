@@ -8,6 +8,7 @@ import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
+import { watchSoon } from "./notify/helius"; // W3-A
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -173,6 +174,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.fromDomain ?? null,
         ],
       );
+      watchSoon(); // W3-A: Helius watches the new request's reference key
       return fromRow(rows[0]);
     } catch (e) {
       // A 256-bit reference (and so a 70-bit id) collision is astronomically rare; retry with a fresh one.
@@ -196,6 +198,7 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
         returning ${COLUMNS}`,
       [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at],
     );
+    if (rows.length && check.status === "paid") watchSoon(); // W3-A: a paid request leaves the Helius watch
     if (rows.length) return fromRow(rows[0]);
     return (await getRequest(row.id)) ?? row; // settled concurrently
   } catch (e) {
