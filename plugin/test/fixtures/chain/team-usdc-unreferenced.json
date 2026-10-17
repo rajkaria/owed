@@ -1,6 +1,6 @@
 {
  "name": "team-usdc-unreferenced",
- "note": "Every transaction on the team wallet's USDC account (FN6G…cbvs, ATA 2YXy…gv1x) as of capture: three USDC transfers from GSWh…8dfbca carry no Solana Pay reference and no memo (FACTS line 53), plus the referenced Phantom payment mBef…, the x402 payment the team wallet made (outgoing), and the account creation.",
+ "note": "Every transaction on the team wallet's USDC account (FN6G…cbvs, ATA 2YXy…gv1x) as of capture: three USDC transfers from GSWh…8dcD carry no Solana Pay reference and no memo (FACTS line 53), plus the referenced Phantom payment mBef…, the x402 payment the team wallet made (outgoing), and the account creation.",
  "rpc": "https://solana-rpc.publicnode.com",
  "captured_at": "2026-10-17T20:47:01.939Z",
  "query": {
