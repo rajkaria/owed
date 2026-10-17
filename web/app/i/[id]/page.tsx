@@ -71,10 +71,10 @@ function Head({ model }: { model: InvoiceModel }) {
 
 function Parties({ model }: { model: InvoiceModel }) {
   return (
-    <div className="mt-7 grid gap-5 sm:grid-cols-2 print:mt-5 print:grid-cols-2">
-      <div>
+    <div className="mt-7 grid grid-cols-1 gap-5 sm:grid-cols-2 print:mt-5 print:grid-cols-2">
+      <div className="min-w-0">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">From</h2>
-        <p className="mt-1 text-lg font-semibold leading-snug break-words">
+        <p className="mt-1 text-lg font-semibold leading-snug wrap-anywhere">
           <q>{model.businessName}</q>
         </p>
         <VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />
@@ -82,9 +82,9 @@ function Parties({ model }: { model: InvoiceModel }) {
           Paid to <span className="font-mono">{model.recipientShort}</span>
         </p>
       </div>
-      <div>
+      <div className="min-w-0">
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Bill to</h2>
-        <p className="mt-1 text-lg font-semibold leading-snug break-words">
+        <p className="mt-1 text-lg font-semibold leading-snug wrap-anywhere">
           <q>{model.clientName}</q>
         </p>
       </div>
@@ -115,6 +115,8 @@ function Dates({ model }: { model: InvoiceModel }) {
 function Items({ model }: { model: InvoiceModel }) {
   return (
     <div className="mt-7 print:mt-4" data-print-dense={model.lines.length > 10 ? "" : undefined}>
+      {/* Sender text uses overflow-wrap:anywhere: unlike break-word it lowers a cell's min-content width, so a
+          long unbroken word wraps inside the card instead of widening the table (QA-11). */}
       <table className="w-full border-collapse text-left text-sm">
         <caption className="sr-only">Line items, written by the sender</caption>
         <thead>
@@ -128,7 +130,7 @@ function Items({ model }: { model: InvoiceModel }) {
         <tbody>
           {model.lines.map((line, i) => (
             <tr key={i} className="border-b border-line align-top print:break-inside-avoid">
-              <td className="py-3 pr-3 break-words print:py-1">
+              <td className="py-3 pr-3 wrap-anywhere print:py-1">
                 <q>{line.description}</q>
                 <span className="mt-0.5 block text-xs text-muted tabular-nums sm:hidden print:hidden">
                   {line.quantity} × {line.unitPrice}
@@ -166,7 +168,7 @@ function Notes({ model }: { model: InvoiceModel }) {
       {model.notes && (
         <div className="print:break-inside-avoid">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Notes</h2>
-          <blockquote className="mt-1 leading-relaxed break-words">
+          <blockquote className="mt-1 leading-relaxed wrap-anywhere">
             <q>{model.notes}</q>
           </blockquote>
         </div>
