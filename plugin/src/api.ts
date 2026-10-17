@@ -50,6 +50,8 @@ export interface ApiClient {
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
   createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
   ledger(body: LedgerReq): Promise<LedgerRes>;
+  getGroup(id: string): Promise<GroupRes>;
+  getInvoice(id: string): Promise<InvoiceRes>;
 }
 
 export interface ApiOptions {
@@ -106,5 +108,7 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
     createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
+    getGroup: (id) => call("GET", `/groups/${encodeURIComponent(id)}`, groupResSchema),
+    getInvoice: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceResSchema),
   };
 }
