@@ -44,6 +44,16 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "ledger.schedules.res.json": ledgerResSchema,
   "schedules.create.req.json": createScheduleReqSchema,
   "schedules.create.res.json": scheduleResSchema,
+  // local-currency asks
+  "fiat.create-request.req.json": createRequestReqSchema,
+  "fiat.create-request.res.json": createRequestResSchema,
+  "fiat.get-request.res.json": getRequestResSchema,
+  "fiat.status.res.json": statusResSchema,
+  "fiat.ledger.res.json": ledgerResSchema,
+  "fiat.groups.create.req.json": createGroupReqSchema,
+  "fiat.groups.create.res.json": groupResSchema,
+  "fiat.invoices.create.req.json": createInvoiceReqSchema,
+  "fiat.invoices.create.res.json": invoiceResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

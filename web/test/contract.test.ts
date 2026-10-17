@@ -54,6 +54,16 @@ const SCHEMAS: Record<string, ZodType> = {
   "ledger.schedules.res.json": LedgerResponse,
   "schedules.create.req.json": CreateScheduleBody,
   "schedules.create.res.json": ScheduleResponse,
+  // local-currency asks
+  "fiat.create-request.req.json": CreateRequestBody,
+  "fiat.create-request.res.json": CreateRequestResponse,
+  "fiat.get-request.res.json": GetRequestResponse,
+  "fiat.status.res.json": StatusResponse,
+  "fiat.ledger.res.json": LedgerResponse,
+  "fiat.groups.create.req.json": CreateGroupBody,
+  "fiat.groups.create.res.json": GroupResponse,
+  "fiat.invoices.create.req.json": CreateInvoiceBody,
+  "fiat.invoices.create.res.json": InvoiceResponse,
 };
 
 test("every contract fixture has a schema", () => {

@@ -1,0 +1,45 @@
+{
+  "id": "XhzDY1i6yTdS",
+  "link": "https://owed.link/i/XhzDY1i6yTdS",
+  "request_link": "https://owed.link/r/XhzDY1i6yTdS",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=379.726408&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=HnZPNBHFWKHM15WgwPB4ieLLD2miji121M5mBZf78ib8&label=Raj%20Studio&message=Invoice%20RS-042&memo=owed%3AXhzDY1i6yTdS",
+  "qr_url": "https://owed.link/api/qr/XhzDY1i6yTdS.png",
+  "reference": "HnZPNBHFWKHM15WgwPB4ieLLD2miji121M5mBZf78ib8",
+  "x402_url": "https://owed.link/x/XhzDY1i6yTdS",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "business_name": "Raj Studio",
+  "client_name": "Kenji",
+  "invoice_number": "RS-042",
+  "notes": null,
+  "issue_date": "2026-10-17",
+  "due_date": "2026-10-31",
+  "items": [
+    {
+      "description": "Logo design",
+      "quantity": "1",
+      "unit_price": "45000",
+      "amount": "45000"
+    },
+    {
+      "description": "Revision rounds",
+      "quantity": "2",
+      "unit_price": "7500",
+      "amount": "15000"
+    }
+  ],
+  "total": "379.726408",
+  "status": "open",
+  "paid": null,
+  "created_at": "2026-10-17T20:45:46Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "fiat": {
+    "currency": "JPY",
+    "amount": "60000",
+    "rate": "158.0085",
+    "rate_source": "api.coinbase.com, checked against open.er-api.com",
+    "quoted_at": "2026-10-17T20:45:45Z"
+  }
+}

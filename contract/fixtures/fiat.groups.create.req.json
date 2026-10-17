@@ -1,0 +1,23 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "total": "45",
+  "token": "USDC",
+  "title": "Team lunch",
+  "currency": "EUR",
+  "people": [
+    {
+      "name": "Priya",
+      "amount": "15"
+    },
+    {
+      "name": "Sam",
+      "amount": "15"
+    },
+    {
+      "name": "Alex",
+      "amount": "15"
+    }
+  ],
+  "requester_name": "Raj",
+  "source": "plugin"
+}

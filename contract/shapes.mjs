@@ -789,3 +789,146 @@ Object.assign(fixtureShapes, {
   "base.get-request.res.json": "baseGetRequestRes",
   "base.status.res.json": "statusRes",
 });
+
+// ---------------------------------------------------------------------------------------------- local-currency asks
+// "ask Priya for ₹1,200": `currency` (ISO 4217, never USD) makes a create body's amounts that currency; the server locks
+// a USDC amount at a live rate and replies with the quote as `fiat` {currency, amount, rate, rate_source, quoted_at}.
+// The quote is display only (ids hash the USDC terms, unchanged), but it must produce the USDC exactly:
+// usdc = ceil(amount / rate) to 6 decimals (plugin/src/fiat.ts, web/lib/fiat.ts). These shapes wrap the ones above:
+// they check the fiat fields, then hand the rest to the original shape.
+
+const fiatCode = string({ pattern: /^[A-Z]{3}$/, test: (t) => t !== "USD", label: "an ISO 4217 code other than USD" });
+const fiatQuote = object({ currency: fiatCode, amount: positiveAmount, rate: positiveAmount, rate_source: string({ min: 1, max: 120 }), quoted_at: iso });
+
+/** USDC atomic units for `amount` at `rate` (units per 1 USDC), rounded up: exact decimals, no floats. */
+export function usdcAtomicForQuote(quote) {
+  const [aw, af = ""] = quote.amount.split(".");
+  const [rw, rf = ""] = quote.rate.split(".");
+  const num = BigInt(aw + af) * 10n ** BigInt(rf.length + 6);
+  const den = BigInt(rw + rf) * 10n ** BigInt(af.length);
+  return (num + den - 1n) / den;
+}
+
+function quoteGives(quote, usdc, path, ctx) {
+  try {
+    if (usdcAtomicForQuote(quote) !== toAtomic(usdc, 6)) {
+      ctx.errors.push(`${path}: ${quote.amount} ${quote.currency} at ${quote.rate} per USDC is ${fromAtomic(usdcAtomicForQuote(quote), 6)} USDC rounded up, not ${usdc}`);
+    }
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+}
+
+/** `base` without the keys in `extra` (checked first), then `refine` on the whole value. */
+const withFiat = (base, extra, refine) => (value, path, ctx) => {
+  if (kind(value) !== "object") return base(value, path, ctx);
+  const before = ctx.errors.length;
+  const rest = { ...value };
+  for (const [key, shape] of Object.entries(extra)) {
+    if (!(key in rest)) {
+      if (!shape.optional) ctx.errors.push(`${path}.${key}: missing`);
+      continue;
+    }
+    shape(rest[key], `${path}.${key}`, ctx);
+    delete rest[key];
+  }
+  base(rest, path, ctx);
+  if (refine && before === ctx.errors.length) refine(value, path, ctx, rest);
+};
+const usdcOnly = (value, path, ctx) => { if (value.token !== "USDC") ctx.errors.push(`${path}.token: a local-currency ask is USDC, not ${value.token}`); };
+
+/** An array's entries may carry `fiat`; each is checked against the entry's USDC `amountKey`, then stripped for `base`. */
+const entriesWithFiat = (value, key, amountKey, path, ctx) => (value[key] ?? []).map((entry, index) => {
+  if (!entry || !("fiat" in entry)) return entry;
+  const { fiat, ...rest } = entry;
+  const at = `${path}.${key}[${index}]`;
+  const errors = ctx.errors.length;
+  fiatQuote(fiat, `${at}.fiat`, ctx);
+  if (errors === ctx.errors.length) quoteGives(fiat, entry[amountKey], `${at}.fiat`, ctx);
+  return rest;
+});
+
+/** Decimal string scaled to 12 places, for checking invoice lines priced in any currency. */
+const scaled12 = (text) => toAtomic(text, 12);
+
+Object.assign(shapes, {
+  fiatCreateRequestReq: withFiat(shapes.createRequestReq, { currency: fiatCode }, usdcOnly),
+  fiatCreateRequestRes: withFiat(shapes.createRequestRes, { amount: positiveAmount, fiat: fiatQuote }, (value, path, ctx) => {
+    quoteGives(value.fiat, value.amount, `${path}.fiat`, ctx);
+    const parsed = parseSolanaPayUrl(value.solana_pay_url);
+    if (parsed.ok && parsed.amount !== value.amount) ctx.errors.push(`${path}.amount: ${value.amount} but the solana: URL asks ${parsed.amount}`);
+  }),
+  fiatGetRequestRes: withFiat(shapes.getRequestRes, { fiat: fiatQuote }, (value, path, ctx) => {
+    usdcOnly(value, path, ctx);
+    quoteGives(value.fiat, value.amount, `${path}.fiat`, ctx);
+  }),
+  fiatStatusRes: (value, path, ctx) => {
+    if (kind(value) !== "object" || !Array.isArray(value.results)) return shapes.statusRes(value, path, ctx);
+    const results = entriesWithFiat(value, "results", "amount_requested", path, ctx);
+    shapes.statusRes({ ...value, results }, path, ctx);
+  },
+  fiatLedgerRes: (value, path, ctx) => {
+    if (kind(value) !== "object") return shapes.ledgerRes(value, path, ctx);
+    const open = entriesWithFiat(value, "open", "amount", path, ctx);
+    const paid = entriesWithFiat(value, "paid_recently", "amount", path, ctx);
+    shapes.ledgerRes({ ...value, open, paid_recently: paid }, path, ctx);
+  },
+  fiatCreateGroupReq: withFiat(shapes.createGroupReq, { currency: fiatCode }, usdcOnly),
+  /** Each share's quote is its part of the bill at the board's one rate; `total` is the shares' USDC sum. */
+  fiatGroupRes: (value, path, ctx) => {
+    if (kind(value) !== "object" || !Array.isArray(value.shares)) return shapes.groupRes(value, path, ctx);
+    const before = ctx.errors.length;
+    const shares = entriesWithFiat(value, "shares", "amount", path, ctx);
+    withFiat(shapes.groupRes, { fiat: fiatQuote }, () => {})({ ...value, shares }, path, ctx);
+    if (before !== ctx.errors.length) return;
+    usdcOnly(value, path, ctx);
+    let fiatSum = 0n;
+    value.shares.forEach((share, index) => {
+      const q = share.fiat;
+      if (!q) return void ctx.errors.push(`${path}.shares[${index}].fiat: missing on a local-currency split`);
+      for (const key of ["currency", "rate", "rate_source", "quoted_at"]) {
+        if (q[key] !== value.fiat[key]) ctx.errors.push(`${path}.shares[${index}].fiat.${key}: differs from the board's`);
+      }
+      fiatSum += scaled12(q.amount);
+    });
+    if (fiatSum !== scaled12(value.fiat.amount)) ctx.errors.push(`${path}.fiat.amount: ${value.fiat.amount} but the shares' amounts add up to ${fromAtomic(fiatSum, 12)}`);
+  },
+  fiatCreateInvoiceReq: withFiat(shapes.createInvoiceReq, { currency: fiatCode }, usdcOnly),
+  /** Items are priced in fiat.currency and add up to fiat.amount; `total` is the USDC that quote locks. */
+  fiatInvoiceRes: (value, path, ctx) => {
+    if (kind(value) !== "object" || !Array.isArray(value.items)) return shapes.invoiceRes(value, path, ctx);
+    const before = ctx.errors.length;
+    // The original shape checks links, ids and the solana: URL against `total`; one synthetic line keeps its sum check true.
+    const asUsdc = { ...value, items: [{ description: "total", quantity: "1", unit_price: value.total, amount: value.total }] };
+    withFiat(shapes.invoiceRes, { fiat: fiatQuote }, () => {})(asUsdc, path, ctx);
+    if (before !== ctx.errors.length || !value.fiat) return;
+    usdcOnly(value, path, ctx);
+    quoteGives(value.fiat, value.total, `${path}.fiat`, ctx);
+    let sum = 0n;
+    value.items.forEach((item, index) => {
+      const at = `${path}.items[${index}]`;
+      try {
+        const line = scaled12(item.unit_price) * toAtomic(item.quantity, QUANTITY_DECIMALS);
+        if (line % 10n ** BigInt(QUANTITY_DECIMALS) !== 0n || line / 10n ** BigInt(QUANTITY_DECIMALS) !== scaled12(item.amount)) {
+          ctx.errors.push(`${at}.amount: ${item.amount}, but ${item.quantity} × ${item.unit_price} differs`);
+        }
+        sum += scaled12(item.amount);
+      } catch (error) {
+        ctx.errors.push(`${at}: ${error.message}`);
+      }
+    });
+    if (sum !== scaled12(value.fiat.amount)) ctx.errors.push(`${path}.fiat.amount: ${value.fiat.amount} but the items add up to ${fromAtomic(sum, 12)}`);
+  },
+});
+
+Object.assign(fixtureShapes, {
+  "fiat.create-request.req.json": "fiatCreateRequestReq",
+  "fiat.create-request.res.json": "fiatCreateRequestRes",
+  "fiat.get-request.res.json": "fiatGetRequestRes",
+  "fiat.status.res.json": "fiatStatusRes",
+  "fiat.ledger.res.json": "fiatLedgerRes",
+  "fiat.groups.create.req.json": "fiatCreateGroupReq",
+  "fiat.groups.create.res.json": "fiatGroupRes",
+  "fiat.invoices.create.req.json": "fiatCreateInvoiceReq",
+  "fiat.invoices.create.res.json": "fiatInvoiceRes",
+});

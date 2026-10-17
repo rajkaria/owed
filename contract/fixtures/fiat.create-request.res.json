@@ -1,0 +1,22 @@
+{
+  "id": "BUFwV9T79XFb",
+  "link": "https://owed.link/r/BUFwV9T79XFb",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=12.636934&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=6Jg9g28kSAzMzjSGJK6gAVVzmLoqo3vafMwEV7LPWpQp&label=Raj&message=dinner&memo=owed%3ABUFwV9T79XFb",
+  "qr_url": "https://owed.link/api/qr/BUFwV9T79XFb.png",
+  "reference": "6Jg9g28kSAzMzjSGJK6gAVVzmLoqo3vafMwEV7LPWpQp",
+  "x402_url": "https://owed.link/x/BUFwV9T79XFb",
+  "created_at": "2026-10-17T20:45:46Z",
+  "flags": [],
+  "from_domain": null,
+  "expires_at": null,
+  "chain": "solana",
+  "pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=12.636934&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=6Jg9g28kSAzMzjSGJK6gAVVzmLoqo3vafMwEV7LPWpQp&label=Raj&message=dinner&memo=owed%3ABUFwV9T79XFb",
+  "amount": "12.636934",
+  "fiat": {
+    "currency": "INR",
+    "amount": "1200",
+    "rate": "94.95975",
+    "rate_source": "api.coinbase.com, checked against open.er-api.com",
+    "quoted_at": "2026-10-17T20:45:45Z"
+  }
+}

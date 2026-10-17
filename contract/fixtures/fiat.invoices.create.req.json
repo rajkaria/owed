@@ -1,0 +1,22 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "currency": "JPY",
+  "business_name": "Raj Studio",
+  "client_name": "Kenji",
+  "items": [
+    {
+      "description": "Logo design",
+      "quantity": "1",
+      "unit_price": "45000"
+    },
+    {
+      "description": "Revision rounds",
+      "quantity": "2",
+      "unit_price": "7500"
+    }
+  ],
+  "due_date": "2026-10-31",
+  "invoice_number": "RS-042",
+  "source": "plugin"
+}
