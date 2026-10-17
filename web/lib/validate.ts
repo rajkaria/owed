@@ -19,6 +19,17 @@ export interface PaymentQuery extends PaymentTarget {
   amountAtomic: bigint | null;
   /** Signatures already settling another request: one transaction pays one request. */
   excludeSignatures?: ReadonlySet<string>;
+  /** The stored request this query is for, so a transaction it already owns is never excluded by `claimed`. */
+  requestId?: string;
+}
+
+export interface FindOptions {
+  /**
+   * Which of these signatures already settle a stored request (signature -> request id). A
+   * transaction carrying several references settles only one request; the others keep looking
+   * for their own payment instead of re-picking that transaction forever (QA-03).
+   */
+  claimed?: (signatures: readonly string[]) => Promise<ReadonlyMap<string, string>>;
 }
 
 export interface Credit {
@@ -150,15 +161,27 @@ interface SignatureInfo {
   err: unknown;
 }
 
-const SIGNATURES_PER_REFERENCE = 10;
+/**
+ * A reference is public (it is in the solana: URL), so anyone can add it to cheap transactions.
+ * Ask for the whole history the node keeps per call, drop failed ones, and read the oldest first:
+ * a fresh reference's first successful transaction is normally the payment (QA-04).
+ */
+const SIGNATURES_PER_REFERENCE = 1000;
 /** Bounds the work one status call can cause, even if references are spammed. */
 const MAX_TRANSACTIONS = 60;
+/** Transactions read per request in the first round; each later round doubles it. */
+const FIRST_ROUND = 4;
+/** Don't start another round of reads with less time than this left. */
+const ROUND_MIN_MS = 750;
+
+const TX_PARAMS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" } as const;
 
 /**
- * Check many requests against the chain in two RPC rounds: one batch of
- * reference -> signatures, then the parsed transactions fetched in parallel.
+ * Check many requests against the chain: one batch of reference -> signatures, then parsed
+ * transactions oldest first, in rounds, until each request has a full payment or runs out of
+ * candidates, bounded by MAX_TRANSACTIONS reads and the RPC deadline.
  */
-export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOptions = {}): Promise<PaymentCheck[]> {
+export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOptions = {}, options: FindOptions = {}): Promise<PaymentCheck[]> {
   if (queries.length === 0) return [];
   const sigLists = (await rpcBatch(
     queries.map((q) => ({
@@ -168,26 +191,84 @@ export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOpt
     rpc,
   )) as (SignatureInfo[] | null)[];
 
-  const perQuery = queries.map((q, i) =>
+  // Successful, not excluded, oldest first; never more per request than could ever be read.
+  let candidates = queries.map((q, i) =>
     (sigLists[i] ?? [])
       .filter((s) => s.err == null && !q.excludeSignatures?.has(s.signature))
-      .map((s) => s.signature),
+      .map((s) => s.signature)
+      .reverse()
+      .slice(0, MAX_TRANSACTIONS),
   );
-  const unique = [...new Set(perQuery.flat())].slice(0, MAX_TRANSACTIONS);
-  const txs = (await rpcEach(
-    unique.map((sig) => ({
-      method: "getTransaction",
-      // Mainnet carries v1 transactions; asking for at most v0 makes the node refuse them.
-      params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }],
-    })),
-    rpc,
-  )) as (ParsedTransaction | null)[];
-  const bySig = new Map(unique.map((sig, i) => [sig, txs[i]]));
+  if (options.claimed) {
+    const all = [...new Set(candidates.flat())];
+    const owners = all.length ? await options.claimed(all) : new Map<string, string>();
+    candidates = candidates.map((list, i) => list.filter((sig) => {
+      const owner = owners.get(sig);
+      return owner === undefined || owner === queries[i].requestId;
+    }));
+  }
 
-  return queries.map((q, i) => {
-    const credits = perQuery[i]
-      .map((sig) => creditFromTransaction(bySig.get(sig) ?? null, q))
-      .filter((c): c is Credit => c !== null);
-    return decide(credits, q.amountAtomic);
-  });
+  // Mainnet carries v1 transactions; asking for at most v0 makes the node refuse them.
+  const bySig = new Map<string, ParsedTransaction | null>();
+  const credits: Credit[][] = queries.map(() => []);
+  const cursor = queries.map(() => 0);
+  const settled = (i: number) => allocate(queries, credits)[i].status === "paid";
+  const deadline = rpc.deadline ?? Infinity;
+  for (let round = 0, size = FIRST_ROUND; ; round++, size *= 2) {
+    const want = new Set<string>();
+    const taken: string[][] = queries.map(() => []);
+    for (let i = 0; i < queries.length; i++) {
+      if (settled(i)) continue;
+      while (taken[i].length < size && cursor[i] < candidates[i].length) {
+        const sig = candidates[i][cursor[i]++];
+        taken[i].push(sig);
+        if (!bySig.has(sig)) want.add(sig);
+      }
+    }
+    const room = MAX_TRANSACTIONS - bySig.size;
+    const batch = [...want].slice(0, Math.max(0, room));
+    if (batch.length === 0 && taken.every((t) => t.length === 0)) break;
+    if (round > 0 && deadline - Date.now() < ROUND_MIN_MS) break;
+    const txs = (await rpcEach(batch.map((sig) => ({ method: "getTransaction", params: [sig, TX_PARAMS] })), rpc)) as (ParsedTransaction | null)[];
+    batch.forEach((sig, k) => bySig.set(sig, txs[k]));
+    for (let i = 0; i < queries.length; i++) {
+      for (const sig of taken[i]) {
+        if (!bySig.has(sig)) continue; // over the read cap
+        const credit = creditFromTransaction(bySig.get(sig) ?? null, queries[i]);
+        if (credit) credits[i].push(credit);
+      }
+    }
+    if (bySig.size >= MAX_TRANSACTIONS) break;
+  }
+  return allocate(queries, credits);
+}
+
+const bySlot = (a: Credit, b: Credit) => a.slot - b.slot;
+
+/**
+ * decide() for several requests at once, where one transaction can pay only one of them: a
+ * transaction naming two requests' references goes to the request with fewer alternatives, and
+ * the other keeps its own payment (QA-03). For a single request this is exactly decide().
+ */
+export function allocate(queries: readonly Pick<PaymentQuery, "amountAtomic">[], credits: readonly (readonly Credit[])[]): PaymentCheck[] {
+  const full = queries.map((q, i) => credits[i].filter((c) => q.amountAtomic === null || c.amountAtomic >= q.amountAtomic).sort(bySlot));
+  const order = queries.map((_, i) => i).sort((a, b) => full[a].length - full[b].length || a - b);
+  const used = new Set<string>();
+  const out: PaymentCheck[] = queries.map(() => ({ status: "open" }));
+  for (const i of order) {
+    const pick = full[i].find((c) => !used.has(c.signature));
+    if (pick) {
+      used.add(pick.signature);
+      out[i] = { status: "paid", payment: pick };
+    }
+  }
+  for (const i of order) {
+    if (out[i].status === "paid") continue;
+    const partial = [...credits[i]].sort(bySlot).find((c) => !used.has(c.signature));
+    if (partial) {
+      used.add(partial.signature);
+      out[i] = { status: "underpaid", payment: partial };
+    }
+  }
+  return out;
 }
