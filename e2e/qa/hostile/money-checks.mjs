@@ -13,6 +13,7 @@ const M1A = { id: "HeiQKE21Qu2f", reference: "GzTxuFobazLDpAgp8KgSSKGQjP3orQ3Y8d
 const M1B = { id: "zwJwhWJ8APRR", reference: "A3n3Lmt5zpeZbJFbLA8YoU2g6bjiVpQWcWA73sbfSATi" };
 const M2C = { id: "13SqvZHd5VFx", reference: "FvJq7j7tEe1Bv29gefgRWQHKrUXj1MMPxUCh2BioeptW" };
 const M3D = { id: "MbFMdrLbtrZW", reference: "Fo2mx9K2Ph3Ln6KL3gtvkUT4vrELUpXyfpgRbL6QhZmg" };
+const M5E = { id: "79jr9Nu8ADZ5", reference: "3iq8PJEVSYfnmDChQ3yt8rbk39PkGGDDBoiWk7X3g6tQ" };
 
 async function rpc(method, params) {
   const r = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -73,6 +74,21 @@ const row = (name, ok, detail) => rows.push({ name, ok, detail });
     row("M4 Paid page hides the wallet button", !/href="solana:/.test(html), "no solana: link in the paid page");
     const st = await (await fetch(`${base}/api/v1/status`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: [M3D.id] }) })).json();
     row("M4 /status agrees", st.results?.[0]?.status === "paid" && st.results[0].signature === s[0].signature, JSON.stringify(st.results?.[0] ?? {}));
+  }
+}
+
+// ---- M5: cancelled by the recipient (W3-C), then paid anyway from a kept QR
+{
+  const e = await get(M5E.id);
+  const s = await sigs(M5E.reference);
+  if (!e.cancelled) row("M5 step 1 (cancel)", null, `not cancelled yet; status ${e.status}`);
+  else if (!s.length) {
+    const html = await page(`/r/${M5E.id}`);
+    row("M5 cancelled: API says cancelled", e.status === "cancelled", `status ${e.status}, cancelled at ${e.cancelled.at}`);
+    row("M5 cancelled: page hides the wallet button", /Cancelled|cancelled/.test(html) && !/href="solana:/.test(html), "SSR HTML");
+    row("M5 step 2 (late payment)", null, "not paid yet");
+  } else {
+    row("M5 late payment recorded as paid, cancellation kept", e.status === "paid" && e.paid?.signature === s[0].signature && Boolean(e.cancelled), `status ${e.status} sig ${e.paid?.signature ?? "-"} cancelled ${Boolean(e.cancelled)}`);
   }
 }
 
