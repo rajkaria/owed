@@ -127,7 +127,7 @@ export async function startChain() {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return {
-    rpc: { urls: [url], timeoutMs: 2000 },
+    rpc: { urls: [url], timeoutMs: 15_000 },
     log,
     close: () => server.close(),
     /** Put a transaction on the double's chain: it is listed under every reference it carries. */

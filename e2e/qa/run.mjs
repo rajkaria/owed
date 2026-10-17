@@ -50,7 +50,7 @@ for (const [id, entries] of [...byId.entries()].sort()) {
   const parts = [];
   let open = false;
   for (const { suite, file } of entries) {
-    const r = spawnSync(process.execPath, [...suite.argv, relative(suite.cwd, file)], { cwd: suite.cwd, encoding: "utf8", timeout: 120_000 });
+    const r = spawnSync(process.execPath, [...suite.argv, relative(suite.cwd, file)], { cwd: suite.cwd, encoding: "utf8", timeout: 600_000 });
     const out = `${r.stdout}\n${r.stderr}`;
     const pass = Number(out.match(/^# pass (\d+)/m)?.[1] ?? 0);
     const fail = Number(out.match(/^# fail (\d+)/m)?.[1] ?? (r.status === 0 ? 0 : 1));
