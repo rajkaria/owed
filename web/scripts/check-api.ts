@@ -3,6 +3,7 @@
 //
 //   node --import ./test/setup.mjs scripts/check-api.ts http://localhost:3000
 //   VERCEL_BYPASS=<protection bypass secret> node --import ./test/setup.mjs scripts/check-api.ts https://<preview>.vercel.app
+//   VERCEL_SHARE_URL=<https://<preview>/?_vercel_share=…> node --import ./test/setup.mjs scripts/check-api.ts https://<preview>.vercel.app
 //
 // It creates two real open requests to the team wallet on the target's database, so
 // it refuses production hosts unless --allow-production is passed.
@@ -41,6 +42,13 @@ const PAID_PAYER = "GSWhsLLNRj3D4XbtMaghk1UHoPa2CNqsctX28jYK8dcD";
 
 const headers: Record<string, string> = { "Content-Type": "application/json" };
 if (process.env.VERCEL_BYPASS) headers["x-vercel-protection-bypass"] = process.env.VERCEL_BYPASS;
+if (process.env.VERCEL_SHARE_URL) {
+  // A temporary share link (…?_vercel_share=…) answers with a redirect that sets the auth cookie.
+  const res = await fetch(process.env.VERCEL_SHARE_URL, { redirect: "manual" });
+  const cookies = res.headers.getSetCookie().map((c) => c.split(";")[0]);
+  if (cookies.length === 0) throw new Error(`share link did not set a cookie (HTTP ${res.status})`);
+  headers.Cookie = cookies.join("; ");
+}
 
 let failures = 0;
 async function check(name: string, fn: () => Promise<void>) {
