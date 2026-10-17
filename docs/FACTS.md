@@ -43,7 +43,8 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Team wallet `FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs` held 0.05 SOL and 5 USDC at 00:47 EDT (read through `chain.ts` against mainnet).
 
 ## Mainnet transactions
-(none yet)
+- Base (W3-B): request `XL1u7xuWoAmw`, 0.5 USDC on Base to `0x5cC955632b…`, paid 2026-10-17T17:24:07Z by `0x9BeD455088a8f879123B7e17ad1C3F2B489935dc`, tx `0xff5b5f770e33ee4c2046ae63492e06579ca89c8f750d3990c9359b53f958cff7` (rail `base_transfer`). Production `GET /api/v1/requests/XL1u7xuWoAmw` and `POST /api/v1/status` both answer `paid` with that payer, amount and transaction.
+- Solana: three USDC transfers from `GSWhsLLNRj3D4XbtMaghk1UHoPa2CNqsctX28jYK8dcD` to the team wallet's USDC account today (`5LPHMNke…` 1 USDC 15:32Z, `5w8NvDDo…` 0.01 USDC 17:14Z, `3V3GyHym…` 0.01 USDC 17:22Z) carry no Solana Pay reference and no memo, so no Owed request counts them as paid (by design: a payment must name the request's reference).
 
 ## PayBox validation spike
 - Variant A (ATA-create-idempotent + memo + transferChecked + 1 reference): 399 bytes; portal Test run succeeded and returned a valid proposal. Validate transaction with sol-default: "Validation failed: the proposal could not be simulated or prepared" while the wallet held 0 SOL and 0 USDC. Re-run after funding to separate format from funds.
