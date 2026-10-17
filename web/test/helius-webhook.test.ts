@@ -250,7 +250,7 @@ test("reportedTransactions: raw and enhanced shapes, by signature, junk skipped"
   assert.deepEqual(dup[0].keys.sort(), [SOL_REF, UNUSED_REF].sort());
 });
 
-test("hookTarget: OWED_BASE_URL, else the stable Vercel URL; protected previews carry the bypass; never http or localhost", () => {
+test("hookTarget: OWED_BASE_URL, else the stable Vercel URL; previews only with the bypass; never http or localhost", () => {
   const names = ["OWED_BASE_URL", "VERCEL_ENV", "VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL", "VERCEL_AUTOMATION_BYPASS_SECRET"];
   const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
   try {
@@ -265,6 +265,8 @@ test("hookTarget: OWED_BASE_URL, else the stable Vercel URL; protected previews 
       key: "https://owed-git-w3a-notify-team.vercel.app/api/hooks/helius",
       url: "https://owed-git-w3a-notify-team.vercel.app/api/hooks/helius?x-vercel-protection-bypass=by%20pass",
     });
+    delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    assert.equal(hookTarget(), null, "a protected preview Helius can't reach registers nothing");
     process.env.VERCEL_ENV = "production";
     process.env.VERCEL_PROJECT_PRODUCTION_URL = "owed-omega.vercel.app";
     assert.deepEqual(hookTarget(), { key: "https://owed-omega.vercel.app/api/hooks/helius", url: "https://owed-omega.vercel.app/api/hooks/helius" });
