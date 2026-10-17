@@ -31,7 +31,7 @@ export async function POST(req: Request): Promise<Response> {
 
     const flags = brandFlags([body.payer_name, body.for, body.note, body.requester_name]);
 
-    await requireCreateSlot(body.recipient);
+    await requireCreateSlot(req, body.recipient);
 
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // W2-E: DNS lookups are capped per client IP and per domain.

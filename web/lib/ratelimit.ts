@@ -4,8 +4,10 @@ import { ApiError } from "./http";
 import { normalizeDomain } from "./payee";
 
 // Rate limits, stored in Postgres (rate_events: one row per counted event). Request creation is
-// limited per recipient and globally, never per IP: every plugin call arrives from PayBox's sandbox IPs.
-// Work a caller can make the server do for free (DNS lookups for from_domain, x402 settlement
+// limited per recipient, per client IP and globally. Recipients are free (any new keypair), so the
+// per-IP bucket is what stops one client from spending everyone's budget (QA-07); the global cap is
+// only a backstop for many IPs at once. Plugin calls share PayBox's sandbox IPs, so the per-IP cap is
+// generous, and PayBox itself limits each user to one call a second. Work a caller can make the server do for free (DNS lookups for from_domain, x402 settlement
 // attempts, chain lookups for arbitrary links) is also capped per client IP.
 //
 // A decision is atomic: one transaction takes a per-key advisory lock (in a fixed order, so two
@@ -31,7 +33,7 @@ const HOUR = 3600;
 /** Events older than every window are deleted now and then; keep this above the longest window. */
 const KEEP_SECONDS = 2 * HOUR;
 
-export const CREATE_LIMITS = { perRecipientPerHour: 60, globalPerHour: 600 } as const;
+export const CREATE_LIMITS = { perRecipientPerHour: 60, perIpPerHour: 300, globalPerHour: 3000 } as const;
 /** Server-side DNS checks for from_domain (each is up to two DoH queries). */
 export const DNS_LIMITS = { perIp: 60, perDomain: 30, windowSeconds: 600 } as const;
 /** x402 payments that reach the facilitator (a payment header that passed the local checks). */
@@ -86,25 +88,28 @@ export async function take(rules: readonly RateRule[]): Promise<RateDecision> {
   return { allowed: false, scope: full.scope!, retryAfterSeconds: Number(full.retry_after) };
 }
 
-/** Count the last hour for this recipient and globally; if both are under the limit, record one create. */
-export async function takeCreateSlot(recipient: string): Promise<RateDecision> {
+/** Count the last hour for this recipient, this client IP and globally; if all are under the limit, record one create. */
+export async function takeCreateSlot(recipient: string, ip = "unknown"): Promise<RateDecision> {
   return take([
     { key: `create:recipient:${recipient}`, max: CREATE_LIMITS.perRecipientPerHour, windowSeconds: HOUR, scope: "recipient" },
+    { key: `create:ip:${ip}`, max: CREATE_LIMITS.perIpPerHour, windowSeconds: HOUR, scope: "ip" },
     { key: GLOBAL_KEY, max: CREATE_LIMITS.globalPerHour, windowSeconds: HOUR, scope: "global" },
   ]);
 }
 
-/** Refuse a create with the contract's rate_limited error when the recipient or global limit is full. */
-export async function requireCreateSlot(recipient: string): Promise<void> {
-  const slot = await takeCreateSlot(recipient);
+const CREATE_REFUSALS: Record<string, string> = {
+  recipient: "too many requests for this recipient in the last hour, try again later",
+  ip: "too many new requests from this client in the last hour, try again later",
+  global: "Owed is handling too many new requests right now, try again later",
+};
+
+/** Refuse a create with the contract's rate_limited error when the recipient, client or global limit is full. */
+export async function requireCreateSlot(req: Request, recipient: string): Promise<void> {
+  const slot = await takeCreateSlot(recipient, clientIp(req));
   if (!slot.allowed) {
-    throw new ApiError(
-      "rate_limited",
-      slot.scope === "recipient"
-        ? "too many requests for this recipient in the last hour, try again later"
-        : "Owed is handling too many new requests right now, try again later",
-      { "Retry-After": String(slot.retryAfterSeconds ?? 60) },
-    );
+    throw new ApiError("rate_limited", CREATE_REFUSALS[slot.scope ?? "global"] ?? CREATE_REFUSALS.global, {
+      "Retry-After": String(slot.retryAfterSeconds ?? 60),
+    });
   }
 }
 

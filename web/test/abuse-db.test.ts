@@ -118,6 +118,20 @@ it("under concurrency the limit holds exactly: 70 parallel creates → 60 create
   assert.equal((await sql("select count(*) as n from rate_events where key = $1", [`create:recipient:${recipient}`]))[0].n, "60");
 });
 
+it("QA-07: one client spreading creates over throwaway wallets hits its own cap, not everyone's", async () => {
+  const attacker = { "x-real-ip": "203.0.113.7" };
+  let created = 0;
+  for (let w = 0; w < 6; w++) {
+    const recipient = wallet();
+    for (let i = 0; i < CREATE_LIMITS.perRecipientPerHour; i++) if ((await createRequest(recipient, {}, attacker)).status === 201) created++;
+  }
+  assert.equal(created, CREATE_LIMITS.perIpPerHour, "the client's creates stop at its own hourly cap");
+  const more = await createRequest(wallet(), {}, attacker);
+  assert.equal(more.status, 429);
+  assert.equal((await errorOf(more)).message, "too many new requests from this client in the last hour, try again later");
+  assert.equal((await createRequest(wallet(), {}, { "x-real-ip": "198.51.100.9" })).status, 201, "another client still creates");
+});
+
 it("the global limit refuses with its own message, and a refused create records nothing", async () => {
   await pg.query(`insert into rate_events (key) select 'create:global' from generate_series(1, $1::int)`, [CREATE_LIMITS.globalPerHour]);
   const recipient = wallet();

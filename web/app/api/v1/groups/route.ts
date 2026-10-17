@@ -51,7 +51,7 @@ export async function POST(req: Request): Promise<Response> {
     for (const share of shares) share.flags = [...new Set([...share.flags, ...domainFlags])];
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
-    for (let i = 0; i < shares.length; i++) await requireCreateSlot(body.recipient);
+    for (let i = 0; i < shares.length; i++) await requireCreateSlot(req, body.recipient);
 
     const created = await createGroup({
       recipient: body.recipient,

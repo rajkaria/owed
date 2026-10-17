@@ -42,7 +42,7 @@ export async function POST(req: Request): Promise<Response> {
     if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
 
-    await requireCreateSlot(body.recipient);
+    await requireCreateSlot(req, body.recipient);
 
     const created = await createInvoice({ ...input, fromDomain }, now);
     const res: InvoiceResponse = toPublicInvoice(created, baseUrl(req));

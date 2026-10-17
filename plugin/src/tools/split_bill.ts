@@ -12,7 +12,7 @@ import { idMatchesTerms } from "../request-id.js";
 import type { Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText } from "../text.js";
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -292,7 +292,7 @@ function buildOffline(recipient: string, amount: string, token: Token, title: st
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now (every share counts as one). Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message, "In a split, every share counts as one request."); // W2-E (QA-07)
     case "blocked": return `Owed can't create requests for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the split: ${error.message}`;
     default: return `Owed couldn't create the split: ${error.message}`;

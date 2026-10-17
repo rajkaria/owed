@@ -10,7 +10,7 @@ import { USDC_MINT, type Token } from "../money.js";
 import { checkFromDomain } from "../payee.js";
 import { idMatchesTerms } from "../request-id.js";
 import type { Screening } from "../screen.js";
-import { cautionLine, clean, quote } from "../text.js";
+import { cautionLine, clean, quote, rateLimitedText } from "../text.js";
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -350,7 +350,7 @@ function checkInvoice(res: InvoiceRes, body: CreateInvoiceReq, priced: ReturnTyp
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now. Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message); // W2-E (QA-07)
     case "blocked": return `Owed can't create an invoice for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the invoice: ${error.message}`;
     case "upstream_unavailable":

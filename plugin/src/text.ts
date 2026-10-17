@@ -37,6 +37,15 @@ export function clean(untrusted: string | null | undefined, max: number): string
   return `${chars.slice(0, Math.max(0, max - 1)).join("").trimEnd()}…`;
 }
 
+/**
+ * A create refused with rate_limited: the server says which limit (this recipient, this client, or
+ * everyone), so say that instead of guessing (W2-E, QA-07).
+ */
+export function rateLimitedText(serverMessage: string, extra = ""): string {
+  const reason = clean(serverMessage, 160).replace(/[.\s]+$/, "");
+  return `Owed is limiting new requests${reason ? `: ${reason}` : " right now"}.${extra ? ` ${extra}` : ""} Nothing was created.`;
+}
+
 /** Cleaned text in double quotes, ready to show as someone else's words. Empty input gives "". */
 export function quote(untrusted: string | null | undefined, max: number): string {
   const text = clean(untrusted, max);

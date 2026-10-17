@@ -9,7 +9,7 @@ import { USDC_MINT } from "../money.js";
 import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
 // W2-E sanctions screen end
 import type { TransferRequest } from "../solana-pay.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, rateLimitedText, shareText } from "../text.js";
 // W2-H verified payee start
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
@@ -221,7 +221,7 @@ function buildOffline(
 
 function apiRefusal(error: ApiError): string {
   switch (error.code) {
-    case "rate_limited": return "Owed is limiting new requests for this wallet right now. Try again in a few minutes.";
+    case "rate_limited": return rateLimitedText(error.message); // W2-E (QA-07)
     case "blocked": return `Owed can't create a request for this recipient. ${error.message}`;
     case "invalid_input": return `Owed rejected the request: ${error.message}`;
     default: return `Owed couldn't create the request: ${error.message}`;
