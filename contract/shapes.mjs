@@ -156,6 +156,8 @@ const signature = string({ test: isSignature, label: "a base58 64-byte signature
 const amount = string({ max: 40, pattern: AMOUNT_RE, label: "a decimal amount" });
 const positiveAmount = string({ max: 40, test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text), label: "a positive decimal amount" });
 const token = oneOf("USDC", "SOL");
+// W2-H verified payee: the server stores the domain lower-case ASCII (punycode for IDN), as migration 0009 checks.
+const domain = string({ max: 253, pattern: /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/, label: "a lower-case ASCII domain" });
 const iso = string({
   max: 40, label: "an ISO-8601 timestamp",
   test: (text) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/.test(text) && Number.isFinite(Date.parse(text)),
@@ -311,11 +313,11 @@ export const shapes = {
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
     requester_name: optional(string({ max: 40 })), kind: optional(oneOf("single")), group_id: optional(string({ max: 40 })),
-    source: oneOf("plugin", "web"),
+    source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
   }, decimalsFit("amount")),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
-    x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag),
+    x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
   }, (value, path, ctx) => {
     urlMatchesFields(value, path, ctx);
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
@@ -326,9 +328,10 @@ export const shapes = {
     status: oneOf("open", "paid", "underpaid", "cancelled"),
     solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
     paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
-    flags: array(flag),
+    flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   }, (value, path, ctx) => {
     decimalsFit("amount")(value, path, ctx);
+    if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
     urlMatchesFields(value, path, ctx);
     if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);
     if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);

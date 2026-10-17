@@ -19,7 +19,8 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 
 - No tool: lists tools only. `--sample` calls `plugin/paybox-plugin.json`. Arguments can be `@file.json`.
 - Network: discovery runs with none (PayBox forbids network at startup and in `tools/list`). A call may reach the
-  Owed host plus `solana-rpc.publicnode.com` and `api.mainnet-beta.solana.com` over HTTPS:443; override with
+  Owed host plus `solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `cloudflare-dns.com` and `dns.google`
+  (verified payee's DNS-over-HTTPS) over HTTPS:443; override with
   `--hosts a,b`, `--hosts none`, `--hosts any` or `--no-guard`. Every attempt is printed; blocked ones fail the run.
   `--down host` refuses a host as a simulated outage without failing (golden-path row 8).
 - Startup health: at the plugin's first response the harness checks that `new Error().stack` still works. A bundled
@@ -30,6 +31,17 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - `pay_link` proposals are decoded and checked against what is being paid (the `solana:` URL, or
   `GET /api/v1/requests/<id>` for Owed links): fee payer, size, legacy format, amount, mint, recipient account,
   references read-only, memo.
+
+## Fixtures
+
+- Solana: `cd plugin && node test/fixtures/capture.mjs [case…]` re-records mainnet JSON-RPC exchanges; tests replay them
+  and fail on any unrecorded call.
+- DNS (verified payee): `cd plugin && node test/fixtures/capture-doh.mjs [case…]` re-records both resolvers' DoH JSON
+  answers into `plugin/test/fixtures/doh/`. `OWED_CAPTURE_DOMAIN=<domain> node test/fixtures/capture-doh.mjs published-record`
+  records a live `_owed` TXT record; it refuses to write unless both resolvers return an `owed-pay=` record. The web
+  suite (`web/test/payee*.test.ts`) runs the same fixtures and `plugin/test/fixtures/payee-vectors.json`.
+- Postgres: `web/test/x402-store.test.ts` and `web/test/payee-db.test.ts` run the migrations and SQL on PGlite and skip
+  until the devDependency `@electric-sql/pglite` is installed.
 
 ## Smoke
 
