@@ -10,6 +10,7 @@ import {
 } from "../src/contract.ts";
 import { ledgerReqSchema, ledgerResSchema } from "../src/contract.ts";
 import { cancelReqSchema, cancelResSchema } from "../src/contract.ts"; // W3-C
+import { createScheduleReqSchema, scheduleResSchema } from "../src/contract.ts"; // W3-D
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -38,6 +39,11 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "cancel.req.json": cancelReqSchema,
   "cancel.res.json": cancelResSchema,
   "status.ended.res.json": statusResSchema,
+  // W3-D
+  "ledger.schedules.req.json": ledgerReqSchema,
+  "ledger.schedules.res.json": ledgerResSchema,
+  "schedules.create.req.json": createScheduleReqSchema,
+  "schedules.create.res.json": scheduleResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

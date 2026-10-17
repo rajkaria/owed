@@ -337,8 +337,12 @@ const ledgerEntry = object({
   invoice_number: untrusted(20), due_date: nullable(string({ pattern: /^\d{4}-\d{2}-\d{2}$/, label: "a YYYY-MM-DD date" })),
   from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
   flags: array(flag, { max: 32 }),
+  // W3-D: the monthly schedule and month that opened this request; null for one-off requests.
+  schedule_id: optional(nullable(string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 schedule id" }))),
+  period: optional(nullable(string({ pattern: /^\d{4}-(0[1-9]|1[0-2])$/, label: "a month written YYYY-MM" }))),
 }, (value, path, ctx) => {
   decimalsFit("amount")(value, path, ctx);
+  if ((value.schedule_id ?? null) === null !== ((value.period ?? null) === null)) ctx.errors.push(`${path}.period: set without schedule_id, or the reverse`); // W3-D
   // Invoices are paid on their invoice page; requests and split shares on their own pay page.
   const page = value.kind === "invoice" ? "i" : "r";
   if (!new URL(value.link).pathname.endsWith(`/${page}/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /${page}/${value.id}`);
@@ -476,13 +480,18 @@ export const shapes = {
   statusRawRes: object(statusFields, statusConsistent),
   statsRes: object({ paid_count: integer(), paid_volume_usdc: amount, since: iso }),
   errorRes: object({ error: object({ code: oneOf(...ERROR_CODES), message: string({ min: 1, max: 500 }) }) }),
-  ledgerReq: object({ recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) }, ledgerSigned),
+  ledgerReq: object({
+    recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),
+    csv: optional(oneOf(true)), // W3-D
+  }, ledgerSigned),
   ledgerRes: object({
     // QA-20: the ledger always says its rows may come from anyone (web/lib/ledger.ts LEDGER_CAUTION).
     recipient: pubkey, caution: string({ max: 400, pattern: /^Anyone can create a request that pays your wallet/, label: "the ledger caution" }),
     generated_at: iso, chain_checked: oneOf(true, false),
     open: array(ledgerEntry, { max: 100 }), paid_recently: array(ledgerEntry, { max: 100 }),
     totals: array(totalsEntry, { max: 2 }), truncated: oneOf(true, false),
+    schedules: optional((value, path, ctx) => array(scheduleSummary, { max: 20 })(value, path, ctx)), // W3-D, shapes below
+    csv: optional(nullable(object({ url: httpsUrl, expires_at: iso }, csvLinkConsistent))), // W3-D
   }, (value, path, ctx) => {
     value.open.forEach((e, i) => { if (e.status === "paid") ctx.errors.push(`${path}.open[${i}]: paid entry in open`); });
     value.paid_recently.forEach((e, i) => { if (e.status !== "paid") ctx.errors.push(`${path}.paid_recently[${i}]: ${e.status} entry in paid_recently`); });
@@ -622,6 +631,87 @@ Object.assign(fixtureShapes, {
   "cancel.req.json": "cancelReq",
   "cancel.res.json": "cancelRes",
   "status.ended.res.json": "statusRes",
+});
+
+// ---------------------------------------------------------------------------------------------- W3-D: schedules
+// ask_every_month: POST /api/v1/schedules stores a monthly schedule; on its day it opens that month's request at
+// once (first_request), an ordinary request whose id hashes its terms. The ledger lists schedules and a CSV link.
+
+const dayOfMonth = (value, path, ctx) => {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 28) ctx.errors.push(`${path}: expected a day of the month 1..28, got ${show(value)}`);
+};
+const monthCount = (value, path, ctx) => {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 120) ctx.errors.push(`${path}: expected 1..120 months, got ${show(value)}`);
+};
+const month = string({ pattern: /^\d{4}-(0[1-9]|1[0-2])$/, label: "a month written YYYY-MM" });
+const scheduleId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 schedule id" });
+const scheduleStatus = oneOf("active", "ended", "stopped");
+
+function csvLinkConsistent(value, path, ctx) {
+  const url = new URL(value.url);
+  if (!url.pathname.endsWith("/api/v1/ledger/csv")) ctx.errors.push(`${path}.url: not a /api/v1/ledger/csv link`);
+  const expires = Number(url.searchParams.get("expires"));
+  if (!Number.isSafeInteger(expires) || expires * 1000 !== Date.parse(value.expires_at)) ctx.errors.push(`${path}.expires_at: differs from the link's expires`);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(url.searchParams.get("sig") ?? "")) ctx.errors.push(`${path}.url: sig is not a base64url HMAC-SHA256`);
+  if (!isPubkey(url.searchParams.get("recipient") ?? "")) ctx.errors.push(`${path}.url: recipient is not a base58 key`);
+}
+
+const scheduleSummary = object({
+  id: scheduleId, status: scheduleStatus, amount: positiveAmount, token, payer_name: untrusted(40), for: untrusted(80),
+  day_of_month: dayOfMonth, months: nullable(monthCount), requests_opened: integer(),
+  next_request_on: nullable(invoiceDate), created_at: iso,
+  from_domain: nullable(domain), last_error: nullable(string({ max: 400 })),
+  requests: array(object({ period: month, id, link: httpsUrl, status: oneOf("open", "paid", "underpaid", "cancelled") }), { max: 24 }),
+}, (value, path, ctx) => {
+  decimalsFit("amount")(value, path, ctx);
+  value.requests.forEach((r, i) => { if (!new URL(r.link).pathname.endsWith(`/r/${r.id}`)) ctx.errors.push(`${path}.requests[${i}].link: does not end in /r/${r.id}`); });
+  for (let i = 1; i < value.requests.length; i++) {
+    if (value.requests[i - 1].period <= value.requests[i].period) ctx.errors.push(`${path}.requests: not newest first`);
+  }
+  if (value.requests.length > value.requests_opened) ctx.errors.push(`${path}.requests: more listed than requests_opened`);
+  if (value.months !== null && value.requests_opened > value.months) ctx.errors.push(`${path}.requests_opened: more than months`);
+  if ((value.status === "active") !== (value.next_request_on !== null)) ctx.errors.push(`${path}.next_request_on: ${value.status === "active" ? "missing" : "set"} for status ${value.status}`);
+});
+
+Object.assign(shapes, {
+  createScheduleReq: object({
+    recipient: pubkey, amount: positiveAmount, token,
+    payer_name: optional(string({ min: 1, max: 40 })), for: optional(string({ min: 1, max: 80 })), requester_name: optional(string({ min: 1, max: 40 })),
+    day_of_month: dayOfMonth, months: optional(monthCount), from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
+  }, decimalsFit("amount")),
+  scheduleRes: object({
+    id: scheduleId, recipient: pubkey, amount: positiveAmount, token,
+    payer_name: untrusted(40), for: untrusted(80), requester_name: untrusted(40),
+    day_of_month: dayOfMonth, months: nullable(monthCount), first_period: month, status: scheduleStatus,
+    next_request_on: nullable(invoiceDate), created_at: iso, flags: array(flag),
+    from_domain: nullable(domain), from_domain_verified_at: nullable(iso),
+    first_request: nullable(object({
+      period: month, id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
+      x402_url: nullable(httpsUrl), created_at: iso, flags: array(flag), from_domain: nullable(domain),
+    })),
+  }, (value, path, ctx) => {
+    decimalsFit("amount")(value, path, ctx);
+    if ((value.from_domain === null) !== (value.from_domain_verified_at === null)) ctx.errors.push(`${path}.from_domain: set without from_domain_verified_at, or the reverse`);
+    if (value.first_period.length === 7 && value.created_at.slice(0, 7) > value.first_period) ctx.errors.push(`${path}.first_period: before the month it was created in`);
+    if (value.next_request_on !== null && value.next_request_on.slice(0, 7) < value.first_period) ctx.errors.push(`${path}.next_request_on: before first_period`);
+    if (value.next_request_on !== null && Number(value.next_request_on.slice(8)) !== value.day_of_month) ctx.errors.push(`${path}.next_request_on: not on day_of_month`);
+    const f = value.first_request;
+    if (!f) return;
+    // This month's request: the same terms as the schedule, opened on its day, in its first month.
+    urlMatchesFields({ id: f.id, recipient: value.recipient, amount: value.amount, token: value.token, reference: f.reference, solana_pay_url: f.solana_pay_url }, `${path}.first_request`, ctx);
+    if (!new URL(f.link).pathname.endsWith(`/r/${f.id}`)) ctx.errors.push(`${path}.first_request.link: does not end in /r/${f.id}`);
+    if (f.period !== value.first_period) ctx.errors.push(`${path}.first_request.period: not first_period`);
+    if (Number(f.created_at.slice(8, 10)) !== value.day_of_month || f.created_at.slice(0, 7) !== f.period) ctx.errors.push(`${path}.first_request.created_at: not on the schedule's day in its month`);
+    if ((f.from_domain ?? null) !== (value.from_domain ?? null)) ctx.errors.push(`${path}.first_request.from_domain: differs from the schedule's`);
+  }),
+  scheduleSummary,
+});
+
+Object.assign(fixtureShapes, {
+  "schedules.create.req.json": "createScheduleReq",
+  "schedules.create.res.json": "scheduleRes",
+  "ledger.schedules.req.json": "ledgerReq",
+  "ledger.schedules.res.json": "ledgerRes",
 });
 
 // ---------------------------------------------------------------------------------------------- Base requests (W3-B)
