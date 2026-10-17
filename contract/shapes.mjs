@@ -2,7 +2,7 @@
 // Every shape must accept its file in contract/fixtures/ (check.mjs enforces this), so the smoke test and the
 // fixtures can't drift apart silently. Amount checks are string/bigint only: no floats anywhere.
 
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
 
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const TOKEN_DECIMALS = { USDC: 6, SOL: 9 };
@@ -294,6 +294,90 @@ function groupConsistent(value, path, ctx) {
   const expected = groupIdFor({ recipient: value.recipient, token: value.token, totalAtomic: total, shareIds: value.shares.map((share) => share.id) });
   if (expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of its share ids (expected ${expected})`);
 }
+// W2-D ledger. The request's signature is ed25519 over the message's UTF-8 bytes (what PayBox's
+// request_wallet_sign {op:"solanaMessage"} returns, as hex); the fixture's is checked for real.
+const ED25519_SPKI = Buffer.from("302a300506032b6570032100", "hex");
+function ed25519Verifies(message, signatureHex, address) {
+  const pub = base58Decode(address);
+  if (!pub || pub.length !== 32 || !/^(0x)?[0-9a-fA-F]{128}$/.test(signatureHex)) return false;
+  try {
+    const key = createPublicKey({ key: Buffer.concat([ED25519_SPKI, Buffer.from(pub)]), format: "der", type: "spki" });
+    return verify(null, Buffer.from(message, "utf8"), key, Buffer.from(signatureHex.replace(/^0x/i, ""), "hex"));
+  } catch {
+    return false;
+  }
+}
+const LEDGER_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+function ledgerSigned(value, path, ctx) {
+  const lead = `Owed ledger access for ${value.recipient} at `;
+  if (!value.signed_message.startsWith(lead) || !LEDGER_ISO.test(value.signed_message.slice(lead.length))) {
+    return void ctx.errors.push(`${path}.signed_message: must read "${lead}<UTC time>"`);
+  }
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(value.signature) && !ed25519Verifies(value.signed_message, value.signature, value.recipient)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${value.recipient} over signed_message`);
+  }
+}
+const ledgerEntry = object({
+  id, kind: oneOf("single", "split_share", "invoice"), link: httpsUrl, amount: positiveAmount, token,
+  status: oneOf("open", "underpaid", "paid"), payer_name: untrusted(40), for: untrusted(80), created_at: iso,
+  amount_due: optional(amount), amount_paid: optional(amount), payer: optional(pubkey), signature: optional(signature), paid_at: optional(iso),
+  group_id: nullable(string({ max: 40 })), group_title: untrusted(60), group_link: nullable(httpsUrl),
+  invoice_number: untrusted(20), due_date: nullable(string({ pattern: /^\d{4}-\d{2}-\d{2}$/, label: "a YYYY-MM-DD date" })),
+  from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+  flags: array(flag, { max: 32 }),
+}, (value, path, ctx) => {
+  decimalsFit("amount")(value, path, ctx);
+  // Invoices are paid on their invoice page; requests and split shares on their own pay page.
+  const page = value.kind === "invoice" ? "i" : "r";
+  if (!new URL(value.link).pathname.endsWith(`/${page}/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /${page}/${value.id}`);
+  const share = value.kind === "split_share";
+  if (share !== (value.group_id !== null)) ctx.errors.push(`${path}.group_id: ${share ? "missing" : "set"} for kind ${value.kind}`);
+  if (share !== (value.group_link !== null)) ctx.errors.push(`${path}.group_link: ${share ? "missing" : "set"} for kind ${value.kind}`);
+  if (!share && value.group_title !== null) ctx.errors.push(`${path}.group_title: set for kind ${value.kind}`);
+  if (value.group_link !== null && value.group_id !== null && !new URL(value.group_link).pathname.endsWith(`/g/${value.group_id}`)) {
+    ctx.errors.push(`${path}.group_link: does not end in /g/${value.group_id}`);
+  }
+  if ((value.kind === "invoice") !== (value.due_date !== null)) ctx.errors.push(`${path}.due_date: ${value.kind === "invoice" ? "missing" : "set"} for kind ${value.kind}`);
+  if (value.kind !== "invoice" && value.invoice_number !== null) ctx.errors.push(`${path}.invoice_number: set for kind ${value.kind}`);
+  const settled = value.status !== "open";
+  for (const key of ["amount_paid", "payer", "signature", "paid_at"]) {
+    if (settled !== (key in value)) ctx.errors.push(`${path}.${key}: ${settled ? "missing" : "set"} for status ${value.status}`);
+  }
+  if ((value.status === "paid") === ("amount_due" in value)) ctx.errors.push(`${path}.amount_due: ${value.status === "paid" ? "set" : "missing"} for status ${value.status}`);
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  const atomic = (key) => (value[key] === undefined ? 0n : toAtomic(value[key], decimals));
+  try {
+    if (value.status === "open" && atomic("amount_due") !== atomic("amount")) ctx.errors.push(`${path}.amount_due: open but differs from amount`);
+    if (value.status === "underpaid" && atomic("amount_due") + atomic("amount_paid") !== atomic("amount")) ctx.errors.push(`${path}: amount_paid + amount_due differs from amount`);
+    if (value.status === "underpaid" && atomic("amount_paid") >= atomic("amount")) ctx.errors.push(`${path}: underpaid but amount_paid ≥ amount`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+});
+/** Untruncated ledgers: the totals are exactly the sums and counts of the entries listed. */
+function ledgerTotals(value, path, ctx) {
+  const seen = new Set();
+  for (const t of value.totals) {
+    if (seen.has(t.token)) ctx.errors.push(`${path}.totals: ${t.token} listed twice`);
+    seen.add(t.token);
+  }
+  if (value.truncated) return;
+  for (const t of value.totals) {
+    const decimals = TOKEN_DECIMALS[t.token];
+    const open = value.open.filter((e) => e.token === t.token);
+    const paid = value.paid_recently.filter((e) => e.token === t.token);
+    const sum = (entries, key) => entries.reduce((n, e) => n + (e[key] === undefined ? 0n : toAtomic(e[key], decimals)), 0n);
+    if (t.open_count !== open.length) ctx.errors.push(`${path}.totals.${t.token}.open_count: ${t.open_count}, ${open.length} open entries listed`);
+    if (t.paid_count !== paid.length) ctx.errors.push(`${path}.totals.${t.token}.paid_count: ${t.paid_count}, ${paid.length} paid entries listed`);
+    if (toAtomic(t.outstanding, decimals) !== sum(open, "amount_due")) ctx.errors.push(`${path}.totals.${t.token}.outstanding: not the sum of amount_due`);
+    if (toAtomic(t.received_30d, decimals) < sum(paid, "amount_paid")) ctx.errors.push(`${path}.totals.${t.token}.received_30d: less than the paid entries`);
+  }
+  for (const e of [...value.open, ...value.paid_recently]) {
+    if (!seen.has(e.token)) ctx.errors.push(`${path}.totals: no total for ${e.token}`);
+  }
+}
+const totalsEntry = object({ token, outstanding: amount, received_30d: amount, open_count: integer(), paid_count: integer() });
 
 export const shapes = {
   createGroupReq: object({
@@ -347,6 +431,18 @@ export const shapes = {
   statusRawRes: object(statusFields, statusConsistent),
   statsRes: object({ paid_count: integer(), paid_volume_usdc: amount, since: iso }),
   errorRes: object({ error: object({ code: oneOf(...ERROR_CODES), message: string({ min: 1, max: 500 }) }) }),
+  ledgerReq: object({ recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) }, ledgerSigned),
+  ledgerRes: object({
+    // QA-20: the ledger always says its rows may come from anyone (web/lib/ledger.ts LEDGER_CAUTION).
+    recipient: pubkey, caution: string({ max: 400, pattern: /^Anyone can create a request that pays your wallet/, label: "the ledger caution" }),
+    generated_at: iso, chain_checked: oneOf(true, false),
+    open: array(ledgerEntry, { max: 100 }), paid_recently: array(ledgerEntry, { max: 100 }),
+    totals: array(totalsEntry, { max: 2 }), truncated: oneOf(true, false),
+  }, (value, path, ctx) => {
+    value.open.forEach((e, i) => { if (e.status === "paid") ctx.errors.push(`${path}.open[${i}]: paid entry in open`); });
+    value.paid_recently.forEach((e, i) => { if (e.status !== "paid") ctx.errors.push(`${path}.paid_recently[${i}]: ${e.status} entry in paid_recently`); });
+    ledgerTotals(value, path, ctx);
+  }),
 };
 
 /** Which shape each file in contract/fixtures/ must satisfy. A new fixture without an entry fails check.mjs. */
@@ -363,6 +459,8 @@ export const fixtureShapes = {
   "groups.create.req.json": "createGroupReq",
   "groups.create.res.json": "groupRes",
   "groups.get.res.json": "groupRes",
+  "ledger.req.json": "ledgerReq",
+  "ledger.res.json": "ledgerRes",
 };
 
 // ---------------------------------------------------------------------------------------------- invoices
