@@ -7,6 +7,7 @@ import { TOKENS, type Token } from "../money.js";
 import { atomicAmount } from "../paybox.js";
 import { domainLabel, PAYEE_BUDGET_MS, recordHowTo, verifyPayee, type PayeeResult } from "../payee.js";
 import { brandFlags, brandWordsFromFlags, clean, explorerUrl } from "../text.js";
+import { basescanTx } from "../evm.js"; // W3-B
 import { checkPayments, type CheckResult } from "./check_payments.js";
 
 // A nudge for someone who hasn't paid yet. It reads the request's status first and never writes a
@@ -106,6 +107,8 @@ interface Facts {
   shares?: { paid: number; total: number; unpaid: Array<{ name: string; amountDue: string; link: string }> };
   /** Safety flags (`brand_word:<w>`), from the server and from the text read here. */
   flags: string[];
+  /** W3-B: a request on Base (USDC on chain 8453): paid from Base wallets, receipts on Basescan. */
+  base?: boolean;
 }
 
 export async function writeReminder(args: ReminderInput, deps: Deps = defaultDeps, verify: VerifyPayee = defaultVerify) {
@@ -154,7 +157,7 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
       return text(`Everyone has paid: ${facts.shares.paid} of ${facts.shares.total} shares${facts.groupTitle ? ` of "${facts.groupTitle}"` : ""}, ${facts.amount} ${facts.token} in total, so there is nothing to chase.`, base);
     }
     const when = facts.paidAt ? ` on ${longDate(facts.paidAt)}` : "";
-    const tx = facts.signature ? explorerUrl(facts.signature) : undefined;
+    const tx = facts.signature ? (facts.base ? basescanTx(facts.signature) : explorerUrl(facts.signature)) : undefined; // W3-B
     const output: ReminderOutput = { ...base, ...(tx && { explorer_url: tx }) };
     const paid = `${facts.amountPaid ?? facts.amount} ${facts.token}${when}`;
     const what = facts.kind === "invoice" ? `This invoice is already paid (${paid})` : `This request is already paid (${paid})`;
@@ -296,6 +299,7 @@ async function owedFacts(id: string, invoiceLink: boolean, ctx: CallContext, dep
     recipient: r.recipient,
     claimedDomain: r.from_domain || undefined,
     flags: r.flags,
+    ...(r.chain === "base" && { base: true }), // W3-B
   };
 }
 
@@ -490,7 +494,9 @@ export function compose(f: Facts, tone: ReminderInput["tone"], channel: Reminder
   const ago = since(days);
   const when = { friendly: ago ? ` from ${ago}` : "", firm: "", formal: f.createdAt ? `, requested on ${longDate(f.createdAt)},` : "" }[tone];
   const outstanding = days !== undefined && days > 0 ? ` It has been outstanding for ${dayCount(days)}.` : "";
-  const how = "You can pay from any Solana wallet (Phantom, Solflare, Backpack), or ask your own AI agent to pay it with PayBox.";
+  const how = f.base // W3-B
+    ? "You can pay from any Base wallet (MetaMask, Coinbase Wallet, Phantom), or ask your own AI agent to pay it with PayBox."
+    : "You can pay from any Solana wallet (Phantom, Solflare, Backpack), or ask your own AI agent to pay it with PayBox.";
 
   let ask: string;
   if (underpaid) {
@@ -548,7 +554,7 @@ export function compose(f: Facts, tone: ReminderInput["tone"], channel: Reminder
   const sign = from ? (tone === "formal" ? ` Regards, ${from}` : ` – ${from}`) : "";
   if (channel === "whatsapp") {
     const lines = [`${hi}, ${ask}`];
-    if (link) lines.push(`Pay here: ${link}`, ...(verified ? [verified] : []), "Any Solana wallet works, or your AI agent can pay it with PayBox.");
+    if (link) lines.push(`Pay here: ${link}`, ...(verified ? [verified] : []), `Any ${f.base ? "Base" : "Solana"} wallet works, or your AI agent can pay it with PayBox.`); // W3-B
     lines.push(from ? (tone === "formal" ? `${thanks} ${from}` : `${thanks} – ${from}`) : thanks.replace(/,$/, ""));
     return { body: lines.join("\n"), link };
   }
