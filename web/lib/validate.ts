@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { TOKENS, type Token } from "./money";
-import { rpcBatch, type RpcOptions } from "./solana";
+import { rpcBatch, rpcEach, type RpcOptions } from "./solana";
 
 // Strict payment validation (SPEC §4). A request is paid only by one confirmed,
 // error-free transaction that carries its reference key and credits the recipient
@@ -164,10 +164,12 @@ interface SignatureInfo {
 }
 
 const SIGNATURES_PER_REFERENCE = 10;
+/** Bounds the work one status call can cause, even if references are spammed. */
+const MAX_TRANSACTIONS = 60;
 
 /**
- * Check many requests against the chain in two batched RPC round trips:
- * reference -> signatures, then signatures -> parsed transactions.
+ * Check many requests against the chain in two RPC rounds: one batch of
+ * reference -> signatures, then the parsed transactions fetched in parallel.
  */
 export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOptions = {}): Promise<PaymentCheck[]> {
   if (queries.length === 0) return [];
@@ -184,8 +186,8 @@ export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOpt
       .filter((s) => s.err == null && !q.excludeSignatures?.has(s.signature))
       .map((s) => s.signature),
   );
-  const unique = [...new Set(perQuery.flat())];
-  const txs = (await rpcBatch(
+  const unique = [...new Set(perQuery.flat())].slice(0, MAX_TRANSACTIONS);
+  const txs = (await rpcEach(
     unique.map((sig) => ({
       method: "getTransaction",
       params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }],

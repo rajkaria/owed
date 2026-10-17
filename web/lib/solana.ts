@@ -56,7 +56,8 @@ export async function rpcBatch(
   { urls = rpcUrls(), timeoutMs = 3000, deadline = Infinity }: RpcOptions = {},
 ): Promise<unknown[]> {
   if (calls.length === 0) return [];
-  const body = JSON.stringify(calls.map((c, id) => ({ jsonrpc: "2.0", id, method: c.method, params: c.params })));
+  const messages = calls.map((c, id) => ({ jsonrpc: "2.0", id, method: c.method, params: c.params }));
+  const body = JSON.stringify(messages.length === 1 ? messages[0] : messages);
   let lastProblem = "no RPC endpoint configured";
   for (const url of urls) {
     const host = new URL(url).hostname;
@@ -91,4 +92,23 @@ export async function rpcBatch(
     }
   }
   throw new RpcError(`Solana RPC unavailable (${lastProblem})`);
+}
+
+const PARALLEL = 8;
+
+/**
+ * Run calls as separate requests, up to 8 at a time. For methods that public endpoints
+ * refuse to batch (publicnode allows one getTransaction per batch).
+ */
+export async function rpcEach(calls: readonly RpcCall[], options: RpcOptions = {}): Promise<unknown[]> {
+  const results: unknown[] = new Array(calls.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < calls.length) {
+      const i = next++;
+      [results[i]] = await rpcBatch([calls[i]], options);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, calls.length) }, worker));
+  return results;
 }
