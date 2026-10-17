@@ -5,12 +5,13 @@
 -- transaction, and the request is marked paid (paid_rail = 'moonpay_card') only after the chain shows
 -- that transaction credited the recipient's USDC (lib/moonpay/attribution.ts).
 --
--- NOTE for merges: this redefines requests_paid_rail_check with every rail so far. A later migration
--- that adds a rail must list 'moonpay_card' too.
+-- NOTE for merges: this redefines requests_paid_rail_check with every rail so far, including
+-- 'matched' from 0012_matched_payments (match_payments, a sibling branch). A later migration that
+-- adds a rail must list all of these too.
 
 alter table requests drop constraint if exists requests_paid_rail_check;
 alter table requests add constraint requests_paid_rail_check
-  check (paid_rail in ('solana_pay', 'x402', 'base_transfer', 'moonpay_card'));
+  check (paid_rail in ('solana_pay', 'x402', 'base_transfer', 'matched', 'moonpay_card'));
 -- requests_base_shape (0011) already keeps 'moonpay_card' off Base rows.
 
 -- A payer opened the card checkout for this request: status checks then ask MoonPay about it
