@@ -8,6 +8,9 @@ import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "./s
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { watchSoon } from "./notify/helius"; // W3-A
+// Local-currency invoices: items are priced in the currency's minor units; the total locks a USDC amount.
+import { FiatError, fromMinor, toMinor, usdcAtomicFor, FIAT_CURRENCIES, type FiatCode, type FiatQuote } from "./fiat";
+import type { LockedRate } from "./fx";
 
 // Invoices. An invoice is one ordinary request row (kind 'invoice') for the total plus an
 // `invoices` row with the same id, so its pay page, /status, check_payments and pay_link all
@@ -69,10 +72,12 @@ export interface InvoiceLine {
 /**
  * Line amounts and the total in atomic units. quantity × unit price must come out to a whole number
  * of atomic units (no rounding: a payer must be able to check every line). Throws AmountError naming the line.
+ * With `currency` (a local-currency invoice) prices and amounts are that currency's minor units instead.
  */
-export function priceItems(items: readonly ItemInput[], token: Token): { lines: InvoiceLine[]; totalAtomic: bigint } {
+export function priceItems(items: readonly ItemInput[], token: Token, currency: FiatCode | null = null): { lines: InvoiceLine[]; totalAtomic: bigint } {
   if (items.length < 1 || items.length > MAX_ITEMS) throw new AmountError(`an invoice needs between 1 and ${MAX_ITEMS} items`);
-  const { decimals } = TOKENS[token];
+  const decimals = currency ? FIAT_CURRENCIES[currency].decimals : TOKENS[token].decimals;
+  const unit = currency ?? token;
   let totalAtomic = 0n;
   const lines = items.map((item, i): InvoiceLine => {
     const where = `items[${i}]`;
@@ -82,15 +87,15 @@ export function priceItems(items: readonly ItemInput[], token: Token): { lines: 
     let unitPriceAtomic: bigint;
     try {
       quantity = parseQuantity(item.quantity);
-      unitPriceAtomic = toAtomic(item.unit_price, token);
+      unitPriceAtomic = currency ? toMinor(item.unit_price, currency) : toAtomic(item.unit_price, token);
     } catch (e) {
-      if (e instanceof AmountError) throw new AmountError(`${where}: ${e.message}`);
+      if (e instanceof AmountError || e instanceof FiatError) throw new AmountError(`${where}: ${e.message}`);
       throw e;
     }
     const scaled = unitPriceAtomic * quantity;
     if (scaled % QUANTITY_SCALE !== 0n) {
       throw new AmountError(
-        `${where}: ${formatQuantity(quantity)} × ${item.unit_price} ${token} isn't a whole number of ${token} units ` +
+        `${where}: ${formatQuantity(quantity)} × ${item.unit_price} ${unit} isn't a whole number of ${unit} units ` +
           `(the smallest is ${formatUnits(1n, decimals)}); change the quantity or the unit price`,
       );
     }
@@ -161,11 +166,13 @@ export interface InvoiceRow {
   fromDomain: string | null;
   fromDomainVerifiedAt: string | null;
   createdAt: string;
+  /** Local-currency invoice (0013): items are in this currency's minor units; totalAtomic is still USDC. */
+  fiatCurrency?: FiatCode | null;
 }
 
 const INVOICE_COLUMNS = `id, recipient, token, total_atomic::text as total_atomic, business_name, client_name, invoice_number, notes,
   to_char(due_date, 'YYYY-MM-DD') as due_date, items::text as items, array_to_json(flags)::text as flags, source,
-  from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at, ${isoUtc("created_at")} as created_at`;
+  from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at, ${isoUtc("created_at")} as created_at, fiat_currency`;
 
 interface StoredLine {
   description: string;
@@ -209,6 +216,7 @@ function invoiceFromRow(r: Row): InvoiceRow {
     fromDomain: r.from_domain,
     fromDomainVerifiedAt: r.from_domain_verified_at,
     createdAt: r.created_at!,
+    fiatCurrency: (r.fiat_currency as FiatCode | null) ?? null,
   };
 }
 
@@ -227,6 +235,9 @@ export interface CreateInvoiceInput {
   fromDomain?: string | null;
   /** W3-C: whole days (1-90, checked by the route); the request gets expires_at = now() + this. Must reach the due date. */
   expiresInDays?: number | null;
+  /** Local-currency invoice: unit prices are in this currency; `rate` (required with it) locks the USDC total. */
+  currency?: FiatCode | null;
+  rate?: LockedRate | null;
 }
 
 /** W3-C: an invoice that stops taking payments before it is due is a mistake; say how many days it needs. */
@@ -248,7 +259,7 @@ export function prepareInvoice(input: CreateInvoiceInput, now: number = Date.now
   if (clientName === null) throw new AmountError("client_name is empty once links and control characters are removed");
   const dueDate = checkDueDate(input.dueDate, now);
   checkExpiryReachesDue(dueDate, input.expiresInDays, now); // W3-C
-  const { lines, totalAtomic } = priceItems(input.items, input.token);
+  const { lines, totalAtomic } = priceItems(input.items, input.token, input.currency ?? null);
   // Brand flags read the raw text, so a brand hidden in a stripped link still flags.
   const flags = withoutOwnBrandFlags([...new Set([
     ...brandFlags([input.businessName, input.clientName, input.invoiceNumber, input.notes, ...input.items.map((i) => i.description)]),
@@ -275,6 +286,21 @@ export interface InvoiceWithRequest {
 export async function createInvoice(input: CreateInvoiceInput, now: number = Date.now()): Promise<InvoiceWithRequest> {
   const p = prepareInvoice(input, now);
   const { mint, decimals } = TOKENS[input.token];
+  // A local-currency invoice is paid in USDC: the items' total, at the locked rate, rounded up (lib/fiat.ts).
+  // p.totalAtomic is then in the currency's minor units, and the request and invoice rows hold the USDC.
+  let fiat: FiatQuote | null = null;
+  let payAtomic = p.totalAtomic;
+  if (input.currency) {
+    if (!input.rate || input.token !== "USDC") throw new Error("a local-currency invoice needs a locked rate and USDC");
+    const amount = fromMinor(p.totalAtomic, input.currency);
+    try {
+      payAtomic = usdcAtomicFor(amount, input.currency, input.rate.rate);
+    } catch (e) {
+      if (e instanceof FiatError) throw new AmountError(e.message);
+      throw e;
+    }
+    fiat = { currency: input.currency, amount, ...input.rate };
+  }
   const fromDomain = input.fromDomain ?? null;
   // The request carries the domain too, so pay_link on the invoice checks it (requests.from_domain is W2-H's 0009).
   const requestDomain = fromDomain === null ? ["", ""] : [", from_domain, from_domain_verified_at", ", $13::text, now()"];
@@ -284,30 +310,36 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
   const forText = invoiceForText(p.invoiceNumber, p.dueDate);
   for (let attempt = 0; ; attempt++) {
     const reference = newReference();
-    const id = requestIdFor({ recipient: input.recipient, token: input.token, amountAtomic: p.totalAtomic, reference });
+    const id = requestIdFor({ recipient: input.recipient, token: input.token, amountAtomic: payAtomic, reference });
+    // The fiat columns follow the domain's $13 when there is one.
+    const f = fromDomain === null ? 13 : 14;
+    const fiatCols = fiat === null
+      ? ["", ""]
+      : [", fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at", `, $${f}, $${f + 1}, $${f + 2}, $${f + 3}, $${f + 4}::timestamptz`];
     const queries: Query[] = [
       {
         text: `insert into requests (id, kind, invoice_id, recipient, token, mint, decimals, amount_atomic, reference,
-                 payer_name, for_text, requester_name, flags, source${requestDomain[0]})
-               values ($1, 'invoice', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[], $12${requestDomain[1]})
+                 payer_name, for_text, requester_name, flags, source${requestDomain[0]}${fiatCols[0]})
+               values ($1, 'invoice', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text[], $12${requestDomain[1]}${fiatCols[1]})
                returning ${isoUtc("created_at")} as created_at`,
         params: [
-          id, input.recipient, input.token, mint, decimals, p.totalAtomic, reference,
+          id, input.recipient, input.token, mint, decimals, payAtomic, reference,
           payerName, forText, requesterName, p.flags, input.source,
           ...(fromDomain === null ? [] : [fromDomain]),
+          ...(fiat === null ? [] : [fiat.currency, fiat.amount, fiat.rate, fiat.rate_source, fiat.quoted_at]),
         ],
       },
       {
         // created_at is copied from the request so the invoice and its payment share one timestamp.
         text: `insert into invoices (id, recipient, token, total_atomic, business_name, client_name, invoice_number, notes,
-                 due_date, items, flags, source, from_domain, from_domain_verified_at, created_at)
+                 due_date, items, flags, source, from_domain, from_domain_verified_at, created_at, fiat_currency)
                select $1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::jsonb, $11::text[], $12, $13::text,
-                      case when $13::text is null then null else now() end, r.created_at
+                      case when $13::text is null then null else now() end, r.created_at, $14::text
                  from requests r where r.id = $1
                returning ${INVOICE_COLUMNS}`,
         params: [
-          id, input.recipient, input.token, p.totalAtomic, p.businessName, p.clientName, p.invoiceNumber, p.notes,
-          p.dueDate, JSON.stringify(storeLines(p.lines)), p.flags, input.source, fromDomain,
+          id, input.recipient, input.token, payAtomic, p.businessName, p.clientName, p.invoiceNumber, p.notes,
+          p.dueDate, JSON.stringify(storeLines(p.lines)), p.flags, input.source, fromDomain, fiat?.currency ?? null,
         ],
       },
       // W3-C: expires_at at the transaction's now() + N days (the same instant as created_at).
@@ -331,7 +363,7 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
         token: input.token,
         mint,
         decimals,
-        amountAtomic: p.totalAtomic,
+        amountAtomic: payAtomic,
         reference,
         payerName,
         forText,
@@ -349,6 +381,7 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
         fromDomain,
         fromDomainVerifiedAt: invoice.fromDomainVerifiedAt,
         expiresAt: input.expiresInDays ? (results[2]?.[0]?.expires_at ?? null) : null, // W3-C
+        fiat,
       };
       return { invoice, request };
     } catch (e) {
@@ -378,7 +411,8 @@ export async function loadInvoice(id: string, rpc: RpcOptions | null = null): Pr
     stored.kind !== "invoice" ||
     stored.recipient !== invoice.recipient ||
     stored.token !== invoice.token ||
-    stored.amountAtomic !== invoice.totalAtomic
+    stored.amountAtomic !== invoice.totalAtomic ||
+    (stored.fiat?.currency ?? null) !== (invoice.fiatCurrency ?? null) // local-currency: items and quote in one currency
   ) {
     console.error(`invoice ${id}: invoice and request rows disagree on the payment terms`);
     return null;
@@ -436,10 +470,14 @@ export interface PublicInvoice {
   // W3-C: when the invoice stops taking payments, and when it was cancelled; each absent when not set.
   expires_at?: string;
   cancelled_at?: string;
+  /** Local-currency invoice: items are in fiat.currency, fiat.amount is their sum, `total` the USDC locked. */
+  fiat?: FiatQuote;
 }
 
 export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: string): PublicInvoice {
   const pub = toPublic(request);
+  const fiatCode = invoice.fiatCurrency ?? null;
+  const itemUnits = (units: bigint) => (fiatCode ? fromMinor(units, fiatCode) : fromAtomic(units, invoice.token));
   return {
     id: invoice.id,
     link: `${base}/i/${invoice.id}`,
@@ -459,8 +497,8 @@ export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: 
     items: invoice.items.map((l) => ({
       description: l.description,
       quantity: l.quantity,
-      unit_price: fromAtomic(l.unitPriceAtomic, invoice.token),
-      amount: fromAtomic(l.amountAtomic, invoice.token),
+      unit_price: itemUnits(l.unitPriceAtomic),
+      amount: itemUnits(l.amountAtomic),
     })),
     total: fromAtomic(invoice.totalAtomic, invoice.token),
     status: request.status,
@@ -471,6 +509,7 @@ export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: 
     from_domain_verified_at: invoice.fromDomainVerifiedAt,
     ...(request.expiresAt && { expires_at: request.expiresAt }), // W3-C
     ...(request.cancelledAt && { cancelled_at: request.cancelledAt }),
+    ...(request.fiat && { fiat: request.fiat }),
   };
 }
 

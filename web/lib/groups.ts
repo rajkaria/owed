@@ -4,10 +4,11 @@ import bs58 from "bs58";
 import { isoUtc, isUniqueViolation, sql, transaction, type Query, type Row } from "./db";
 import { newReference, requestIdFor } from "./ids";
 import { AmountError, fromAtomic, TOKENS, USDC_MINT, type Token } from "./money";
-import { chainCheckable, getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
+import { chainCheckable, fiatFromRow, getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { watchSoon } from "./notify/helius"; // W3-A
+import type { FiatQuote } from "./fiat"; // local-currency splits
 
 // Split bills. A group is one bill split into shares; each share is an ordinary request
 // row (kind 'split_share'), so its pay page, /status, check_payments and pay_link all work
@@ -92,11 +93,14 @@ export interface GroupRow {
   fromDomainVerifiedAt: string | null;
   createdAt: string;
   shareIds: string[];
+  /** Local-currency split (0013): the bill's total in its currency and the one rate every share was locked at. */
+  fiat?: FiatQuote | null;
 }
 
 const GROUP_COLUMNS = `g.id, g.title, g.recipient, g.token, g.total_atomic::text as total_atomic, g.requester_name,
   array_to_json(g.flags)::text as flags, g.source, g.from_domain, ${isoUtc("g.from_domain_verified_at")} as from_domain_verified_at,
   ${isoUtc("g.created_at")} as created_at,
+  g.fiat_currency, g.fiat_total, g.fiat_rate, g.fiat_rate_source, ${isoUtc("g.fiat_quoted_at")} as fiat_quoted_at,
   coalesce((select array_to_json(array_agg(r.id order by r.group_position)) from requests r where r.group_id = g.id), '[]')::text as share_ids`;
 
 function groupFromRow(r: Row): GroupRow {
@@ -113,6 +117,7 @@ function groupFromRow(r: Row): GroupRow {
     fromDomainVerifiedAt: r.from_domain_verified_at,
     createdAt: r.created_at!,
     shareIds: JSON.parse(r.share_ids ?? "[]") as string[],
+    fiat: fiatFromRow(r, "fiat_total"),
   };
 }
 
@@ -120,6 +125,8 @@ export interface ShareInput {
   name: string | null;
   amountAtomic: bigint;
   flags: string[];
+  /** Local-currency split: this share's quote; amountAtomic must be the USDC it locks. */
+  fiat?: FiatQuote | null;
 }
 
 export interface CreateGroupInput {
@@ -134,6 +141,8 @@ export interface CreateGroupInput {
   fromDomain?: string | null;
   /** W3-C: whole days (1-90, checked by the route); every share gets expires_at = now() + this. */
   expiresInDays?: number | null;
+  /** Local-currency split: the bill's total in its currency and the shared rate (amount = the fiat total). */
+  fiat?: FiatQuote | null;
 }
 
 export interface GroupWithShares {
@@ -158,17 +167,24 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
     const id = groupIdFor({ recipient: input.recipient, token: input.token, totalAtomic, shareIds: shares.map((s) => s.id) });
     const queries: Query[] = [
       {
-        text: `insert into groups (id, title, recipient, token, total_atomic, requester_name, flags, source, from_domain, from_domain_verified_at)
-               values ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9::text, case when $9::text is null then null else now() end)
+        text: `insert into groups (id, title, recipient, token, total_atomic, requester_name, flags, source, from_domain, from_domain_verified_at,
+                 fiat_currency, fiat_total, fiat_rate, fiat_rate_source, fiat_quoted_at)
+               values ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9::text, case when $9::text is null then null else now() end,
+                 $10, $11, $12, $13, $14::timestamptz)
                returning ${isoUtc("created_at")} as created_at, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at`,
-        params: [id, input.title, input.recipient, input.token, totalAtomic, input.requesterName, input.flags, input.source, fromDomain],
+        params: [
+          id, input.title, input.recipient, input.token, totalAtomic, input.requesterName, input.flags, input.source, fromDomain,
+          input.fiat?.currency ?? null, input.fiat?.amount ?? null, input.fiat?.rate ?? null, input.fiat?.rate_source ?? null, input.fiat?.quoted_at ?? null,
+        ],
       },
       ...shares.map(
         (s, position): Query => ({
           // created_at is copied from the group so the board and its shares share one timestamp.
           text: `insert into requests (id, kind, group_id, group_position, recipient, token, mint, decimals, amount_atomic,
-                   reference, payer_name, for_text, requester_name, flags, source, created_at${shareDomain[0]})
-                 select $1, 'split_share', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text[], $14, g.created_at${shareDomain[1]}
+                   reference, payer_name, for_text, requester_name, flags, source, created_at${shareDomain[0]},
+                   fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at)
+                 select $1, 'split_share', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text[], $14, g.created_at${shareDomain[1]},
+                   $15, $16, $17, $18, $19::timestamptz
                    from groups g where g.id = $2`,
           params: [
             s.id,
@@ -185,6 +201,11 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
             input.requesterName,
             s.flags,
             input.source,
+            s.fiat?.currency ?? null,
+            s.fiat?.amount ?? null,
+            s.fiat?.rate ?? null,
+            s.fiat?.rate_source ?? null,
+            s.fiat?.quoted_at ?? null,
           ],
         }),
       ),
@@ -216,6 +237,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         fromDomainVerifiedAt,
         createdAt,
         shareIds: shares.map((s) => s.id),
+        fiat: input.fiat ?? null,
       };
       // Exactly the rows just written (same columns lib/requests.ts reads back).
       const rows: RequestRow[] = shares.map((s) => ({
@@ -243,6 +265,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         fromDomain,
         fromDomainVerifiedAt,
         expiresAt, // W3-C
+        fiat: s.fiat ?? null,
       }));
       return { group, shares: rows };
     } catch (e) {
@@ -292,6 +315,8 @@ export interface PublicShare {
   paid: PublicRequest["paid"];
   /** Verified payee domain this share carries (W2-H), or null; equals the group's. */
   from_domain: string | null;
+  /** Local-currency split: this share in the bill's currency (display only). */
+  fiat?: FiatQuote;
 }
 
 export interface PublicGroup {
@@ -315,6 +340,8 @@ export interface PublicGroup {
   shares: PublicShare[];
   /** W3-C: when the shares stop taking payments (they share one expiry); absent when they never expire. */
   expires_at?: string;
+  /** Local-currency split: the bill's total in its currency (display only); `total` is the shares' USDC sum. */
+  fiat?: FiatQuote;
 }
 
 /** W3-C: the shares' common expiry, only when they have one (so groups without one keep their exact shape). */
@@ -340,6 +367,7 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
       reference: row.reference,
       paid: pub.paid,
       from_domain: row.fromDomain ?? null,
+      ...(row.fiat && { fiat: row.fiat }),
     };
   });
   return {
@@ -359,5 +387,6 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
     amount_received: fromAtomic(received, group.token),
     shares: out,
     ...expiryOf(shares), // W3-C
+    ...(group.fiat && { fiat: group.fiat }),
   };
 }

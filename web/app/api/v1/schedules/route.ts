@@ -19,6 +19,10 @@ export const runtime = "nodejs";
 export async function POST(req: Request): Promise<Response> {
   try {
     const body = CreateScheduleBody.parse(await readJson(req));
+    // Local-currency asks lock a rate when each request is made; a schedule would reuse one rate for months.
+    if (body.currency != null) {
+      throw new ApiError("invalid_input", "currency: monthly requests are in USDC or SOL only, because a rate locked today would be wrong next month; ask for the monthly amount in USDC");
+    }
 
     // Same rule as single requests: a token account or program address would strand the money.
     if (!PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {

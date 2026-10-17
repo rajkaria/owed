@@ -18,6 +18,7 @@ function result(row: RequestRow): StatusResult {
     created_at: row.createdAt,
     ...(row.chain === "base" && { chain: "base" as const }), // W3-B: Base payments carry 0x payers and transaction hashes
   };
+  if (row.fiat) out.fiat = row.fiat; // local-currency asks: the quote, display only
   // W3-C: when an expiring request ends, and when a cancelled one was cancelled.
   if (row.expiresAt) out.expires_at = row.expiresAt;
   if (row.cancelledAt) out.cancelled_at = row.cancelledAt;

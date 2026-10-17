@@ -1,6 +1,7 @@
 import "server-only";
 import { isRequestId } from "./ids";
 import { chainCheckable, getRequest, settleFromChain, toPublic } from "./requests";
+import type { FiatQuote } from "./fiat";
 
 // Owned by sprint W1-D (web-api). Signatures are fixed so W1-E (pages) can build in parallel.
 // Shapes match contract/fixtures/get-request.res.json and status.res.json.
@@ -37,6 +38,8 @@ export interface PublicRequest {
   // Optional in the type so rows built by hand elsewhere (tests, other sprints) still compile; toPublic always sets both.
   chain?: "solana" | "base";
   pay_url?: string;
+  /** Local-currency asks: the quote that locked `amount` (USDC). Display only; absent on USDC/SOL asks. */
+  fiat?: FiatQuote;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */

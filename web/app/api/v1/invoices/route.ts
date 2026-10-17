@@ -7,6 +7,8 @@ import { AmountError } from "@/lib/money";
 import { requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { requireSolMinimum } from "@/lib/sol-minimum";
+import { fiatCurrency, FiatError, type FiatCode } from "@/lib/fiat"; // local-currency invoices
+import { lockRate } from "@/lib/fx";
 
 export const runtime = "nodejs";
 
@@ -22,6 +24,17 @@ export async function POST(req: Request): Promise<Response> {
       throw new ApiError("invalid_input", "recipient must be a wallet address, not a token account or program address");
     }
 
+    // Local-currency invoice: unit prices are in `currency`; the total locks a USDC amount at a live rate.
+    let currency: FiatCode | null = null;
+    if (body.currency != null) {
+      if (body.token !== "USDC") throw new ApiError("invalid_input", "token: a local-currency invoice is paid in USDC; leave token out or set it to USDC");
+      try {
+        currency = fiatCurrency(body.currency);
+      } catch (e) {
+        if (e instanceof FiatError) throw new ApiError("invalid_input", `currency: ${e.message}`);
+        throw e;
+      }
+    }
     const input = {
       recipient: body.recipient,
       token: body.token,
@@ -33,6 +46,7 @@ export async function POST(req: Request): Promise<Response> {
       items: body.items,
       source: body.source,
       expiresInDays: body.expires_in_days ?? null, // W3-C
+      currency,
     };
     const now = Date.now();
     let totalAtomic: bigint;
@@ -44,6 +58,7 @@ export async function POST(req: Request): Promise<Response> {
     }
     // QA-18: a SOL invoice to a never-used wallet must reach Solana's minimum, or it could never be paid.
     if (body.token === "SOL") await requireSolMinimum(body.recipient, totalAtomic, "the invoice total");
+    const rate = currency ? await lockRate(currency) : null; // before a rate-limit slot is spent, like the checks above
 
     // Verified payee (W2-H): the domain must publish this recipient in DNS now; stored on the invoice and its request.
     // W2-E: DNS lookups are capped per client IP and per domain.
@@ -52,7 +67,13 @@ export async function POST(req: Request): Promise<Response> {
 
     await requireCreateSlot(req, body.recipient);
 
-    const created = await createInvoice({ ...input, fromDomain }, now);
+    let created;
+    try {
+      created = await createInvoice({ ...input, fromDomain, rate }, now);
+    } catch (e) {
+      if (e instanceof AmountError) throw new ApiError("invalid_input", e.message); // the USDC total out of range
+      throw e;
+    }
     const res: InvoiceResponse = toPublicInvoice(created, baseUrl(req));
     return json(res, { status: 201 });
   } catch (e) {

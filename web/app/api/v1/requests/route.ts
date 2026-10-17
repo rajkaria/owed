@@ -2,7 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { requireNotSanctioned } from "@/lib/sanctions";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
-import { AmountError, toAtomic } from "@/lib/money";
+import { AmountError, fromAtomic, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { requireSolMinimum } from "@/lib/sol-minimum";
@@ -10,6 +10,8 @@ import { createRequest, payUrl, solanaPayUrl } from "@/lib/requests";
 import { parseEvmAddress } from "@/lib/evm/address"; // W3-B
 import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "@/lib/safety";
 import { x402UrlFor } from "@/lib/x402/url";
+import { fiatAsk, lockRate, quoteAt } from "@/lib/fx"; // local-currency asks
+import type { FiatQuote } from "@/lib/fiat";
 
 export const runtime = "nodejs";
 
@@ -36,11 +38,23 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     let amountAtomic: bigint;
-    try {
-      amountAtomic = toAtomic(body.amount, body.token);
-    } catch (e) {
-      if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
-      throw e;
+    // Local-currency ask: `amount` is in `currency`; a live rate locks the USDC amount (lib/fx.ts), which the id
+    // then commits to like any other. The quote is stored beside it for display only.
+    let fiat: FiatQuote | null = null;
+    if (body.currency != null) {
+      if (body.chain !== "solana") throw new ApiError("invalid_input", "currency: local-currency asks are Solana USDC only for now; ask in USDC on Base");
+      if (body.token !== "USDC") throw new ApiError("invalid_input", "token: a local-currency ask is paid in USDC; leave token out or set it to USDC");
+      const ask = fiatAsk(body.currency, body.amount);
+      const quote = quoteAt(ask.code, ask.amount, await lockRate(ask.code));
+      fiat = quote.fiat;
+      amountAtomic = quote.usdcAtomic;
+    } else {
+      try {
+        amountAtomic = toAtomic(body.amount, body.token);
+      } catch (e) {
+        if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
+        throw e;
+      }
     }
     // QA-18: a SOL request to a never-used wallet must reach Solana's minimum, or it could never be paid.
     if (body.token === "SOL") await requireSolMinimum(body.recipient, amountAtomic, "amount");
@@ -70,6 +84,7 @@ export async function POST(req: Request): Promise<Response> {
       fromDomain,
       expiresInDays: body.expires_in_days ?? null, // W3-C: the database computes expires_at from its own clock
       chain: body.chain, // W3-B
+      fiat,
     });
 
     const base = baseUrl(req);
@@ -87,6 +102,8 @@ export async function POST(req: Request): Promise<Response> {
       // W3-B Base requests: the chain, and the link a wallet opens (the solana: URL, or EIP-681 on Base).
       chain: row.chain ?? "solana",
       pay_url: payUrl(row),
+      // Local-currency asks: the caller named an amount in another currency, so it learns the USDC here.
+      ...(row.fiat && { amount: fromAtomic(row.amountAtomic, row.token), fiat: row.fiat }),
     };
     return json(res, { status: 201 });
   } catch (e) {

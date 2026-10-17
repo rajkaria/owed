@@ -3,6 +3,7 @@ import { sql } from "./db";
 import { fromAtomic, type Token } from "./money";
 import { getRequests, settleFromChain, type RequestRow } from "./requests";
 import { RpcError } from "./solana";
+import type { FiatQuote } from "./fiat"; // local-currency asks
 
 // who_owes_me: a recipient's open requests and what they were paid in the last 30 days. Only
 // POST /api/v1/ledger calls this, after a fresh signature from the recipient's wallet.
@@ -62,6 +63,8 @@ export interface LedgerEntry {
   from_domain: string | null;
   /** Safety flags such as `brand_word:irs` (SPEC §6). */
   flags: string[];
+  /** Local-currency asks: the quote that locked `amount` (display only). */
+  fiat?: FiatQuote;
 }
 
 export interface LedgerTotal {
@@ -170,6 +173,7 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
     due_date: invoice ? listed.dueDate : null,
     from_domain: row.fromDomain ?? null,
     flags: row.flags,
+    ...(row.fiat && { fiat: row.fiat }),
   };
   const paid = row.paidAmountAtomic ?? 0n;
   if (status === "open") out.amount_due = out.amount;
