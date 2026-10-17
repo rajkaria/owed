@@ -79,8 +79,23 @@ export const PaidInfo = z.object({
   payer: anyAddress, // W3-B
   amount: decimal,
   at: isoTime,
-  rail: z.enum(["solana_pay", "x402", "base_transfer"]), // W3-B: base_transfer
+  rail: z.enum(["solana_pay", "x402", "base_transfer", "matched"]), // W3-B: base_transfer; 0012: matched (no reference, see `matched`)
 });
+
+// 0012: a payment without the request's reference, attributed by the recipient's own signed message. Display
+// copy always says "matched by the recipient (no reference on the payment)", never the referenced badge.
+export const MatchedInfo = z.object({
+  signature: z.string(),
+  covers: z.enum(["full", "rest"]),
+  payer: base58Key,
+  amount: decimal,
+  at: isoTime,
+  confirmed_by: base58Key,
+  confirmed_at: isoTime,
+  signed_message: z.string().max(200),
+  message_signature: z.string().max(200),
+});
+const RestLink = z.object({ id: requestId, status: requestStatus, link: z.url().optional() });
 
 export const GetRequestResponse = z.object({
   id: requestId,
@@ -107,6 +122,10 @@ export const GetRequestResponse = z.object({
   cancelled: CancelProof.nullable().optional(),
   chain: chain.optional(), // W3-B (absent = solana)
   pay_url: z.string().optional(), // W3-B
+  // 0012 matched payments + ask_for_rest
+  matched: MatchedInfo.nullable().optional(),
+  rest_of: requestId.nullable().optional(),
+  rest_request: RestLink.nullable().optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -130,6 +149,11 @@ export const StatusResult = z.object({
   id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional(),
   expires_at: isoTime.optional(), cancelled_at: isoTime.optional(), // W3-C
   chain: chain.optional(), // W3-B
+  // 0012: how it was paid, the recipient's match (no reference on the payment) and the follow-up for the rest.
+  rail: PaidInfo.shape.rail.optional(),
+  matched: z.object({ signature: z.string(), covers: z.enum(["full", "rest"]), amount: decimal, confirmed_at: isoTime }).optional(),
+  rest_of: requestId.optional(),
+  rest_request: requestId.optional(),
 });
 export type StatusResult = z.infer<typeof StatusResult>;
 
@@ -305,6 +329,11 @@ const LedgerEntry = z.object({
   // W3-D: the monthly schedule and month ("YYYY-MM") that opened this request; null for one-off requests.
   schedule_id: z.string().nullable().optional(),
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
+  // 0012: paid rail, the recipient's match (no reference on the payment), and the rest-of links.
+  rail: PaidInfo.shape.rail.optional(),
+  matched: z.object({ signature: z.string(), covers: z.enum(["full", "rest"]), amount: decimal, confirmed_at: isoTime }).optional(),
+  rest_of: requestId.optional(),
+  rest_request: requestId.optional(),
 });
 
 export const LedgerResponse = z.object({
@@ -416,3 +445,42 @@ export const ScheduleResponse = z.object({
   }).nullable(),
 });
 export type ScheduleResponse = z.infer<typeof ScheduleResponse>;
+
+// ---- 0012: matched payments (match_payments) and ask_for_rest ----
+
+// POST /api/v1/requests/:id/match. The recipient's wallet signs "Owed match <transaction> to <id> for <recipient> at <ISO>";
+// the signature works once, within 5 minutes. The server re-reads the transaction before marking the request paid.
+export const MatchBody = z.object({
+  recipient: base58Key,
+  transaction: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,88}$/, "must be a Solana transaction signature"),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type MatchBody = z.infer<typeof MatchBody>;
+
+/** The request after the match, plus whether this transaction had already been matched to it (nothing changed). */
+export const MatchResponse = GetRequestResponse.extend({ already_matched: z.boolean() });
+export type MatchResponse = z.infer<typeof MatchResponse>;
+
+// POST /api/v1/requests/:id/rest: a new request for exactly what an underpaid request still owes (at most one).
+export const RestBody = z.object({ source: z.enum(["plugin", "web"]).default("web") }).strict();
+export const RestResponse = CreateRequestResponse.extend({
+  recipient: anyAddress,
+  amount: decimal,
+  token,
+  rest_of: requestId,
+  already_asked: z.boolean(),
+});
+export type RestResponse = z.infer<typeof RestResponse>;
+
+// POST /api/v1/attributed: which transactions already settle an Owed request, and which keys are Owed references.
+// match_payments asks before it offers a candidate, so a counted payment is never offered twice.
+export const AttributedBody = z.object({
+  signatures: z.array(z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,88}$/, "must be a Solana transaction signature")).max(100),
+  keys: z.array(z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "must be a base58 key")).max(256).default([]),
+}).strict();
+export const AttributedResponse = z.object({
+  attributed: z.array(z.object({ signature: z.string(), request_id: requestId, how: z.enum(["reference", "matched", "x402"]) })),
+  references: z.array(z.object({ key: z.string(), request_id: requestId })),
+});
+export type AttributedResponse = z.infer<typeof AttributedResponse>;

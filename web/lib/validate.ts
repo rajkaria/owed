@@ -116,29 +116,42 @@ function findPayer(tx: ParsedTransaction, keys: string[], destinations: Readonly
 /** What one transaction credited the recipient for this request, or null if it doesn't count. */
 export function creditFromTransaction(tx: ParsedTransaction | null, target: PaymentTarget): Credit | null {
   if (!tx?.meta || tx.meta.err != null) return null;
-  const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
-  if (!keys.includes(target.reference)) return null;
+  if (!accountKeys(tx).includes(target.reference)) return null;
+  return creditTo(tx, target.recipient, target.token);
+}
 
+export function accountKeys(tx: ParsedTransaction): string[] {
+  return tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+}
+
+/**
+ * What one confirmed, successful transaction credited `recipient`, reference or not: the net change of every
+ * USDC account it owns, or of its lamports. null for a failed transaction or no credit. 0012's match check
+ * (lib/match.ts) reads payments that carry no reference with exactly this rule.
+ */
+export function creditTo(tx: ParsedTransaction | null, recipient: string, token: Token): Credit | null {
+  if (!tx?.meta || tx.meta.err != null) return null;
+  const keys = accountKeys(tx);
   let destinations: Set<string>;
   let credited: bigint;
-  if (target.token === "USDC") {
+  if (token === "USDC") {
     const owned = (list: TokenBalance[] | null | undefined) =>
-      (list ?? []).filter((b) => b.mint === TOKENS.USDC.mint && b.owner === target.recipient);
+      (list ?? []).filter((b) => b.mint === TOKENS.USDC.mint && b.owner === recipient);
     const total = (list: TokenBalance[]) => list.reduce((sum, b) => sum + BigInt(b.uiTokenAmount.amount), 0n);
     const post = owned(tx.meta.postTokenBalances);
     destinations = new Set(post.map((b) => keys[b.accountIndex]));
     credited = total(post) - total(owned(tx.meta.preTokenBalances));
   } else {
-    const index = keys.indexOf(target.recipient);
+    const index = keys.indexOf(recipient);
     if (index === -1) return null;
-    destinations = new Set([target.recipient]);
+    destinations = new Set([recipient]);
     credited = BigInt(tx.meta.postBalances[index]) - BigInt(tx.meta.preBalances[index]);
   }
   if (credited <= 0n) return null;
 
   return {
     signature: tx.transaction.signatures[0],
-    payer: findPayer(tx, keys, destinations, target.token),
+    payer: findPayer(tx, keys, destinations, token),
     amountAtomic: credited,
     at: isoSeconds(tx.blockTime),
     slot: tx.slot,
@@ -174,7 +187,7 @@ const FIRST_ROUND = 4;
 /** Don't start another round of reads with less time than this left. */
 const ROUND_MIN_MS = 750;
 
-const TX_PARAMS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" } as const;
+export const TX_PARAMS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" } as const;
 
 /**
  * Check many requests against the chain: one batch of reference -> signatures, then parsed

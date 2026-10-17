@@ -62,6 +62,11 @@ export interface LedgerEntry {
   from_domain: string | null;
   /** Safety flags such as `brand_word:irs` (SPEC §6). */
   flags: string[];
+  // 0012: how it was paid; a payment the recipient matched (it carried no reference); the rest-of links.
+  rail?: NonNullable<RequestRow["paidRail"]>;
+  matched?: { signature: string; covers: "full" | "rest"; amount: string; confirmed_at: string };
+  rest_of?: string;
+  rest_request?: string;
 }
 
 export interface LedgerTotal {
@@ -113,12 +118,17 @@ const LIST = `
     order by r.paid_at desc, r.id
     limit $2)`;
 
+// 0012: an underpaid request whose rest is asked in a live follow-up request (requests.rest_of): the follow-up
+// carries the remainder, so the parent is neither listed as open nor counted as outstanding (no double count).
+const RESTED = `exists (select 1 from requests c where c.rest_of = requests.id
+    and (c.status in ('underpaid', 'paid') or (c.status = 'open' and (c.expires_at is null or c.expires_at > now()))))`;
+
 // Totals for the rows a truncated listing left out, by the same rules as contribution().
 const REST_TOTALS = `
   select token,
-         coalesce(sum(amount_atomic - coalesce(paid_amount_atomic, 0)) filter (where status in ('open', 'underpaid')), 0)::text as outstanding,
+         coalesce(sum(amount_atomic - coalesce(paid_amount_atomic, 0)) filter (where status in ('open', 'underpaid') and not ${RESTED}), 0)::text as outstanding,
          coalesce(sum(paid_amount_atomic) filter (where status in ('paid', 'underpaid') and paid_at > now() - make_interval(days => $3)), 0)::text as received,
-         count(*) filter (where status in ('open', 'underpaid'))::int as open_count,
+         count(*) filter (where status in ('open', 'underpaid') and not ${RESTED})::int as open_count,
          count(*) filter (where status = 'paid' and paid_at > now() - make_interval(days => $3))::int as paid_count
     from requests
    where recipient = $1 and not (id = any($2::text[]))
@@ -137,10 +147,17 @@ function withinWindow(iso: string | null, now: number): boolean {
   return iso !== null && now - Date.parse(iso) < PAID_WINDOW_DAYS * 86_400_000;
 }
 
+/** 0012: an underpaid request whose remainder a live follow-up request (rest_of) now asks for. */
+export function restCarried(row: Pick<RequestRow, "status" | "restRequest">): boolean {
+  const child = row.restRequest;
+  return row.status === "underpaid" && !!child && (child.status === "open" || child.status === "underpaid" || child.status === "paid");
+}
+
 function contribution(row: RequestRow, now: number): Contribution {
   const paid = row.paidAmountAtomic ?? 0n;
   const recent = withinWindow(row.paidAt, now);
   if (row.status === "open") return { outstanding: row.amountAtomic, received: 0n, open: 1, paid: 0 };
+  if (restCarried(row)) return { outstanding: 0n, received: recent ? paid : 0n, open: 0, paid: 0 }; // 0012
   if (row.status === "underpaid") {
     const due = row.amountAtomic > paid ? row.amountAtomic - paid : 0n;
     return { outstanding: due, received: recent ? paid : 0n, open: 1, paid: 0 };
@@ -179,7 +196,11 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
     out.payer = row.paidPayer ?? undefined;
     out.signature = row.paidSignature;
     out.paid_at = row.paidAt ?? undefined;
+    if (row.paidRail) out.rail = row.paidRail; // 0012
   }
+  if (row.match) out.matched = { signature: row.match.signature, covers: row.match.covers, amount: fromAtomic(row.match.amountAtomic, row.token), confirmed_at: row.match.confirmedAt };
+  if (row.restOf) out.rest_of = row.restOf;
+  if (row.restRequest) out.rest_request = row.restRequest.id;
   return out;
 }
 
@@ -228,7 +249,7 @@ export async function getLedger(recipient: string, { base, now = Date.now(), cha
     }
   }
 
-  const open = rows.filter((r) => r.status === "open" || r.status === "underpaid");
+  const open = rows.filter((r) => (r.status === "open" || r.status === "underpaid") && !restCarried(r)); // 0012
   const paid = rows
     .filter((r) => r.status === "paid" && withinWindow(r.paidAt, now))
     .sort((a, b) => (b.paidAt ?? "").localeCompare(a.paidAt ?? "") || a.id.localeCompare(b.id));

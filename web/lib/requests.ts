@@ -38,7 +38,7 @@ export interface RequestRow {
   paidPayer: string | null;
   paidAmountAtomic: bigint | null;
   paidAt: string | null;
-  paidRail: "solana_pay" | "x402" | "base_transfer" | null;
+  paidRail: "solana_pay" | "x402" | "base_transfer" | "matched" | null; // 0012: + matched
   source: "plugin" | "web";
   createdAt: string;
   // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
@@ -53,10 +53,39 @@ export interface RequestRow {
   // W3-B Base requests: absent means Solana. chainCursor = last Base block scanned for the payment.
   chain?: Chain;
   chainCursor?: bigint | null;
+  // 0012 matched payments: the recipient's signed match (lib/match.ts), the request this one asks the rest of,
+  // and the follow-up that asks for this one's rest. Optional for the same reason as above.
+  match?: MatchRecord | null;
+  restOf?: string | null;
+  restRequest?: { id: string; status: RequestStatus } | null;
+}
+
+/** A payment without the request's reference that the recipient's own wallet attributed to it (0012). */
+export interface MatchRecord {
+  signature: string;
+  /** full: it paid an open request; rest: it paid the remainder of an underpaid one. */
+  covers: "full" | "rest";
+  payer: string;
+  amountAtomic: bigint;
+  paidAt: string;
+  slot: bigint;
+  confirmedBy: string;
+  confirmMessage: string;
+  confirmSignature: string;
+  confirmedAt: string;
 }
 
 // W3-C: an open request past expires_at reads as 'expired' (computed by the database clock on every read).
 export const EFFECTIVE_STATUS = `case when status = 'open' and expires_at <= now() then 'expired' else status end`;
+
+// 0012: the match row and the rest-of links ride along with every request read (and every RETURNING).
+const MATCH_COLUMNS = `rest_of,
+  (select json_build_object('id', c.id, 'status', case when c.status = 'open' and c.expires_at <= now() then 'expired' else c.status end)::text
+     from requests c where c.rest_of = requests.id) as rest_request,
+  (select json_build_object('signature', m.signature, 'covers', m.covers, 'payer', m.payer, 'amount_atomic', m.amount_atomic::text,
+          'paid_at', ${isoUtc("m.paid_at")}, 'slot', m.slot::text, 'confirmed_by', m.confirmed_by,
+          'confirm_message', m.confirm_message, 'confirm_signature', m.confirm_signature, 'confirmed_at', ${isoUtc("m.confirmed_at")})::text
+     from request_matches m where m.request_id = requests.id) as matched`;
 
 export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomic::text as amount_atomic, reference,
   payer_name, for_text, note, requester_name, array_to_json(flags)::text as flags, ${EFFECTIVE_STATUS} as status,
@@ -64,7 +93,7 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   paid_rail, source, ${isoUtc("created_at")} as created_at,
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
   ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
-  chain, chain_cursor::text as chain_cursor`; // W3-B: chain, chain_cursor
+  chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS}`; // W3-B: chain, chain_cursor
 
 export function fromRow(r: Row): RequestRow {
   return {
@@ -97,6 +126,25 @@ export function fromRow(r: Row): RequestRow {
     cancelSignature: r.cancel_signature ?? null,
     chain: r.chain === "base" ? "base" : "solana", // W3-B
     chainCursor: r.chain_cursor == null ? null : BigInt(r.chain_cursor), // W3-B
+    match: r.matched ? matchFromJson(r.matched) : null, // 0012
+    restOf: r.rest_of ?? null,
+    restRequest: r.rest_request ? (JSON.parse(r.rest_request) as { id: string; status: RequestStatus }) : null,
+  };
+}
+
+function matchFromJson(text: string): MatchRecord {
+  const m = JSON.parse(text) as Record<string, string>;
+  return {
+    signature: m.signature,
+    covers: m.covers === "rest" ? "rest" : "full",
+    payer: m.payer,
+    amountAtomic: BigInt(m.amount_atomic),
+    paidAt: m.paid_at,
+    slot: BigInt(m.slot),
+    confirmedBy: m.confirmed_by,
+    confirmMessage: m.confirm_message,
+    confirmSignature: m.confirm_signature,
+    confirmedAt: m.confirmed_at,
   };
 }
 
@@ -170,6 +218,24 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
       : null,
     chain: row.chain ?? "solana", // W3-B
     pay_url: payUrl(row), // W3-B
+    // 0012: matched by the recipient (no reference on the payment), and the rest-of links
+    matched: row.match ? publicMatch(row.match, row.token) : null,
+    rest_of: row.restOf ?? null,
+    rest_request: row.restRequest ? { ...row.restRequest, ...(base && { link: `${base}/r/${row.restRequest.id}` }) } : null,
+  };
+}
+
+export function publicMatch(m: MatchRecord, token: Token): NonNullable<PublicRequest["matched"]> {
+  return {
+    signature: m.signature,
+    covers: m.covers,
+    payer: m.payer,
+    amount: fromAtomic(m.amountAtomic, token),
+    at: m.paidAt,
+    confirmed_by: m.confirmedBy,
+    confirmed_at: m.confirmedAt,
+    signed_message: m.confirmMessage,
+    message_signature: m.confirmSignature,
   };
 }
 
@@ -200,6 +266,8 @@ export interface CreateInput {
   expiresInDays?: number | null;
   /** W3-B: "base" makes a USDC request on Base; the recipient must already be a checksummed 0x address. */
   chain?: Chain;
+  /** 0012: this request asks for the rest of that underpaid request (lib/match.ts askForRest only). */
+  restOf?: string | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
@@ -214,10 +282,10 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
-           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain)
+           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain, rest_of)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
            $14, case when $14::text is null then null else now() end,
-           case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16)
+           case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16, $17)
          returning ${COLUMNS}`,
         [
           id,
@@ -236,6 +304,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.fromDomain ?? null,
           input.expiresInDays ?? null,
           chain,
+          input.restOf ?? null, // 0012
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key

@@ -24,7 +24,8 @@ export interface PublicRequest {
   reference: string;
   x402_url: string | null;
   created_at: string;
-  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" };
+  /** rail "matched": the recipient matched a payment that carried no reference (0012); `matched` has the proof. */
+  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" | "matched" };
   flags: string[];
   // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
   from_domain: string | null;
@@ -37,6 +38,23 @@ export interface PublicRequest {
   // Optional in the type so rows built by hand elsewhere (tests, other sprints) still compile; toPublic always sets both.
   chain?: "solana" | "base";
   pay_url?: string;
+  // 0012 matched payments. `matched`: a payment without this request's reference that the recipient's own wallet
+  // attributed to it with a signed message (covers "full" = it paid the request, "rest" = it paid what an
+  // underpaid request still owed). Never shown like a referenced payment. `rest_of` / `rest_request`: the
+  // follow-up request for the rest of an underpaid one, both ways. Optional like chain above.
+  matched?: null | {
+    signature: string;
+    covers: "full" | "rest";
+    payer: string;
+    amount: string;
+    at: string;
+    confirmed_by: string;
+    confirmed_at: string;
+    signed_message: string;
+    message_signature: string;
+  };
+  rest_of?: string | null;
+  rest_request?: null | { id: string; status: RequestStatus; link?: string };
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */
