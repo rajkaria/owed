@@ -1,0 +1,27 @@
+{
+  "id": "cQqPpjrF8ttm",
+  "kind": "single",
+  "recipient": "2yLqbWU6CpHaeUkN4JfCRMoCa8iXvJUjpvZUpYQ56Wvn",
+  "amount": "15",
+  "token": "USDC",
+  "payer_name": "Priya",
+  "for": "dinner",
+  "note": null,
+  "requester_name": "Raj",
+  "status": "cancelled",
+  "solana_pay_url": "solana:2yLqbWU6CpHaeUkN4JfCRMoCa8iXvJUjpvZUpYQ56Wvn?amount=15&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=GRGNKsdyd9QPDDsSLtRQZiN1e4noMmy5MQbbbW2cC71b&label=Raj&message=dinner&memo=owed%3AcQqPpjrF8ttm",
+  "reference": "GRGNKsdyd9QPDDsSLtRQZiN1e4noMmy5MQbbbW2cC71b",
+  "x402_url": "https://www.getowed.xyz/x/cQqPpjrF8ttm",
+  "created_at": "2026-10-17T13:40:00Z",
+  "paid": null,
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "expires_at": "2026-10-24T13:40:00Z",
+  "cancelled": {
+    "at": "2026-10-17T14:02:13Z",
+    "signed_message": "Owed cancel cQqPpjrF8ttm for 2yLqbWU6CpHaeUkN4JfCRMoCa8iXvJUjpvZUpYQ56Wvn at 2026-10-17T14:02:11Z",
+    "signature": "1670f35aa03c7fc511d26208958f392937d63e186c9583b11fb8e40639070fe253f4b5b33e82857db933cb1eebe2cd5ac19745e46d1fc5942e0a50f549123909"
+  },
+  "already_cancelled": false
+}
