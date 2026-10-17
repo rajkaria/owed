@@ -1,0 +1,101 @@
+# >>> hackathon-skill: public-repo guard (arsenal/repo/gitignore-public.txt) >>>
+# This repo is public from minute one. Judges, sponsors and competitors can read
+# every file AND every commit. Strategy, prize picks, submission drafts, video
+# scripts and personal contact info live in the sibling <project>-internal/ folder
+# (not a git repo). Created by arsenal/repo/init-internal.sh — the marker line above
+# keeps re-runs idempotent. Enforced at commit time by the hackathon-guard pre-commit hook.
+
+# ---- Secrets -----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.envrc
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+keystore/
+keystores/
+id_rsa
+id_ecdsa
+id_ed25519
+service-account*.json
+*-service-account.json
+*service_account*.json
+gcp-key*.json
+credentials.json
+client_secret*.json
+.secret
+.secrets
+secrets.json
+.npmrc.local
+.pypirc
+.vercel/.env*
+
+# ---- Internal docs (never cross into the public repo) -------------------------
+# Top-level folders are root-anchored on purpose: an unanchored `notes/` or
+# `internal/` would silently ignore app routes like src/app/notes/ or Go
+# `internal/` packages and break the deploy.
+/internal/
+/notes/
+/private/
+/scratch/
+.internal-docs/
+*.internal.md
+*.private.md
+STRATEGY*.md
+SUBMISSION-CHECKLIST*.md
+PRIZES*.md
+HANDOFF*.md
+AGENT-TASKS*.md
+FOUNDERS-EMAIL*.md
+docs/hackathon/
+
+# ---- Agent tooling state ---------------------------------------------------------
+.ocean/
+.burn-rate/
+.superpowers/
+.claude/worktrees/
+.claude/settings.local.json
+CLAUDE.local.md
+
+# ---- Build outputs: Next.js / Node ---------------------------------------------
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+*.log
+
+# ---- Build outputs: Foundry / Hardhat ------------------------------------------
+cache/
+contracts/out/
+contracts/cache/
+broadcast/*/31337/
+broadcast/**/dry-run/
+artifacts/
+typechain-types/
+
+# ---- Build outputs: Python -------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.ipynb_checkpoints/
+# <<< hackathon-skill: public-repo guard <<<

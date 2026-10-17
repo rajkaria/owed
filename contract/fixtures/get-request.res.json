@@ -1,0 +1,24 @@
+{
+  "id": "7Gh2kQpXa9",
+  "kind": "single",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "15",
+  "token": "USDC",
+  "payer_name": "Priya",
+  "for": "dinner",
+  "note": "Thanks for coming!",
+  "requester_name": "Raj",
+  "status": "paid",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=15&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e&label=Raj&message=dinner&memo=owed%3A7Gh2kQpXa9",
+  "reference": "8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e",
+  "x402_url": null,
+  "created_at": "2026-10-17T05:00:00Z",
+  "paid": {
+    "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+    "payer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+    "amount": "15",
+    "at": "2026-10-17T05:00:09Z",
+    "rail": "solana_pay"
+  },
+  "flags": []
+}

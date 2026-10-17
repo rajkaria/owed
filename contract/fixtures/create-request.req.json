@@ -1,0 +1,10 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "15",
+  "token": "USDC",
+  "payer_name": "Priya",
+  "for": "dinner",
+  "note": "Thanks for coming!",
+  "requester_name": "Raj",
+  "source": "plugin"
+}
