@@ -1,3 +1,7 @@
+import "server-only";
+import { isRequestId } from "./ids";
+import { getRequest, settleFromChain, toPublic } from "./requests";
+
 // Owned by sprint W1-D (web-api). Signatures are fixed so W1-E (pages) can build in parallel.
 // Shapes match contract/fixtures/get-request.res.json and status.res.json.
 
@@ -22,8 +26,23 @@ export interface PublicRequest {
   flags: string[];
 }
 
-/** Server-side read used by pages (no HTTP hop). Returns null when the id doesn't exist. */
+/** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */
+const PAGE_CHAIN_BUDGET_MS = 1200;
+
+/**
+ * Server-side read used by pages (no HTTP hop). Returns null when the id doesn't exist.
+ * An open request is checked against the chain first, so a paid link never renders as payable.
+ */
 export async function getPublicRequest(id: string): Promise<PublicRequest | null> {
-  void id;
-  throw new Error("not implemented: getPublicRequest (W1-D)");
+  if (!isRequestId(id)) return null;
+  let row = await getRequest(id);
+  if (!row) return null;
+  if (row.status === "open" || row.status === "underpaid") {
+    try {
+      [row] = await settleFromChain([row], { deadline: Date.now() + PAGE_CHAIN_BUDGET_MS, timeoutMs: PAGE_CHAIN_BUDGET_MS });
+    } catch {
+      // Render the stored state; the page's status polling settles it.
+    }
+  }
+  return toPublic(row);
 }
