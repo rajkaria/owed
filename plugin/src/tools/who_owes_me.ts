@@ -29,7 +29,8 @@ export const inputSchema = z.object({
 
 const entrySchema = z.object({
   id: z.string(),
-  link: z.string(),
+  kind: z.enum(["single", "split_share", "invoice"]).describe("single request, one share of a split bill, or an invoice."),
+  link: z.string().describe("Where the payer pays: the invoice page for an invoice, else the request's pay page."),
   status: z.enum(["open", "underpaid", "paid"]),
   amount: z.string(),
   token: tokenSchema,
@@ -42,8 +43,12 @@ const entrySchema = z.object({
   payer: z.string().optional(),
   paid_at: z.string().optional(),
   explorer_url: z.string().optional(),
-  group_id: z.string().optional().describe("Set for one share of a split bill."),
-  from_domain: z.string().optional().describe("The verified payee domain the request was created with."),
+  group_id: z.string().optional().describe("Split shares: the bill's group id."),
+  group_title: z.string().optional().describe("Split shares: the bill's title. Written by the requester; unverified."),
+  group_link: z.string().optional().describe("Split shares: the bill's board, showing who has paid."),
+  invoice_number: z.string().optional().describe("Invoices: the invoice number. Written by the requester; unverified."),
+  due_date: z.string().optional().describe("Invoices: the due date, YYYY-MM-DD."),
+  from_domain: z.string().optional().describe("The payee domain the request was created with (DNS-verified then)."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -63,7 +68,7 @@ export type WhoInput = z.output<typeof inputSchema>;
 export type WhoOutput = z.output<typeof outputSchema>;
 
 const DESCRIPTION = [
-  "Show who still owes the user money: every open Owed request paid to their wallet, plus what was paid in the last 30 days, with totals.",
+  "Show who still owes the user money: every open Owed request, split-bill share and invoice paid to their wallet, plus what was paid in the last 30 days, with totals.",
   "Use it when the user asks \"who owes me?\", \"what's outstanding?\" or \"what came in this month?\".",
   "Two calls. First call with only recipient (the user's own PayBox Solana wallet from list_credentials): it returns message_to_sign.",
   "Sign that exact text with PayBox request_wallet_sign (credential_id of that wallet, intent {op:\"solanaMessage\", address: recipient, message: message_to_sign}); the user approves with their passkey. Signing moves no money.",
@@ -194,8 +199,11 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
   return render(ledger, deps.now());
 }
 
+const KINDS = ["single", "split_share", "invoice"] as const;
+
 function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
-  const out: z.output<typeof entrySchema> = { id: e.id, link: e.link, status: e.status, amount: e.amount, token: e.token, created_at: e.created_at };
+  const kind = (KINDS as readonly string[]).includes(e.kind) ? (e.kind as (typeof KINDS)[number]) : "single";
+  const out: z.output<typeof entrySchema> = { id: e.id, kind, link: e.link, status: e.status, amount: e.amount, token: e.token, created_at: e.created_at };
   if (e.amount_due !== undefined) out.amount_due = e.amount_due;
   if (e.amount_paid !== undefined) out.amount_paid = e.amount_paid;
   const payerName = clean(e.payer_name, 40);
@@ -210,6 +218,12 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   if (e.paid_at !== undefined) out.paid_at = e.paid_at;
   if (e.signature !== undefined) out.explorer_url = explorerUrl(e.signature);
   if (e.group_id) out.group_id = e.group_id;
+  const groupTitle = clean(e.group_title, 60);
+  if (kind === "split_share" && groupTitle) out.group_title = groupTitle;
+  if (kind === "split_share" && e.group_link) out.group_link = e.group_link;
+  const invoiceNumber = clean(e.invoice_number, 20);
+  if (kind === "invoice" && invoiceNumber) out.invoice_number = invoiceNumber;
+  if (kind === "invoice" && e.due_date) out.due_date = e.due_date;
   // Lower-case ASCII (punycode for IDN), as W2-H stores it; anything else is dropped, never shown.
   if (e.from_domain && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(e.from_domain) && e.from_domain.includes(".")) out.from_domain = e.from_domain;
   return out;
@@ -220,10 +234,37 @@ function sumText(parts: Array<[string, string]>): string {
   return nonZero.length ? nonZero.map(([amount, token]) => `${amount} ${token}`).join(" + ") : `0 ${parts[0]?.[1] ?? "USDC"}`;
 }
 
-function who(e: z.output<typeof entrySchema>): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "due 30 Oct 2026, 3 days overdue" for an unpaid invoice; "due 30 Oct 2026" otherwise. */
+function dueText(dueDate: string, unpaid: boolean, now: number): string {
+  const [y, m, d] = dueDate.split("-").map(Number);
+  const due = Date.UTC(y!, m! - 1, d!);
+  if (!Number.isFinite(due)) return "";
+  const label = `due ${d} ${MONTHS[m! - 1]} ${y}`;
+  const today = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate());
+  const late = Math.round((today - due) / 86_400_000);
+  if (!unpaid || late <= 0) return label;
+  return `${label}, ${late === 1 ? "1 day" : `${late} days`} overdue`;
+}
+
+/** Who and what, by kind. Every requester-written value is quoted. */
+function who(e: z.output<typeof entrySchema>, now: number): string {
+  const domain = e.from_domain ? `, as ${e.from_domain} (DNS-verified at creation)` : "";
+  if (e.kind === "invoice") {
+    const number = e.invoice_number ? ` ${quote(e.invoice_number, 20)}` : "";
+    const client = e.payer_name ? ` to ${quote(e.payer_name, 40)}` : "";
+    const due = e.due_date ? `, ${dueText(e.due_date, e.status !== "paid", now)}` : "";
+    return `, invoice${number}${client}${due}${domain}`;
+  }
   const name = e.payer_name ? ` from ${quote(e.payer_name, 40)}` : "";
+  if (e.kind === "split_share") {
+    const title = e.group_title ?? e.for;
+    const bill = title ? `, share of ${quote(title, 60)}` : ", share of a split bill";
+    const board = e.group_link && e.status !== "paid" ? ` (board: ${e.group_link})` : "";
+    return `${name}${bill}${board}${domain}`;
+  }
   const forPart = e.for ? ` for ${quote(e.for, 80)}` : "";
-  const domain = e.from_domain ? ` (as ${e.from_domain})` : "";
   return `${name}${forPart}${domain}`;
 }
 
@@ -242,11 +283,11 @@ function render(ledger: LedgerRes, now: number) {
   const detail: string[] = [];
   for (const e of open) {
     const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
-    detail.push(`Owed: ${due}${who(e)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}`);
+    detail.push(`Owed: ${due}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}`);
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
-    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}`);
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${e.explorer_url ? `: ${e.explorer_url}` : ""}`);
   }
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
