@@ -17,6 +17,7 @@ const pageCsp = [
   `style-src ${["'self'", "'unsafe-inline'", ...toolbar("https://vercel.live")].join(" ")}`,
   `img-src ${["'self'", "data:", "blob:", ...toolbar("https://vercel.live", "https://vercel.com")].join(" ")}`,
   `font-src ${["'self'", ...toolbar("https://vercel.live", "https://assets.vercel.com")].join(" ")}`,
+  `media-src 'self'`, // the landing's golden-path recording lives in web/public/media
   `connect-src ${["'self'", ...(isDev ? ["ws:"] : []), ...toolbar("https://vercel.live", "wss://ws-us3.pusher.com")].join(" ")}`,
   `frame-src ${isPreview ? "https://vercel.live" : "'none'"}`,
   `object-src 'none'`,
