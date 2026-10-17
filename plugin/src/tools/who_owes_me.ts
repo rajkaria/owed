@@ -6,6 +6,7 @@ import { ApiError, makeApi } from "../api.js";
 import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes, type ScheduleSummary } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { ago, brandWordsFromFlags, clean, explorerUrl, MATCHED_LABEL, quote, shortAddress } from "../text.js";
+import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
 // request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
@@ -69,6 +70,7 @@ const entrySchema = z.object({
   matched: z.string().optional().describe("Set when the payment (or the rest of it) carried no reference and the user matched it with match_payments: say it was matched by them, not paid through the link."),
   rest_of: z.string().optional().describe("This request asks for the rest of that underpaid request (ask_for_rest)."),
   rest_request: z.string().optional().describe("The follow-up request that asks for this one's rest."),
+  fiat: fiatOutput.optional(), // local-currency asks: the quote behind amount (USDC)
 }).strict();
 
 // W3-D: monthly schedules (ask_every_month) as the ledger lists them.
@@ -252,6 +254,10 @@ const KINDS = ["single", "split_share", "invoice"] as const;
 function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   const kind = (KINDS as readonly string[]).includes(e.kind) ? (e.kind as (typeof KINDS)[number]) : "single";
   const out: z.output<typeof entrySchema> = { id: e.id, kind, link: e.link, status: e.status, amount: e.amount, token: e.token, created_at: e.created_at };
+  // Local-currency asks: only a quote that produces the entry's USDC amount is passed on.
+  if (e.fiat && fiatStatusLine(e.fiat, e.amount)) {
+    out.fiat = { currency: e.fiat.currency, amount: e.fiat.amount, rate: e.fiat.rate, rate_source: e.fiat.rate_source, quoted_at: e.fiat.quoted_at };
+  }
   if (e.amount_due !== undefined) out.amount_due = e.amount_due;
   if (e.amount_paid !== undefined) out.amount_paid = e.amount_paid;
   const payerName = clean(e.payer_name, 40);
@@ -393,12 +399,14 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   for (const e of open) {
     const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
     const restOf = e.rest_of ? ` (the rest of request ${e.rest_of})` : ""; // 0012
-    detail.push(`Owed: ${due}${restOf}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const asked = fiatStatusLine(e.fiat, e.amount); // local-currency asks: "₹1,200 · 12.6 USDC (rate locked …)"
+    detail.push(`Owed: ${due}${restOf}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
     const matched = e.matched ? `, ${e.matched}` : ""; // 0012
-    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${who(e, now)}${by}${matched}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const asked = fiatStatusLine(e.fiat, e.amount); // local-currency asks
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${by}${matched}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);

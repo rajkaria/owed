@@ -3,7 +3,8 @@
 
 import type { PublicInvoice } from "@/lib/invoices";
 import { formatAmount, groupDigits, isToken, type Token } from "@/lib/view/money";
-import { brandWordsFromFlags, detectBrandWords, stateFromRequest, walletPayUrl, type LiveState } from "@/lib/view/request-view";
+import { brandWordsFromFlags, detectBrandWords, fiatView, stateFromRequest, walletPayUrl, type FiatView, type LiveState } from "@/lib/view/request-view";
+import { formatFiat, isFiatCode } from "@/lib/fiat";
 import { shortAddress } from "@/lib/view/format";
 import type { PublicRequest } from "@/lib/public-api";
 
@@ -70,6 +71,10 @@ export interface InvoiceModel {
   initial: LiveState;
   /** W3-C: when an open invoice stops taking payments (ISO), or null. */
   expiresAt: string | null;
+  /** What the line items are priced in: the token, or a local-currency invoice's currency ("INR"). */
+  itemUnit: string;
+  /** Local-currency invoice: the items' total as a quote beside the USDC due (display only), or null. */
+  fiat: FiatView | null;
 }
 
 export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
@@ -89,6 +94,9 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     expires_at: inv.expires_at ?? null, cancelled: inv.cancelled_at ? { at: inv.cancelled_at } : null,
   } as unknown as PublicRequest;
   const open = inv.status === "open";
+  // Local-currency invoice: lines are in fiat.currency; the total due is the USDC locked for their sum.
+  const itemCode = inv.fiat && isFiatCode(inv.fiat.currency) ? inv.fiat.currency : null;
+  const itemMoney = (v: string) => (itemCode ? formatFiat(v, itemCode) : formatAmount(v, token));
   return {
     id: inv.id,
     token,
@@ -106,8 +114,8 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     lines: inv.items.map((i) => ({
       description: i.description,
       quantity: groupDigits(i.quantity),
-      unitPrice: formatAmount(i.unit_price, token),
-      amount: formatAmount(i.amount, token),
+      unitPrice: itemMoney(i.unit_price),
+      amount: itemMoney(i.amount),
       unitPriceValue: groupDigits(i.unit_price),
       amountValue: groupDigits(i.amount),
     })),
@@ -123,15 +131,20 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     fromDomainVerifiedAt: inv.from_domain_verified_at,
     initial: stateFromRequest(asRequest),
     expiresAt: inv.expires_at ?? null, // W3-C
+    itemUnit: itemCode ?? token,
+    fiat: token === "USDC" ? fiatView(inv.fiat, inv.total) : null,
   };
 }
 
 /** Page title and preview text: amount and due date only, never requester-written text (SPEC §6). */
-export function invoiceTitle(m: Pick<InvoiceModel, "totalLabel">): string {
-  return `Invoice for ${m.totalLabel}`;
+export function invoiceTitle(m: Pick<InvoiceModel, "totalLabel"> & { fiat?: FiatView | null }): string {
+  return m.fiat ? `Invoice for ${m.fiat.amount} (${m.totalLabel})` : `Invoice for ${m.totalLabel}`;
 }
 
-export function invoiceDescription(m: Pick<InvoiceModel, "totalLabel" | "due" | "initial">): string {
+export function invoiceDescription(m: Pick<InvoiceModel, "totalLabel" | "due" | "initial"> & { fiat?: FiatView | null }): string {
+  if (m.fiat && m.initial.status === "open") {
+    return `Invoice for ${m.fiat.amount} = ${m.totalLabel} (rate locked ${m.fiat.lockedAt}), due ${m.due}. Pay with any Solana wallet or your AI agent.`;
+  }
   if (m.initial.status === "paid") return `Invoice for ${m.totalLabel}: paid on Solana.`;
   // W3-C: a cancelled or expired invoice's preview never invites a payment.
   if (m.initial.status === "cancelled") return `Invoice for ${m.totalLabel}: cancelled. Don't send money for it.`;

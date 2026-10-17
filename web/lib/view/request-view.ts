@@ -7,6 +7,7 @@ import { shortAddress } from "./format.ts";
 import { LIMITS, cleanText, withoutInvisible } from "./text.ts";
 import { isBrandOwnDomain } from "../safety";
 import type { TransferRequest } from "./pay-url.ts";
+import { FIAT_CURRENCIES, formatFiat, formatRate, isFiatCode, lockedAt, quoteProblem, type FiatQuote } from "../fiat";
 
 export type LiveState =
   | { status: "open" }
@@ -76,6 +77,48 @@ export interface PayModel {
   expiresAt?: string | null;
   /** 0012: this request asks for the rest of that underpaid request. */
   restOf?: string | null;
+  /** Local-currency ask: the quote beside the USDC amount (display only), or null. */
+  fiat?: FiatView | null;
+}
+
+/** What a page shows for a local-currency ask: "₹1,200", paid as "12.637145 USDC", rate locked when. */
+export interface FiatView {
+  /** "₹1,200" */
+  amount: string;
+  /** "12.637145 USDC" */
+  usdc: string;
+  /** "1 USDC = ₹94.96" */
+  rate: string;
+  /** "2026-10-17 21:04 UTC" */
+  lockedAt: string;
+  /** "api.coinbase.com, checked against open.er-api.com" */
+  source: string;
+  /** "Indian rupee" */
+  currencyName: string;
+}
+
+/**
+ * The quote to show beside `amount` USDC, or null. A quote whose amount at its rate doesn't round up to
+ * exactly the USDC amount isn't shown: the USDC amount (which the id commits to) is what the payer pays.
+ */
+export function fiatView(fiat: FiatQuote | null | undefined, amount: string | null): FiatView | null {
+  if (!fiat || amount === null || !isFiatCode(fiat.currency)) return null;
+  const atomic = toUsdcAtomic(amount);
+  if (atomic === null || quoteProblem(fiat, atomic) !== null) return null;
+  return {
+    amount: formatFiat(fiat.amount, fiat.currency),
+    usdc: formatAmount(amount, "USDC"),
+    rate: formatRate(fiat.rate, fiat.currency),
+    lockedAt: lockedAt(fiat.quoted_at),
+    // Written by Owed's server (lib/fx.ts), never by the requester: hostnames, commas and brackets only.
+    source: /^[A-Za-z0-9 .,()-]{1,120}$/.test(fiat.rate_source) ? fiat.rate_source : "",
+    currencyName: FIAT_CURRENCIES[fiat.currency].name,
+  };
+}
+
+function toUsdcAtomic(amount: string): bigint | null {
+  const m = /^(0|[1-9][0-9]*)(?:\.([0-9]{1,6}))?$/.exec(amount);
+  return m ? BigInt(m[1] + (m[2] ?? "").padEnd(6, "0")) : null;
 }
 
 // SPEC §6 brand-word list. A hit never blocks; it shows a caution banner.
@@ -311,6 +354,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     poll: { endpoint: "/api/v1/status", id: req.id },
     expiresAt: iso(req.expires_at), // W3-C
     ...(requestId(req.rest_of) && { restOf: requestId(req.rest_of) }), // 0012
+    fiat: token === "USDC" ? fiatView(req.fiat, dec(req.amount)) : null, // local-currency asks
   };
 }
 
@@ -365,14 +409,16 @@ export function headline(model: Pick<PayModel, "asker" | "payerName" | "amount" 
  * Page and preview title. A flagged request never echoes the requester's
  * name, so "MoonPay Support" can't title its own preview card.
  */
-export function pageTitle(model: Pick<PayModel, "asker" | "amount" | "token" | "brandWords">): string {
-  const what = model.amount === null ? `a payment in ${model.token}` : formatAmount(model.amount, model.token);
+export function pageTitle(model: Pick<PayModel, "asker" | "amount" | "token" | "brandWords"> & { fiat?: FiatView | null }): string {
+  const what = model.fiat
+    ? `${model.fiat.amount} (${model.fiat.usdc})`
+    : model.amount === null ? `a payment in ${model.token}` : formatAmount(model.amount, model.token);
   if (model.brandWords.length > 0) return `Payment request for ${what}`;
   return `${model.asker} is asking you for ${what}`;
 }
 
 /** Preview text under the title: amount, quoted reason, how to pay. */
-export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords"> & { initial?: LiveState; chain?: PayModel["chain"] }): string {
+export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords"> & { initial?: LiveState; chain?: PayModel["chain"]; fiat?: FiatView | null }): string {
   // W3-C: a cancelled or expired request's preview never invites a payment.
   if (model.initial?.status === "cancelled") return "This request was cancelled. Don't send money to it.";
   if (model.initial?.status === "expired") return "This request has expired and no longer takes payments.";
@@ -380,7 +426,7 @@ export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forT
     ? "Pay from any Base wallet, or with your AI agent in PayBox."
     : "Pay with any Solana wallet, or with your AI agent in PayBox.";
   if (model.amount === null) return how;
-  const amount = formatAmount(model.amount, model.token);
+  const amount = model.fiat ? `${model.fiat.amount} = ${model.fiat.usdc} (rate locked ${model.fiat.lockedAt})` : formatAmount(model.amount, model.token);
   if (model.forText && model.brandWords.length === 0) return `${amount} for \u201c${model.forText}\u201d. ${how}`;
   return `${amount}. ${how}`;
 }

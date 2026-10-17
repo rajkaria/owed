@@ -16,6 +16,7 @@ import { settleBaseRequests } from "./evm/settle";
 import { BaseRpcError } from "./evm/rpc";
 import { ApiError } from "./http";
 // W3-B Base requests end
+import type { FiatQuote } from "./fiat"; // local-currency asks
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -58,6 +59,8 @@ export interface RequestRow {
   match?: MatchRecord | null;
   restOf?: string | null;
   restRequest?: { id: string; status: RequestStatus } | null;
+  /** Local-currency asks (0013): the quote that locked amountAtomic. Display only; null or absent for USDC/SOL asks. */
+  fiat?: FiatQuote | null;
 }
 
 /** A payment without the request's reference that the recipient's own wallet attributed to it (0012). */
@@ -93,7 +96,8 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   paid_rail, source, ${isoUtc("created_at")} as created_at,
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
   ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
-  chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS}`; // W3-B: chain, chain_cursor
+  chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS},
+  fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*
 
 export function fromRow(r: Row): RequestRow {
   return {
@@ -129,6 +133,7 @@ export function fromRow(r: Row): RequestRow {
     match: r.matched ? matchFromJson(r.matched) : null, // 0012
     restOf: r.rest_of ?? null,
     restRequest: r.rest_request ? (JSON.parse(r.rest_request) as { id: string; status: RequestStatus }) : null,
+    fiat: fiatFromRow(r),
   };
 }
 
@@ -146,6 +151,13 @@ function matchFromJson(text: string): MatchRecord {
     confirmSignature: m.confirm_signature,
     confirmedAt: m.confirmed_at,
   };
+}
+
+/** The stored quote of a local-currency ask (0013 keeps the five columns all set or all null). */
+export function fiatFromRow(r: Row, amountColumn = "fiat_amount"): FiatQuote | null {
+  const amount = r[amountColumn];
+  if (!r.fiat_currency || !amount || !r.fiat_rate || !r.fiat_rate_source || !r.fiat_quoted_at) return null;
+  return { currency: r.fiat_currency, amount, rate: r.fiat_rate, rate_source: r.fiat_rate_source, quoted_at: r.fiat_quoted_at };
 }
 
 /**
@@ -222,6 +234,7 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     matched: row.match ? publicMatch(row.match, row.token) : null,
     rest_of: row.restOf ?? null,
     rest_request: row.restRequest ? { ...row.restRequest, ...(base && { link: `${base}/r/${row.restRequest.id}` }) } : null,
+    ...(row.fiat && { fiat: row.fiat }), // local-currency asks: display only, never part of the id
   };
 }
 
@@ -268,12 +281,16 @@ export interface CreateInput {
   chain?: Chain;
   /** 0012: this request asks for the rest of that underpaid request (lib/match.ts askForRest only). */
   restOf?: string | null;
+  /** A local-currency ask's quote (lib/fx.ts); amountAtomic must be the USDC it locks. USDC on Solana only. */
+  fiat?: FiatQuote | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
   // W3-B: a Base request is USDC on Base (lib/evm/base.ts); the 0011 check constraint pins the same.
   const chain: Chain = input.chain ?? "solana";
   if (chain === "base" && input.token !== "USDC") throw new Error("Base requests are USDC only");
+  const fiat = input.fiat ?? null;
+  if (fiat && (input.token !== "USDC" || chain !== "solana")) throw new Error("local-currency asks are USDC on Solana only");
   const { mint, decimals } = chain === "base" ? { mint: BASE_USDC, decimals: BASE_USDC_DECIMALS } : TOKENS[input.token];
   for (let attempt = 0; ; attempt++) {
     // The id is derived from the terms (see lib/ids.ts), so it changes whenever the reference does.
@@ -282,10 +299,12 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
-           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain, rest_of)
+           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain, rest_of,
+           fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
            $14, case when $14::text is null then null else now() end,
-           case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16, $17)
+           case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16, $17,
+           $18, $19, $20, $21, $22::timestamptz)
          returning ${COLUMNS}`,
         [
           id,
@@ -305,6 +324,11 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.expiresInDays ?? null,
           chain,
           input.restOf ?? null, // 0012
+          fiat?.currency ?? null,
+          fiat?.amount ?? null,
+          fiat?.rate ?? null,
+          fiat?.rate_source ?? null,
+          fiat?.quoted_at ?? null,
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key

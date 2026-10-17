@@ -32,6 +32,9 @@ export const inputSchema = z.object({
     .describe("How many monthly requests in total, counting the first. Omit for every month with no end date."),
   requester_name: z.string().min(1).max(LIMITS.requester_name).optional().describe("The user's own first name, so the payer knows who is asking."),
   from_domain: fromDomainSchema.optional(),
+  // Local-currency asks lock a rate when each request is made; a schedule would reuse one rate for months, so
+  // it is refused with a clear reason rather than rejected by the schema.
+  currency: z.string().max(8).optional().describe("Not supported: monthly requests are in USDC or SOL. Leave it out."),
 }).strict();
 
 const firstRequestSchema = z.object({
@@ -95,6 +98,10 @@ export function monthlyShareText(i: { payerName: string; requesterName?: string;
     `Pay with any Solana wallet here: ${i.link}`;
 }
 
+export const MONTHLY_FIAT_REFUSAL =
+  "Monthly requests are in USDC or SOL only: a rate locked today would be wrong next month, so ask_every_month doesn't take a currency. " +
+  "Ask for the monthly amount in USDC, or use ask_for_money with currency each month to lock that month's rate.";
+
 export async function askEveryMonth(
   args: EveryMonthInput,
   deps: Deps = defaultDeps,
@@ -102,6 +109,7 @@ export async function askEveryMonth(
   checkDomain: typeof checkFromDomain = checkFromDomain,
 ) {
   const started = deps.now();
+  if (args.currency !== undefined) return refusal(MONTHLY_FIAT_REFUSAL);
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
   let atomic: bigint;

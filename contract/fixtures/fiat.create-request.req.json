@@ -1,0 +1,10 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "1200",
+  "token": "USDC",
+  "currency": "INR",
+  "payer_name": "Priya",
+  "for": "dinner",
+  "requester_name": "Raj",
+  "source": "plugin"
+}

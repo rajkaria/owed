@@ -108,7 +108,15 @@ function Dates({ model }: { model: InvoiceModel }) {
       </div>
       <div className={`${cell} col-span-2 sm:col-span-1 print:col-span-1`}>
         <dt className="text-xs text-muted">Amount due</dt>
-        <dd className="mt-0.5 font-semibold tabular-nums">{model.totalLabel}</dd>
+        {model.fiat ? (
+          <dd className="mt-0.5 tabular-nums">
+            <span className="font-semibold">{model.fiat.amount}</span>
+            <span className="text-muted"> · </span>
+            <span className="font-semibold whitespace-nowrap">{model.totalLabel}</span>
+          </dd>
+        ) : (
+          <dd className="mt-0.5 font-semibold tabular-nums">{model.totalLabel}</dd>
+        )}
       </div>
     </dl>
   );
@@ -124,7 +132,7 @@ function Items({ model }: { model: InvoiceModel }) {
         <thead>
           <tr className="border-b border-line text-xs uppercase tracking-wider text-muted">
             <th scope="col" className="py-2 pr-3 font-medium">
-              Description<span className="hidden print:inline"> · amounts in {model.token}</span>
+              Description<span className="hidden print:inline"> · amounts in {model.itemUnit}</span>
             </th>
             <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">Qty</th>
             <th scope="col" className="hidden py-2 pr-3 text-right font-medium sm:table-cell print:table-cell">
@@ -165,9 +173,20 @@ function Items({ model }: { model: InvoiceModel }) {
               Total
             </th>
             <td className="pt-4 text-right text-xl font-semibold whitespace-nowrap tabular-nums print:pt-2 print:text-lg">
-              {model.totalLabel}
+              {model.fiat ? model.fiat.amount : model.totalLabel}
             </td>
           </tr>
+          {model.fiat && (
+            <tr>
+              <th scope="row" colSpan={3} className="hidden pt-1 pr-3 text-right text-base font-semibold sm:table-cell print:table-cell">
+                Pay in USDC
+              </th>
+              <th scope="row" className="pt-1 text-left text-base font-semibold sm:hidden print:hidden">
+                Pay in USDC
+              </th>
+              <td className="pt-1 text-right text-xl font-semibold whitespace-nowrap tabular-nums print:text-lg">{model.totalLabel}</td>
+            </tr>
+          )}
         </tfoot>
       </table>
     </div>
@@ -184,6 +203,16 @@ function Notes({ model }: { model: InvoiceModel }) {
             <q><bdi>{model.notes}</bdi></q>
           </blockquote>
         </div>
+      )}
+      {model.fiat && (
+        <p data-fiat-quote className="mt-3 text-sm leading-relaxed text-muted">
+          Rate locked <span className="whitespace-nowrap text-fg">{model.fiat.lockedAt}</span>
+          {" · "}
+          <span className="whitespace-nowrap">{model.fiat.rate}</span>
+          {model.fiat.source ? <> ({model.fiat.source})</> : null}: {model.fiat.amount} ={" "}
+          <span className="whitespace-nowrap">{model.totalLabel}</span>, rounded up. The USDC amount is what you pay and
+          never changes; the {model.fiat.currencyName} amount is a quote, not a guarantee.
+        </p>
       )}
       <p className="mt-3 text-xs leading-relaxed text-muted">
         Text in quotes was written by the sender. Owed hasn&apos;t checked it. The total and payment status come from

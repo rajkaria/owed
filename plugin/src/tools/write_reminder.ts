@@ -9,6 +9,8 @@ import { domainLabel, PAYEE_BUDGET_MS, recordHowTo, verifyPayee, type PayeeResul
 import { brandFlags, brandWordsFromFlags, clean, explorerUrl } from "../text.js";
 import { basescanTx } from "../evm.js"; // W3-B
 import { checkPayments, type CheckResult } from "./check_payments.js";
+import { fiatAmountText, fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
+import type { FiatQuoteRes } from "../contract.js";
 
 // A nudge for someone who hasn't paid yet. It reads the request's status first and never writes a
 // reminder for a request that is paid or cancelled, or whose status can't be read right now.
@@ -64,6 +66,7 @@ export const outputSchema = z.object({
   unpaid: z.array(unpaidShareSchema).optional().describe("Split bills: who still owes, each with their own link."),
   caution: z.string().optional().describe("Show the user before they send: Owed can't tell whether they made this request."),
   explorer_url: z.string().optional().describe("The payment, when it is already paid."),
+  fiat: fiatOutput.optional(), // local-currency asks: the quote behind the USDC amount
 }).strict();
 
 export type ReminderInput = z.output<typeof inputSchema>;
@@ -105,6 +108,8 @@ interface Facts {
   /** Invoices. */
   invoiceNumber?: string;
   dueDate?: string;
+  /** Local-currency asks: the quote behind `amount` (USDC), only when it produces exactly that amount. */
+  fiat?: FiatQuoteRes;
   /** Whole split bills. */
   shares?: { paid: number; total: number; unpaid: Array<{ name: string; amountDue: string; link: string }> };
   /** Safety flags (`brand_word:<w>`), from the server and from the text read here. */
@@ -218,15 +223,18 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
     ...(facts.verifiedDomain && { from_domain: facts.verifiedDomain }),
     ...(facts.shares && { unpaid: facts.shares.unpaid.map((u) => ({ name: u.name, amount_due: u.amountDue, link: u.link })) }),
     caution: REMINDER_CAUTION,
+    ...(facts.fiat && { fiat: { currency: facts.fiat.currency, amount: facts.fiat.amount, rate: facts.fiat.rate, rate_source: facts.fiat.rate_source, quoted_at: facts.fiat.quoted_at } }),
   };
+  // Local-currency asks: "₹1,200 · 12.637145 USDC (rate locked …), a quote" wherever the amount is named.
+  const asked = facts.fiat ? `${fiatStatusLine(facts.fiat, facts.amount)}, a quote` : `${facts.amount} ${facts.token}`;
   const waited = days === undefined ? "" : days === 0 ? " since today" : ` after ${dayCount(days)}`;
   const lead = facts.shares
     ? `${facts.shares.paid} of ${facts.shares.total} paid${waited}; ${facts.amountDue} ${facts.token} still due. Group reminder (${args.tone}, ${args.channel}) for the user to send:`
     : facts.status === "underpaid"
       ? `Underpaid: ${facts.amountPaid} of ${facts.amount} ${facts.token} arrived, ${facts.amountDue} ${facts.token} still due. A payment link can't take a top-up, so this reminder carries no link: create a new request for ${facts.amountDue} ${facts.token} with ask_for_money and send its link with it.`
       : facts.kind === "invoice" && facts.dueDate
-        ? `Invoice ${overdue !== undefined && overdue > 0 ? `${dayCount(overdue)} overdue` : `due ${longDate(facts.dueDate)}`}: ${facts.amount} ${facts.token}. Reminder (${args.tone}, ${args.channel}) for the user to send:`
-        : `Still open${waited}: ${facts.amount} ${facts.token}. Reminder (${args.tone}, ${args.channel}) for the user to send:`;
+        ? `Invoice ${overdue !== undefined && overdue > 0 ? `${dayCount(overdue)} overdue` : `due ${longDate(facts.dueDate)}`}: ${asked}. Reminder (${args.tone}, ${args.channel}) for the user to send:`
+        : `Still open${waited}: ${asked}. Reminder (${args.tone}, ${args.channel}) for the user to send:`;
   const lines = [
     lead,
     REMINDER_CAUTION,
@@ -307,6 +315,7 @@ async function owedFacts(id: string, invoiceLink: boolean, ctx: CallContext, dep
     flags: r.flags,
     ...(r.expires_at && { expiresAt: r.expires_at }), // W3-C
     ...(r.chain === "base" && { base: true }), // W3-B
+    ...(r.fiat && fiatStatusLine(r.fiat, r.amount) && { fiat: r.fiat }), // local-currency asks
   };
 }
 
@@ -329,6 +338,7 @@ async function invoiceFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: 
     token: inv.token,
     amountPaid: paid?.amount,
     amountDue: remainder(inv.total, inv.status === "underpaid" ? paid?.amount : undefined, inv.token, deps),
+    ...(inv.fiat && fiatStatusLine(inv.fiat, inv.total) && { fiat: inv.fiat }), // local-currency invoice
     payerName: clean(inv.client_name, 60) || undefined,
     requesterName: clean(inv.business_name, 60) || undefined,
     // The invoice page shows its id when it has no number.
@@ -498,7 +508,8 @@ export function compose(f: Facts, tone: ReminderInput["tone"], channel: Reminder
     : f.kind === "split_share" && f.groupTitle
       ? ` for your share of ${q(f.groupTitle)}`
       : f.forText ? ` for ${q(f.forText)}` : "";
-  const money = `${f.amount} ${f.token}`;
+  // Local-currency asks name both: "₹1,200 (12.637145 USDC)". What is still due after a partial payment is USDC only.
+  const money = f.fiat ? `${fiatAmountText(f.fiat)} (${f.amount} ${f.token})` : `${f.amount} ${f.token}`;
   const due = `${f.amountDue} ${f.token}`;
   const hi = { friendly: f.payerName ? `Hi ${f.payerName}` : "Hi", firm: f.payerName ? `Hi ${f.payerName}` : "Hello", formal: f.payerName ? `Dear ${f.payerName}` : "Hello" }[tone];
   const from = f.requesterName;

@@ -1,0 +1,79 @@
+{
+  "id": "XhSmLPb52YG6",
+  "link": "https://owed.link/g/XhSmLPb52YG6",
+  "title": "Team lunch",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "total": "50.566725",
+  "requester_name": "Raj",
+  "created_at": "2026-10-17T20:45:46Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "share_count": 3,
+  "paid_count": 0,
+  "amount_received": "0",
+  "shares": [
+    {
+      "id": "dQeaEWZbj1cM",
+      "name": "Priya",
+      "amount": "16.855575",
+      "status": "open",
+      "link": "https://owed.link/r/dQeaEWZbj1cM",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=16.855575&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=3u9DopF4S59M2AouZLSfNKhE9hUdMMnfGRhv9voxTYaw&label=Raj&message=Team%20lunch&memo=owed%3AdQeaEWZbj1cM",
+      "reference": "3u9DopF4S59M2AouZLSfNKhE9hUdMMnfGRhv9voxTYaw",
+      "paid": null,
+      "from_domain": null,
+      "fiat": {
+        "currency": "EUR",
+        "amount": "15",
+        "rate": "0.889913294882",
+        "rate_source": "api.coinbase.com, checked against open.er-api.com",
+        "quoted_at": "2026-10-17T20:45:45Z"
+      }
+    },
+    {
+      "id": "pP1sNKkQ1Qng",
+      "name": "Sam",
+      "amount": "16.855575",
+      "status": "open",
+      "link": "https://owed.link/r/pP1sNKkQ1Qng",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=16.855575&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=C3Z1YnHhQS3qfFwSGWpyUnDGCWhxemNdi9myShMpRqzU&label=Raj&message=Team%20lunch&memo=owed%3ApP1sNKkQ1Qng",
+      "reference": "C3Z1YnHhQS3qfFwSGWpyUnDGCWhxemNdi9myShMpRqzU",
+      "paid": null,
+      "from_domain": null,
+      "fiat": {
+        "currency": "EUR",
+        "amount": "15",
+        "rate": "0.889913294882",
+        "rate_source": "api.coinbase.com, checked against open.er-api.com",
+        "quoted_at": "2026-10-17T20:45:45Z"
+      }
+    },
+    {
+      "id": "Hfq2oFWF2qJr",
+      "name": "Alex",
+      "amount": "16.855575",
+      "status": "open",
+      "link": "https://owed.link/r/Hfq2oFWF2qJr",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=16.855575&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=DXpYbskZc7ogDfNjzoTippubgvimBW1AfiimeDWr4i5s&label=Raj&message=Team%20lunch&memo=owed%3AHfq2oFWF2qJr",
+      "reference": "DXpYbskZc7ogDfNjzoTippubgvimBW1AfiimeDWr4i5s",
+      "paid": null,
+      "from_domain": null,
+      "fiat": {
+        "currency": "EUR",
+        "amount": "15",
+        "rate": "0.889913294882",
+        "rate_source": "api.coinbase.com, checked against open.er-api.com",
+        "quoted_at": "2026-10-17T20:45:45Z"
+      }
+    }
+  ],
+  "fiat": {
+    "currency": "EUR",
+    "amount": "45",
+    "rate": "0.889913294882",
+    "rate_source": "api.coinbase.com, checked against open.er-api.com",
+    "quoted_at": "2026-10-17T20:45:45Z"
+  }
+}

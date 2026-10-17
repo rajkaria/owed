@@ -7,6 +7,7 @@ import {
   MATCHED_LABEL,
   pickStatusResult,
   stateFromStatus,
+  type FiatView,
   type Headline,
   type LiveState,
   type PollTarget,
@@ -329,6 +330,19 @@ const OPEN_AREAS =
 const DONE_AREAS =
   "[grid-template-areas:'info'_'side'_'recipient'] md:[grid-template-areas:'info_side'_'recipient_side'] md:grid-rows-[auto_1fr]";
 
+/** Local-currency ask: when and at what rate the USDC was locked, and that the local amount is only a quote. */
+function FiatNote({ fiat }: { fiat: FiatView }) {
+  return (
+    <p data-fiat-quote className="mt-3 text-sm leading-relaxed text-muted">
+      Rate locked <span className="whitespace-nowrap text-fg">{fiat.lockedAt}</span>
+      {" · "}
+      <span className="whitespace-nowrap">{fiat.rate}</span>
+      {fiat.source ? <> ({fiat.source})</> : null}. The USDC amount is what you pay and never changes; the{" "}
+      {fiat.currencyName} amount is a quote, not a guarantee.
+    </p>
+  );
+}
+
 export function LiveRequest({
   initial,
   poll,
@@ -341,9 +355,12 @@ export function LiveRequest({
   qr,
   recipient,
   expiresAt = null,
+  fiat = null,
 }: {
   /** W3-C: when an open request stops taking payments. */
   expiresAt?: string | null;
+  /** Local-currency ask: the quote shown as the headline, with the USDC actually paid under it. */
+  fiat?: FiatView | null;
   initial: LiveState;
   poll: PollTarget | null;
   requested: string | null;
@@ -369,9 +386,17 @@ export function LiveRequest({
             {open ? heading.lead : heading.past}
           </span>
           <span className="mt-1 block text-5xl font-semibold tracking-tight tabular-nums break-words sm:text-6xl">
-            {heading.amount}
+            {fiat ? fiat.amount : heading.amount}
           </span>
+          {fiat && (
+            <span className="mt-2 block text-2xl font-semibold tracking-tight tabular-nums break-words sm:text-3xl">
+              <span className="sr-only">, </span>
+              <span className="text-muted">= </span>
+              {fiat.usdc}
+            </span>
+          )}
         </h1>
+        {fiat && <FiatNote fiat={fiat} />}
         {info}
       </div>
       {open ? (

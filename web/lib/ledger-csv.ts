@@ -120,6 +120,11 @@ export const CSV_COLUMNS = [
   "from_domain",
   "schedule_id",
   "period",
+  // Local-currency asks: the quote that locked `amount` (USDC). Empty for USDC/SOL asks.
+  "quote_currency",
+  "quote_amount",
+  "quote_rate_per_usdc",
+  "quote_locked_at",
 ] as const;
 
 /**
@@ -133,6 +138,7 @@ export async function ledgerCsv(recipient: string, base: string): Promise<{ text
             r.paid_amount_atomic::text as paid_amount_atomic, r.paid_payer, r.paid_signature,
             ${isoUtc("r.created_at")} as created_at, ${isoUtc("r.paid_at")} as paid_at,
             r.payer_name, r.for_text, i.invoice_number, r.from_domain, sr.schedule_id, sr.period,
+            r.fiat_currency, r.fiat_amount, r.fiat_rate, ${isoUtc("r.fiat_quoted_at")} as fiat_quoted_at,
             count(*) over () as total
        from requests r
        left join invoices i on i.id = r.invoice_id
@@ -164,6 +170,10 @@ export async function ledgerCsv(recipient: string, base: string): Promise<{ text
       r.from_domain,
       r.schedule_id,
       r.period,
+      r.fiat_currency,
+      r.fiat_amount,
+      r.fiat_rate,
+      r.fiat_currency ? r.fiat_quoted_at : null,
     ]));
   }
   const total = Number(rows[0]?.total ?? 0);

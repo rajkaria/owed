@@ -1,0 +1,47 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.",
+  "generated_at": "2026-10-17T21:00:00Z",
+  "chain_checked": true,
+  "open": [
+    {
+      "id": "BUFwV9T79XFb",
+      "kind": "single",
+      "link": "https://owed.link/r/BUFwV9T79XFb",
+      "amount": "12.636934",
+      "token": "USDC",
+      "status": "open",
+      "payer_name": "Priya",
+      "for": "dinner",
+      "created_at": "2026-10-17T20:45:46Z",
+      "amount_due": "12.636934",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": [],
+      "schedule_id": null,
+      "period": null,
+      "fiat": {
+        "currency": "INR",
+        "amount": "1200",
+        "rate": "94.95975",
+        "rate_source": "api.coinbase.com, checked against open.er-api.com",
+        "quoted_at": "2026-10-17T20:45:45Z"
+      }
+    }
+  ],
+  "paid_recently": [],
+  "totals": [
+    {
+      "token": "USDC",
+      "outstanding": "12.636934",
+      "received_30d": "0",
+      "open_count": 1,
+      "paid_count": 0
+    }
+  ],
+  "truncated": false
+}

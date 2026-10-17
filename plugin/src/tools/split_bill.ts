@@ -15,6 +15,13 @@ import { checkFromDomain } from "../payee.js";
 import { clean, quote, rateLimitedText, shareText, shortAddress } from "../text.js";
 import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
 import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
+// Local-currency splits start
+import { fromMinor, toMinor, type FiatCode } from "../fiat.js";
+import {
+  checkQuote, currencyInput, fiatAmountText, fiatApiRefusal, fiatHeadline, fiatOutput, fiatRateLine, parseFiatAsk, type FiatAsk,
+} from "../local-currency.js";
+import type { FiatQuoteRes } from "../contract.js";
+// Local-currency splits end
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -41,6 +48,7 @@ export const inputSchema = z.object({
   requester_name: z.string().min(1).max(LIMITS.requester_name).optional().describe("The user's own first name, so people know who is asking."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls that publishes this wallet (verified payee)."),
   expires_in_days: expiresInDaysInput.optional(), // W3-C: every share expires together
+  currency: currencyInput.optional(), // local-currency split: total and people's amounts are in this currency
 }).strict();
 
 const shareOutput = z.object({
@@ -51,6 +59,7 @@ const shareOutput = z.object({
   solana_pay_url: z.string(),
   reference: z.string(),
   share_text: z.string().describe("A ready-to-send message for this person."),
+  fiat: fiatOutput.optional(), // local-currency split: this share in the bill's currency; amount is its USDC
 }).strict();
 
 export const outputSchema = z.object({
@@ -65,6 +74,7 @@ export const outputSchema = z.object({
   remainder_note: z.string().optional().describe("Set when the total doesn't divide evenly: who pays the extra smallest unit."),
   from_domain: z.string().optional().describe("The verified payee domain every share carries (checked over DNS by the plugin)."),
   expires_at: z.string().optional().describe("When every share stops taking payments (set by Owed's server)."), // W3-C
+  fiat: fiatOutput.optional(), // local-currency split: the bill in its currency; total is the shares' USDC sum
 }).strict();
 
 export type SplitInput = z.output<typeof inputSchema>;
@@ -73,6 +83,7 @@ export type SplitOutput = z.output<typeof outputSchema>;
 const DESCRIPTION = [
   "Split a bill: creates one Owed payment request per person plus a live group board that shows who has paid. Each person gets their own link, payable from any Solana wallet or their own PayBox agent.",
   "Use it when the user says things like \"split 45 USDC for pizza between Priya, Sam and Alex\".",
+  "If the user names their own currency (\"split ₹4,500 for dinner\", \"bill the team €45\"), pass currency (\"INR\", \"EUR\") with total and amounts in it: the bill is split in that currency and each share is locked to USDC at one live rate.", // local-currency splits
   "total is what to collect from the listed people: leave the user out of people, and if the user also ate, leave their own share out of total. Give a person an amount only if they owe a set sum; the rest split evenly.",
   "recipient is the user's own PayBox Solana wallet address (from list_credentials); funds go straight from each payer to it, Owed never holds money.",
   "Show the user the board link and each person's link with its share_text so they can send them; later call check_payments with the share ids to see who has paid.",
@@ -137,12 +148,25 @@ export async function splitBill(
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
 
+  // Local-currency split: plan in the currency's minor units; the server locks each share's USDC at one rate.
+  let ask: FiatAsk | undefined;
+  if (args.currency !== undefined) {
+    const parsed = parseFiatAsk(args.currency, args.total, token);
+    if (!parsed.ok) return refusal(parsed.message);
+    ask = parsed.ask;
+  }
+  const code = ask?.code;
+  // In a local-currency split, amounts below are minor units of `code` until the server's quote arrives.
+  const unit: Token = code ? (code as unknown as Token) : token;
+  const toUnits = (amount: string): bigint => (code ? toMinor(amount, code) : deps.toAtomic(amount, token));
+  const fromUnits: Deps["fromAtomic"] = code ? (atomic: bigint) => fromMinor(atomic, code) : deps.fromAtomic;
+
   let totalAtomic: bigint;
   const set: Array<bigint | undefined> = [];
   try {
-    totalAtomic = deps.toAtomic(args.total, token);
+    totalAtomic = toUnits(args.total);
   } catch (error) {
-    return refusal(`${args.total} ${token} isn't a valid total: ${errorText(error, "use a positive decimal amount.")}`);
+    return refusal(`${args.total} ${unit} isn't a valid total: ${errorText(error, "use a positive decimal amount.")}`);
   }
   for (const person of args.people) {
     if (person.amount === undefined) {
@@ -150,9 +174,9 @@ export async function splitBill(
       continue;
     }
     try {
-      set.push(deps.toAtomic(person.amount, token));
+      set.push(toUnits(person.amount));
     } catch (error) {
-      return refusal(`${person.amount} ${token} isn't a valid amount for ${clean(person.name, LIMITS.name) || "a person"}: ${errorText(error, "use a positive decimal amount.")}`);
+      return refusal(`${person.amount} ${unit} isn't a valid amount for ${clean(person.name, LIMITS.name) || "a person"}: ${errorText(error, "use a positive decimal amount.")}`);
     }
   }
 
@@ -163,12 +187,14 @@ export async function splitBill(
 
   let plan: Plan;
   try {
-    plan = planShares(totalAtomic, set, token, deps.fromAtomic);
+    plan = planShares(totalAtomic, set, unit, fromUnits);
   } catch (error) {
-    return refusal(`Can't split ${deps.fromAtomic(totalAtomic, token)} ${token} this way: ${errorText(error, "check the amounts.")}`);
+    return refusal(`Can't split ${fromUnits(totalAtomic, unit)} ${unit} this way: ${errorText(error, "check the amounts.")}`);
   }
-  const total = deps.fromAtomic(totalAtomic, token);
-  const amounts = plan.amounts.map((a) => deps.fromAtomic(a, token));
+  let total = fromUnits(totalAtomic, unit);
+  let amounts = plan.amounts.map((a) => fromUnits(a, unit));
+  const fiatAmounts = code ? amounts : undefined; // local-currency split: each person's share in `code`
+  let fiat: { group: FiatQuoteRes; shares: FiatQuoteRes[] } | undefined;
 
   // QA-18: every SOL share to a never-used wallet must reach Solana's minimum; read alongside screening and DNS.
   const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
@@ -205,6 +231,7 @@ export async function splitBill(
 
   const body: CreateGroupReq = {
     recipient: args.recipient, total, token, title,
+    ...(code && { currency: code }), // local-currency split: total and amounts are in this currency
     people: names.map((name, i) => ({ name, amount: amounts[i]! })),
     ...(requesterName && { requester_name: requesterName }),
     source: "plugin",
@@ -216,6 +243,17 @@ export async function splitBill(
   let created: { groupId: string | null; groupLink: string | null; mode: "hosted" | "offline"; shares: Array<{ id: string | null; link: string; solana_pay_url: string; reference: string }> };
   try {
     const res = await ctx.api.createGroup(body);
+    // Local-currency split: every share's quote must be its planned amount at the group's one rate, and must
+    // produce the USDC its link and id commit to; the board's total is those shares' USDC sum.
+    if (code && fiatAmounts) {
+      const quoted = checkSplitQuotes(res, code, total, fiatAmounts);
+      if (!quoted) return refusal("Owed's server returned a quote that doesn't match this bill, so the split wasn't used. Nothing was sent; try again.");
+      fiat = { group: quoted.group, shares: quoted.shares };
+      plan = { ...plan, amounts: quoted.atomic };
+      totalAtomic = quoted.atomic.reduce((sum, a) => sum + a, 0n);
+      total = deps.fromAtomic(totalAtomic, token);
+      amounts = quoted.atomic.map((a) => deps.fromAtomic(a, token));
+    }
     const mismatch = checkHosted(res, args.recipient, token, totalAtomic, plan.amounts, ctx, deps);
     if (mismatch) return refusal(mismatch);
     // Payers' agents only see the domain if the server stored it on the board and on every share they pay.
@@ -231,6 +269,7 @@ export async function splitBill(
     };
   } catch (error) {
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the split."));
+    if (code) return refusal(fiatApiRefusal(error, "split") ?? apiRefusal(error)); // no offline links: only the server locks a rate
     if (error.code !== "upstream_unavailable") return refusal(apiRefusal(error));
     try {
       created = { groupId: null, groupLink: null, mode: "offline", shares: amounts.map((amount) => buildOffline(args.recipient, amount, token, title, requesterName, ctx, deps)) };
@@ -241,24 +280,32 @@ export async function splitBill(
 
   const shares = created.shares.map((s, i) => ({
     name: names[i]!, amount: amounts[i]!, ...s,
-    share_text: shareText({ payerName: names[i], requesterName, forText: title, amount: amounts[i]!, token, link: s.link }),
+    share_text: shareText({
+      payerName: names[i], requesterName, forText: title, amount: amounts[i]!, token, link: s.link,
+      ...(fiat && { fiat: fiatAmountText(fiat.shares[i]!) }), // local-currency split
+    }),
+    ...(fiat && { fiat: quoteOut(fiat.shares[i]!) }),
   }));
-  const note = remainderNote(plan, names, token, deps.fromAtomic);
+  // The remainder is in the bill's own units: minor units of the currency in a local-currency split.
+  const note = remainderNote({ ...plan, amounts: code ? plan.amounts.map((_, i) => toMinor(fiatAmounts![i]!, code)) : plan.amounts }, names, unit, fromUnits);
   const output: SplitOutput = {
     group_id: created.groupId, group_link: created.groupLink, mode: created.mode,
     title, recipient: args.recipient, total, token, shares,
     ...(note && { remainder_note: note }),
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain }),
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
+    ...(fiat && { fiat: quoteOut(fiat.group) }),
   };
 
+  const totalText = fiat ? fiatHeadline(fiat.group, total) : `${total} ${token}`;
   const lines = [
     created.groupLink
-      ? `Split ready: ${quote(title, LIMITS.title)}, ${total} ${token} from ${shares.length} people. Live board: ${created.groupLink}`
-      : `Split ready: ${quote(title, LIMITS.title)}, ${total} ${token} from ${shares.length} people.`,
-    ...shares.map((s) => `- ${s.name}: ${s.amount} ${token} ${s.link}`),
+      ? `Split ready: ${quote(title, LIMITS.title)}, ${totalText} from ${shares.length} people. Live board: ${created.groupLink}`
+      : `Split ready: ${quote(title, LIMITS.title)}, ${totalText} from ${shares.length} people.`,
+    ...shares.map((s, i) => `- ${s.name}: ${fiat ? `${fiatAmountText(fiat.shares[i]!)} = ` : ""}${s.amount} ${token} ${s.link}`),
   ];
   if (note) lines.push(note);
+  if (fiat) lines.push(fiatRateLine(fiat.group, total).replace("The payer pays", "Together they pay")); // local-currency split
   if (created.mode === "hosted") lines.push(...domainLines);
   if (expiresAt && args.expires_in_days !== undefined) lines.push(expiryLine(expiresAt, args.expires_in_days, "every share")); // W3-C
   if (created.mode === "offline" && args.expires_in_days !== undefined) lines.push(OFFLINE_NO_EXPIRY.replace("this one stays", "these stay"));
@@ -300,6 +347,39 @@ function checkHosted(
   } catch {
     return bad;
   }
+}
+
+/** The output copy of a quote (the contract object may carry more keys from a newer server). */
+function quoteOut(q: FiatQuoteRes): FiatQuoteRes {
+  return { currency: q.currency, amount: q.amount, rate: q.rate, rate_source: q.rate_source, quoted_at: q.quoted_at };
+}
+
+/**
+ * Local-currency split: the board's quote is the bill's total in `code`; each share's quote is that share's
+ * planned amount at the board's one rate and time, and yields the USDC that share's link carries. Returns
+ * each share's USDC atomic amount, or null on any mismatch (then nothing is handed out).
+ */
+export function checkSplitQuotes(
+  res: GroupRes, code: FiatCode, total: string, fiatAmounts: readonly string[],
+): { group: FiatQuoteRes; shares: FiatQuoteRes[]; atomic: bigint[] } | null {
+  const g = res.fiat;
+  if (!g || g.currency !== code || res.shares.length !== fiatAmounts.length) return null;
+  try {
+    if (toMinor(g.amount, code) !== toMinor(total, code)) return null;
+  } catch {
+    return null;
+  }
+  const atomic: bigint[] = [];
+  const shares: FiatQuoteRes[] = [];
+  for (const [i, share] of res.shares.entries()) {
+    const q = share.fiat;
+    if (!q || q.rate !== g.rate || q.quoted_at !== g.quoted_at || q.rate_source !== g.rate_source) return null;
+    const checked = checkQuote(q, share.amount, { code, amount: fiatAmounts[i]! });
+    if (!checked.ok) return null;
+    atomic.push(checked.atomic);
+    shares.push(checked.fiat);
+  }
+  return { group: g, shares, atomic };
 }
 
 function buildOffline(recipient: string, amount: string, token: Token, title: string, requesterName: string | undefined, ctx: CallContext, deps: Deps) {

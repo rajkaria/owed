@@ -31,6 +31,20 @@ const requestStatus = z.enum(["open", "paid", "underpaid", "cancelled", "expired
 /** W3-C: the recipient's signed cancellation, public so anyone can check it came from the wallet the request pays. */
 export const CancelProof = z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) });
 
+// Local-currency asks: `currency` (ISO 4217, lib/fiat.ts allowlist) makes the body's amounts that currency; the
+// server locks a USDC amount at a live rate (lib/fx.ts). Responses carry the quote as `fiat`, display only:
+// the USDC amount, which the id commits to, is what is owed. Absent on USDC/SOL asks.
+const currency = z.string().min(1).max(8).nullish();
+export const FiatQuote = z.object({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  amount: decimal,
+  /** Units of `currency` per 1 USDC. amount / rate, rounded up to 6 decimals, is the USDC amount. */
+  rate: decimal,
+  rate_source: z.string().min(1).max(120),
+  quoted_at: isoTime,
+});
+export type FiatQuote = z.infer<typeof FiatQuote>;
+
 // Raw text may be longer than its cap: links and invisible characters are stripped
 // first, then the clean text is cut to the cap. 4x the cap bounds the work.
 const untrusted = (cap: number) => z.string().max(cap * 4).nullish();
@@ -50,6 +64,7 @@ export const CreateRequestBody = z.object({
   from_domain: z.string().min(1).max(253).nullish(),
   expires_in_days: expiresInDays, // W3-C
   chain: chain.default("solana"), // W3-B
+  currency, // local-currency ask: `amount` is in this currency
 }).superRefine((b, ctx) => {
   // W3-B: a Solana request keeps its base58 rule and message; a Base request takes a 0x address.
   const schema = b.chain === "base" ? evmAddress : base58Key;
@@ -71,6 +86,8 @@ export const CreateRequestResponse = z.object({
   expires_at: isoTime.nullable().optional(), // W3-C
   chain: chain.optional(), // W3-B (absent = solana)
   pay_url: z.string().optional(), // W3-B: the link a wallet opens (solana: or ethereum:)
+  amount: decimal.optional(), // local-currency asks: the USDC amount locked (the caller didn't know it)
+  fiat: FiatQuote.optional(),
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -126,6 +143,7 @@ export const GetRequestResponse = z.object({
   matched: MatchedInfo.nullable().optional(),
   rest_of: requestId.nullable().optional(),
   rest_request: RestLink.nullable().optional(),
+  fiat: FiatQuote.optional(), // local-currency asks
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -154,6 +172,7 @@ export const StatusResult = z.object({
   matched: z.object({ signature: z.string(), covers: z.enum(["full", "rest"]), amount: decimal, confirmed_at: isoTime }).optional(),
   rest_of: requestId.optional(),
   rest_request: requestId.optional(),
+  fiat: FiatQuote.optional(), // local-currency asks
 });
 export type StatusResult = z.infer<typeof StatusResult>;
 
@@ -186,6 +205,7 @@ export const CreateGroupBody = z.object({
   source: z.enum(["plugin", "web"]).default("web"),
   from_domain: z.string().min(1).max(253).nullish(),
   expires_in_days: expiresInDays, // W3-C: every share expires together
+  currency, // local-currency split: `total` and people's amounts are in this currency
 });
 export type CreateGroupBody = z.infer<typeof CreateGroupBody>;
 
@@ -199,6 +219,7 @@ export const GroupShare = z.object({
   reference: base58Key,
   paid: PaidInfo.nullable(),
   from_domain: z.string().nullable().optional(), // W2-H: each share carries the group's verified domain
+  fiat: FiatQuote.optional(), // local-currency split: this share's amount in the bill's currency, at the group's rate
 });
 
 export const GroupResponse = z.object({
@@ -218,6 +239,7 @@ export const GroupResponse = z.object({
   amount_received: decimal,
   shares: z.array(GroupShare).min(2).max(20),
   expires_at: isoTime.optional(), // W3-C: when every share stops taking payments (absent: never)
+  fiat: FiatQuote.optional(), // local-currency split: the bill's total in its currency; `total` is the shares' USDC sum
 });
 export type GroupResponse = z.infer<typeof GroupResponse>;
 // ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
@@ -247,6 +269,7 @@ export const CreateInvoiceBody = z.object({
   from_domain: z.string().min(1).max(253).nullish(),
   source: z.enum(["plugin", "web"]).default("web"),
   expires_in_days: expiresInDays, // W3-C: must reach the due date
+  currency, // local-currency invoice: every unit_price is in this currency
 });
 export type CreateInvoiceBody = z.infer<typeof CreateInvoiceBody>;
 
@@ -287,6 +310,9 @@ export const InvoiceResponse = z.object({
   // W3-C expiry + cancel (absent when not set)
   expires_at: isoTime.optional(),
   cancelled_at: isoTime.optional(),
+  // Local-currency invoice: items' unit_price and amount are in fiat.currency, fiat.amount is their sum,
+  // and `total` is the USDC locked for it.
+  fiat: FiatQuote.optional(),
 });
 export type InvoiceResponse = z.infer<typeof InvoiceResponse>;
 
@@ -334,6 +360,7 @@ const LedgerEntry = z.object({
   matched: z.object({ signature: z.string(), covers: z.enum(["full", "rest"]), amount: decimal, confirmed_at: isoTime }).optional(),
   rest_of: requestId.optional(),
   rest_request: requestId.optional(),
+  fiat: FiatQuote.optional(), // local-currency asks
 });
 
 export const LedgerResponse = z.object({
@@ -385,6 +412,7 @@ export const CreateScheduleBody = z.object({
   months: z.number().int().min(1).max(120).nullish(),
   from_domain: z.string().min(1).max(253).nullish(),
   source: z.enum(["plugin", "web"]).default("web"),
+  currency, // refused: a rate locked today would be wrong next month
 });
 export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
 
