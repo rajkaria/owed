@@ -1,0 +1,16 @@
+{
+ "name": "readiness-usdc-existing-recipient",
+ "note": "Active wallet holding SOL and USDC paying the team wallet's existing USDC account.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-17T04:49:51.513Z",
+ "query": {
+  "accounts": [
+   "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+   "7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3",
+   "2YXyjxcV8FqSeZ8iRqZoNUnxAvfuX49d7VmzTmySgv1x"
+  ]
+ },
+ "calls": [
+{"method":"getMultipleAccounts","params":[["FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT","7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3","2YXyjxcV8FqSeZ8iRqZoNUnxAvfuX49d7VmzTmySgv1x"],{"encoding":"jsonParsed","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.0","slot":457909656},"value":[{"data":["","base64"],"executable":false,"lamports":35987616384,"owner":"11111111111111111111111111111111","rentEpoch":18446744073709552000,"space":0},{"data":{"parsed":{"info":{"isNative":false,"mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","owner":"FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT","state":"initialized","tokenAmount":{"amount":"69575440","decimals":6,"uiAmount":69.57544,"uiAmountString":"69.57544"}},"type":"account"},"program":"spl-token","space":165},"executable":false,"lamports":2039280,"owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","rentEpoch":18446744073709552000,"space":165},{"data":{"parsed":{"info":{"isNative":false,"mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","owner":"FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs","state":"initialized","tokenAmount":{"amount":"5000000","decimals":6,"uiAmount":5,"uiAmountString":"5"}},"type":"account"},"program":"spl-token","space":165},"executable":false,"lamports":1488440,"owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","rentEpoch":18446744073709552000,"space":165}]}}
+ ]
+}

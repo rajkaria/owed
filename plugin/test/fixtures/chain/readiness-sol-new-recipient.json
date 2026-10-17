@@ -1,0 +1,17 @@
+{
+ "name": "readiness-sol-new-recipient",
+ "note": "Same payer paying a fresh address that does not exist on chain, plus the rent-exempt minimum.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-17T04:49:51.947Z",
+ "query": {
+  "fresh": "7cgcTqD2s9r5WU7F2NDbdR4vwA1ELGWzcQRAjpeMtxMB",
+  "accounts": [
+   "ASTW3RMbeKoHaU5GUt8E1gXuRnE1gwJky1bLYQiZ4rEg",
+   "7cgcTqD2s9r5WU7F2NDbdR4vwA1ELGWzcQRAjpeMtxMB"
+  ]
+ },
+ "calls": [
+{"method":"getMultipleAccounts","params":[["ASTW3RMbeKoHaU5GUt8E1gXuRnE1gwJky1bLYQiZ4rEg","7cgcTqD2s9r5WU7F2NDbdR4vwA1ELGWzcQRAjpeMtxMB"],{"encoding":"jsonParsed","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.0","slot":457909657},"value":[{"data":["","base64"],"executable":false,"lamports":29286626676,"owner":"11111111111111111111111111111111","rentEpoch":18446744073709552000,"space":0},null]}},
+{"method":"getMinimumBalanceForRentExemption","params":[0,{"commitment":"confirmed"}],"result":650240}
+ ]
+}
