@@ -51,6 +51,8 @@ export interface ApiClient {
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
   createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
   ledger(body: LedgerReq): Promise<LedgerRes>;
+  getGroup(id: string): Promise<GroupRes>;
+  getInvoice(id: string): Promise<InvoiceRes>;
   /** W3-C: cancel a request with the recipient's signed message. */
   cancelRequest(id: string, body: CancelReq): Promise<CancelRes>;
 }
@@ -109,6 +111,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
     createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
+    getGroup: (id) => call("GET", `/groups/${encodeURIComponent(id)}`, groupResSchema),
+    getInvoice: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceResSchema),
     cancelRequest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/cancel`, cancelResSchema, body), // W3-C
   };
 }
