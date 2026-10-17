@@ -27,14 +27,13 @@ export const BRAND_WORDS = [
   "anthropic",
 ] as const;
 
-const WEB_TLDS =
-  "com|net|org|io|co|xyz|link|app|me|ly|gg|sh|so|ai|dev|info|biz|site|online|top|click|live|pro|fun|" +
-  "finance|money|cash|pay|wallet|exchange|today|store|shop|vip|club|cc|tk|ml|ga|cf|gq|ru|cn|in|uk|us|" +
-  "de|fr|ws|to|is|tv|fm|am|gl|bet|win|ink|lol|page|website|space|tech|cloud|digital|network|support|" +
-  "help|services|global|world|news|blog|email|im|eu|ca|au|jp|br|ch|nl|be|es|it|pt|pl|tr|ua|id|ph|ng|za";
+// One list with plugin/src/text.ts and lib/view/text.ts (W2-E, QA-09); test/safety-links.test.ts keeps them equal.
+export const WEB_TLDS =
+  "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|pay|wallet|exchange|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|website|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|is|tv|fm|am|gl|im|ca|au|jp|br|ch|nl|be|es|it|pt|pl|tr|ua|id|ph|ng|za|asia|mobi|name|support|help|claims|claim|fi|services|global|world|network|today|click|page|bet|win|ink|lol|space|cloud|digital|news|blog|email|zip|mov|icu|bond|cyou|sbs|country|xin|work|rest|cam|quest|buzz|monster|cfd|uno|best|fit|ltd|art|one|run|life|guru|host|press|fyi|wiki|zone|center|company|group|loan|date|review|download|stream|party|science|trade|bid|racing|men|kim|red|ooo|now|chat|social|game|games|bot";
 
 const URL_PATTERNS: RegExp[] = [
-  /\b[a-z][a-z0-9+.-]*:\/\/\S*/giu, // scheme://...
+  // scheme://... ; one glued to the end of a word ("INV-42https://…") takes only the URL (QA-13).
+  /(?:https?|ftp|wss?|ipfs|ipns|file):\/\/\S*|(?<![a-z0-9+.-])[a-z][a-z+.]*:\/\/\S*/giu,
   /\b(?:solana|ethereum|bitcoin|mailto|tel|sms|javascript|data|vbscript|file|intent|tg|wc):\S*/giu,
   /\bwww\.\S*/giu,
   /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:\/\S*)?/gu, // bare IPv4
@@ -57,6 +56,7 @@ export const INVISIBLE =
 const BREAKS = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
 const DOUBLE_QUOTES = /["“”„‟«»″＂]/gu;
 const MARKUP = /[<>[\]{}`\\]/gu;
+const PLUGIN_LINK_MARKER = /\[link removed\]/giu;
 
 /**
  * Clean untrusted text: normalize, drop invisible characters and links, turn
@@ -67,6 +67,8 @@ export function sanitizeText(input: string | null | undefined, max: number): str
   if (input == null) return null;
   let s = input.toWellFormed().normalize("NFKC").replace(INVISIBLE, "").replace(BREAKS, " ");
   for (const re of URL_PATTERNS) s = s.replace(re, " ");
+  // The plugin marks the links it removed as "[link removed]"; keep that readable once brackets go (QA-13).
+  s = s.replace(PLUGIN_LINK_MARKER, "(link removed)");
   s = s.replace(DOUBLE_QUOTES, "'").replace(MARKUP, " ").replace(/\s+/gu, " ").trim();
   const capped = Array.from(s).slice(0, max).join("").trim();
   return capped === "" ? null : capped;

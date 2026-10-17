@@ -17,11 +17,15 @@ const INVISIBLE = new RegExp(charClass([
   [0x202a, 0x202e], [0x2060, 0x206f], [0x2800], [0x3164], [0xfe00, 0xfe0f], [0xfeff], [0xffa0], [0xfff9, 0xfffb],
   [0xe0000, 0xe007f], [0xe0100, 0xe01ef],
 ], "\\p{Cf}"), "gu");
-const TLDS = "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|wallet|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|support|help|claims|bet|page|click|today|world|network|exchange";
+// One list with web/lib/safety.ts and web/lib/view/text.ts (W2-E, QA-09: newer TLDs common in phishing,
+// .zip and .mov included); web/test/safety-links.test.ts checks the three stay equal.
+export const TLDS = "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|pay|wallet|exchange|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|website|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|is|tv|fm|am|gl|im|ca|au|jp|br|ch|nl|be|es|it|pt|pl|tr|ua|id|ph|ng|za|asia|mobi|name|support|help|claims|claim|fi|services|global|world|network|today|click|page|bet|win|ink|lol|space|cloud|digital|news|blog|email|zip|mov|icu|bond|cyou|sbs|country|xin|work|rest|cam|quest|buzz|monster|cfd|uno|best|fit|ltd|art|one|run|life|guru|host|press|fyi|wiki|zone|center|company|group|loan|date|review|download|stream|party|science|trade|bid|racing|men|kim|red|ooo|now|chat|social|game|games|bot";
 const URL_PATTERNS = [
-  /\b[a-z][a-z0-9+.-]*:\/\/\S*/gi,
+  // A scheme glued to the end of a word ("INV-42https://…") takes only the URL, not the word (QA-13).
+  /(?:https?|ftp|wss?|ipfs|ipns|file):\/\/\S*|(?<![a-z0-9+.-])[a-z][a-z+.]*:\/\/\S*/gi,
   /\b(?:solana|mailto|tel|sms|ethereum|bitcoin|javascript|data|ipfs):\S+/gi,
   /\bwww\.\S+/gi,
+  /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:\/\S*)?/g, // a bare IPv4 address (QA-09)
   new RegExp(`\\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\\.(?:${TLDS})\\b(?:[/?#:]\\S*)?`, "gi"),
 ];
 export const LINK_REMOVED = "[link removed]";
