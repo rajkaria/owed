@@ -1,0 +1,30 @@
+{
+  "id": "Kp3XwN7dRq5T",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "450",
+  "token": "USDC",
+  "payer_name": "Sam",
+  "for": "rent",
+  "requester_name": "Raj",
+  "day_of_month": 17,
+  "months": null,
+  "first_period": "2026-10",
+  "status": "active",
+  "next_request_on": "2026-11-17",
+  "created_at": "2026-10-17T14:02:11Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "first_request": {
+    "period": "2026-10",
+    "id": "FQq9M67PK56t",
+    "link": "https://www.getowed.xyz/r/FQq9M67PK56t",
+    "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=450&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8fGQNLN4gV8nWB2V5o6hQ9q8b5nLZegz2Y1uVUyAiSVW&label=Raj&message=rent&memo=owed%3AFQq9M67PK56t",
+    "qr_url": "https://www.getowed.xyz/api/qr/FQq9M67PK56t.png",
+    "reference": "8fGQNLN4gV8nWB2V5o6hQ9q8b5nLZegz2Y1uVUyAiSVW",
+    "x402_url": "https://www.getowed.xyz/x/FQq9M67PK56t",
+    "created_at": "2026-10-17T14:02:11Z",
+    "flags": [],
+    "from_domain": null
+  }
+}

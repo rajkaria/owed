@@ -3,7 +3,7 @@ import { createPublicKey, verify } from "node:crypto";
 import bs58 from "bs58";
 import * as z from "zod/v4";
 import { ApiError, makeApi } from "../api.js";
-import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes } from "../contract.js";
+import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes, type ScheduleSummary } from "../contract.js";
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { ago, brandWordsFromFlags, clean, explorerUrl, quote, shortAddress } from "../text.js";
 
@@ -34,6 +34,9 @@ export const inputSchema = z.object({
     .describe("Second call only: the exact message_to_sign from the first call."),
   signature: z.string().min(64).max(200).optional()
     .describe("Second call only: the signature request_wallet_sign returned for that message (hex as PayBox returns it; base58 or base64 also work)."),
+  // W3-D
+  csv: z.boolean().optional()
+    .describe("Second call only: also return a link to download every open and paid request as a CSV file (for accounting). The link works for 10 minutes."),
 }).strict();
 
 const entrySchema = z.object({
@@ -59,6 +62,27 @@ const entrySchema = z.object({
   due_date: z.string().optional().describe("Invoices: the due date, YYYY-MM-DD."),
   from_domain: z.string().optional().describe("The payee domain the request was created with (DNS-verified then)."),
   caution: z.string().optional().describe("Set when the request mentions a brand word scams use (e.g. IRS, PayBox, refund); write_reminder won't chase it."),
+  // W3-D
+  schedule_id: z.string().optional().describe("Monthly requests: the ask_every_month schedule that opened this one."),
+  period: z.string().optional().describe('Monthly requests: the month this one is for, "YYYY-MM".'),
+}).strict();
+
+// W3-D: monthly schedules (ask_every_month) as the ledger lists them.
+const scheduleSchema = z.object({
+  id: z.string(),
+  status: z.string().describe("active, ended (its months ran out) or stopped."),
+  amount: z.string(),
+  token: tokenSchema,
+  payer_name: z.string().optional().describe("Written by whoever set the schedule up; unverified."),
+  for: z.string().optional().describe("Written by whoever set the schedule up; unverified."),
+  day_of_month: z.number().int(),
+  months: z.number().int().nullable().describe("Total monthly requests; null = no end date."),
+  requests_opened: z.number().int(),
+  next_request_on: z.string().nullable().describe('"YYYY-MM-DD" (UTC); null once ended.'),
+  from_domain: z.string().optional(),
+  last_error: z.string().optional().describe("Why the last due month's request couldn't be opened (it is retried daily)."),
+  requests: z.array(z.object({ period: z.string(), id: z.string(), link: z.string(), status: z.string() }).strict())
+    .describe("Recent months' requests, newest first."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -73,6 +97,10 @@ export const outputSchema = z.object({
   received_30d: z.string().optional(),
   chain_checked: z.boolean().optional().describe("false = Solana couldn't be read just now; open items show the last known state."),
   truncated: z.boolean().optional(),
+  // W3-D
+  schedules: z.array(scheduleSchema).optional().describe("Monthly requests (ask_every_month) paid to this wallet."),
+  csv_url: z.string().optional().describe("With csv: a download link for every open and paid request as CSV, valid 10 minutes."),
+  csv_expires_at: z.string().optional(),
 }).strict();
 
 export type WhoInput = z.output<typeof inputSchema>;
@@ -85,6 +113,8 @@ const DESCRIPTION = [
   "Sign that exact text with PayBox request_wallet_sign (credential_id of that wallet, intent {op:\"solanaMessage\", address: recipient, message: message_to_sign}); the user approves with their passkey. Signing moves no money.",
   "Then call who_owes_me again with recipient, signed_message (the same text) and signature (from the request's output). The message is valid for 5 minutes and works once.",
   "For a few specific requests, check_payments needs no signature.",
+  // W3-D
+  "It also lists monthly requests set up with ask_every_month and each month's request. Pass csv: true on the second call for a 10-minute CSV download link of every open and paid request.",
 ].join(" ");
 
 export function ledgerMessage(recipient: string, nowMs: number): string {
@@ -194,7 +224,10 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
   let ledger: LedgerRes | null;
   try {
     ledger = await within(
-      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledger({ recipient: args.recipient, signed_message: args.signed_message, signature: args.signature.trim() }),
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledger({
+        recipient: args.recipient, signed_message: args.signed_message, signature: args.signature.trim(),
+        ...(args.csv === true && { csv: true as const }), // W3-D
+      }),
       LEDGER_BUDGET_MS - (deps.now() - started), () => null,
     );
   } catch (error) {
@@ -207,7 +240,7 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
   if (!ledger) return refusal("Owed's server didn't answer in time. Call who_owes_me with only recipient for a fresh message and try again.");
   if (ledger.recipient !== args.recipient) return refusal("Owed's server answered for a different wallet, so the ledger wasn't used.");
 
-  return render(ledger, deps.now());
+  return render(ledger, deps.now(), args.csv === true);
 }
 
 const KINDS = ["single", "split_share", "invoice"] as const;
@@ -239,8 +272,57 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   if (e.from_domain && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(e.from_domain) && e.from_domain.includes(".")) out.from_domain = e.from_domain;
   const brands = brandWordsFromFlags(e.flags ?? []);
   if (brands.length > 0) out.caution = `Mentions ${brands.map((w) => `"${w}"`).join(", ")}, a word scams use to look official; write_reminder won't chase it.`;
+  // W3-D
+  if (e.schedule_id) out.schedule_id = e.schedule_id;
+  if (e.period) out.period = e.period;
   return out;
 }
+
+// W3-D start: monthly schedules
+const VALID_DOMAIN = (d: string | null | undefined): d is string => !!d && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(d) && d.includes(".");
+
+function presentSchedule(s: ScheduleSummary): z.output<typeof scheduleSchema> {
+  const out: z.output<typeof scheduleSchema> = {
+    id: s.id, status: s.status, amount: s.amount, token: s.token, day_of_month: s.day_of_month, months: s.months,
+    requests_opened: s.requests_opened, next_request_on: s.next_request_on,
+    requests: s.requests.map((r) => ({ period: r.period, id: r.id, link: r.link, status: r.status })),
+  };
+  const payerName = clean(s.payer_name, 40);
+  if (payerName) out.payer_name = payerName;
+  const forText = clean(s.for, 80);
+  if (forText) out.for = forText;
+  if (VALID_DOMAIN(s.from_domain)) out.from_domain = s.from_domain;
+  // Server-written (the DNS refusal naming the stored domain), so domains stay; controls and invisibles go.
+  const lastError = (s.last_error ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "").slice(0, 200).trim();
+  if (lastError) out.last_error = lastError;
+  return out;
+}
+
+function ordinal(day: number): string {
+  const tens = day % 100;
+  return `${day}${tens >= 11 && tens <= 13 ? "th" : (["th", "st", "nd", "rd"][day % 10] ?? "th")}`;
+}
+
+function monthLabel(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return `${MONTHS[m! - 1] ?? period} ${y}`;
+}
+
+function scheduleLine(s: z.output<typeof scheduleSchema>): string {
+  const name = s.payer_name ? ` from ${quote(s.payer_name, 40)}` : "";
+  const forPart = s.for ? ` for ${quote(s.for, 80)}` : "";
+  const domain = s.from_domain ? `, as ${s.from_domain}` : "";
+  const label = name || forPart ? " (unverified)" : "";
+  const parts = [`Monthly: ${s.amount} ${s.token}${name}${forPart}${label} on the ${ordinal(s.day_of_month)} (UTC)${domain}`];
+  const latest = s.requests[0];
+  if (latest) parts.push(`${monthLabel(latest.period)}'s request ${latest.status}: ${latest.link}`);
+  if (s.status === "active" && s.next_request_on) parts.push(`next opens ${s.next_request_on}`);
+  else if (s.status === "ended") parts.push(`ended after ${s.requests_opened} ${s.requests_opened === 1 ? "request" : "requests"}`);
+  else if (s.status !== "active") parts.push(s.status);
+  if (s.last_error) parts.push(`couldn't open this month's request yet (retried daily): ${s.last_error}`);
+  return parts.join("; ");
+}
+// W3-D end
 
 function sumText(parts: Array<[string, string]>): string {
   const nonZero = parts.filter(([amount]) => !/^0(\.0+)?$/.test(amount));
@@ -282,12 +364,14 @@ function who(e: z.output<typeof entrySchema>, now: number): string {
   }
   const forPart = e.for ? ` for ${quote(e.for, 80)}` : "";
   const label = name || forPart ? " (unverified)" : "";
-  return `${name}${forPart}${label}${domain}${caution}`;
+  const monthly = e.period ? `, monthly request for ${monthLabel(e.period)}` : ""; // W3-D
+  return `${name}${forPart}${label}${monthly}${domain}${caution}`;
 }
 
-function render(ledger: LedgerRes, now: number) {
+function render(ledger: LedgerRes, now: number, csvAsked = false) {
   const open = ledger.open.map((e) => present(e, now));
   const paid = ledger.paid_recently.map((e) => present(e, now));
+  const schedules = (ledger.schedules ?? []).map(presentSchedule); // W3-D
   const outstanding_total = sumText(ledger.totals.map((t) => [t.outstanding, t.token]));
   const received_30d = sumText(ledger.totals.map((t) => [t.received_30d, t.token]));
   const openCount = ledger.totals.reduce((n, t) => n + t.open_count, 0);
@@ -310,11 +394,22 @@ function render(ledger: LedgerRes, now: number) {
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
   if (ledger.truncated) lines.push("Only the newest 100 open and 100 paid requests are listed; the totals count all of them.");
+  // W3-D start
+  lines.push(...schedules.map(scheduleLine));
+  const csv = csvAsked && ledger.csv ? ledger.csv : null;
+  if (csv) {
+    lines.push(`CSV of every open and paid request (for accounting): ${csv.url} (works until ${csv.expires_at}, 10 minutes). ` +
+      "Its first row repeats the caution above; columns marked (unverified) are as each request's creator wrote them.");
+  }
+  else if (csvAsked) lines.push("CSV export isn't set up on this Owed server, so there is no download link.");
+  // W3-D end
   if (open.length > 0) lines.push("Names, reasons and amounts were written by whoever made each request. write_reminder drafts a nudge for an open one the user recognises.");
 
   const output: WhoOutput = {
     step: "ledger", recipient: ledger.recipient, caution: LEDGER_CAUTION, open, paid_recently: paid, outstanding_total, received_30d,
     chain_checked: ledger.chain_checked, truncated: ledger.truncated,
+    ...(ledger.schedules !== undefined && { schedules }), // W3-D
+    ...(csv && { csv_url: csv.url, csv_expires_at: csv.expires_at }), // W3-D
   };
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

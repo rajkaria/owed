@@ -260,6 +260,7 @@ export const LedgerBody = z.object({
   recipient: base58Key,
   signed_message: z.string().min(1).max(200),
   signature: z.string().min(64).max(200),
+  csv: z.boolean().optional(), // W3-D: also return a 10-minute CSV download link
 }).strict();
 export type LedgerBody = z.infer<typeof LedgerBody>;
 
@@ -285,6 +286,9 @@ const LedgerEntry = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   from_domain: z.string().nullable(),
   flags: z.array(z.string()),
+  // W3-D: the monthly schedule and month ("YYYY-MM") that opened this request; null for one-off requests.
+  schedule_id: z.string().nullable().optional(),
+  period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).nullable().optional(),
 });
 
 export const LedgerResponse = z.object({
@@ -302,6 +306,8 @@ export const LedgerResponse = z.object({
     paid_count: z.number().int().nonnegative(),
   })),
   truncated: z.boolean(),
+  schedules: z.array(z.lazy(() => ScheduleSummary)).optional(), // W3-D
+  csv: z.object({ url: z.url(), expires_at: isoTime }).nullable().optional(), // W3-D: null when export isn't configured
 });
 export type LedgerResponse = z.infer<typeof LedgerResponse>;
 
@@ -317,3 +323,80 @@ export type CancelBody = z.infer<typeof CancelBody>;
 /** The request after the cancel, plus whether it had already been cancelled (cancelling twice changes nothing). */
 export const CancelResponse = GetRequestResponse.extend({ already_cancelled: z.boolean() });
 export type CancelResponse = z.infer<typeof CancelResponse>;
+
+// ---- W3-D: recurring requests (POST /api/v1/schedules) ----
+
+const period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "must be a month written YYYY-MM");
+const scheduleId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed schedule id");
+
+export const CreateScheduleBody = z.object({
+  recipient: base58Key,
+  amount: z.string().max(40),
+  token: token.default("USDC"),
+  payer_name: untrusted(TEXT_LIMITS.payer_name),
+  for: untrusted(TEXT_LIMITS.for),
+  requester_name: untrusted(TEXT_LIMITS.requester_name),
+  day_of_month: z.number().int().min(1, "day_of_month must be 1 to 28").max(28, "day_of_month must be 1 to 28 (every month has those days)"),
+  months: z.number().int().min(1).max(120).nullish(),
+  from_domain: z.string().min(1).max(253).nullish(),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
+
+export const ScheduleRequestRef = z.object({
+  period,
+  id: requestId,
+  link: z.url(),
+  status: z.string(),
+});
+
+export const ScheduleSummary = z.object({
+  id: scheduleId,
+  status: z.enum(["active", "ended", "stopped"]),
+  amount: decimal,
+  token,
+  payer_name: z.string().nullable(),
+  for: z.string().nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  requests_opened: z.number().int().nonnegative(),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  from_domain: z.string().nullable(),
+  last_error: z.string().nullable(),
+  requests: z.array(ScheduleRequestRef),
+});
+export type ScheduleSummary = z.infer<typeof ScheduleSummary>;
+
+export const ScheduleResponse = z.object({
+  id: scheduleId,
+  recipient: base58Key,
+  amount: decimal,
+  token,
+  payer_name: z.string().nullable(),
+  for: z.string().nullable(),
+  requester_name: z.string().nullable(),
+  day_of_month: z.number().int().min(1).max(28),
+  months: z.number().int().min(1).max(120).nullable(),
+  first_period: period,
+  status: z.enum(["active", "ended", "stopped"]),
+  next_request_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string()),
+  from_domain: domain.nullable(),
+  from_domain_verified_at: isoTime.nullable(),
+  /** This month's request when the schedule's day is today; null otherwise. */
+  first_request: z.object({
+    period,
+    id: requestId,
+    link: z.url(),
+    solana_pay_url: z.string().startsWith("solana:"),
+    qr_url: z.url(),
+    reference: base58Key,
+    x402_url: z.url().nullable(),
+    created_at: isoTime,
+    flags: z.array(z.string()),
+    from_domain: domain.nullable(),
+  }).nullable(),
+});
+export type ScheduleResponse = z.infer<typeof ScheduleResponse>;
