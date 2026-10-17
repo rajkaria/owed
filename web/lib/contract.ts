@@ -154,6 +154,71 @@ export const GroupResponse = z.object({
   shares: z.array(GroupShare).min(2).max(20),
 });
 export type GroupResponse = z.infer<typeof GroupResponse>;
+// ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
+
+export const INVOICE_LIMITS = { business_name: 60, client_name: 60, description: 80, invoice_number: 20, notes: 280, items: 20 } as const;
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date written YYYY-MM-DD");
+const domain = z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/).max(253);
+
+export const CreateInvoiceBody = z.object({
+  recipient: base58Key,
+  token: token.default("USDC"),
+  business_name: z.string().min(1).max(INVOICE_LIMITS.business_name * 4),
+  client_name: z.string().min(1).max(INVOICE_LIMITS.client_name * 4),
+  items: z
+    .array(
+      z.object({
+        description: z.string().min(1).max(INVOICE_LIMITS.description * 4),
+        quantity: z.string().max(20).default("1"),
+        unit_price: z.string().max(40),
+      }),
+    )
+    .min(1)
+    .max(INVOICE_LIMITS.items),
+  due_date: isoDate,
+  invoice_number: untrusted(INVOICE_LIMITS.invoice_number),
+  notes: untrusted(INVOICE_LIMITS.notes),
+  from_domain: z.string().min(1).max(253).nullish(),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type CreateInvoiceBody = z.infer<typeof CreateInvoiceBody>;
+
+export const InvoiceResponse = z.object({
+  id: requestId,
+  link: z.url(),
+  request_link: z.url(),
+  solana_pay_url: z.string().startsWith("solana:"),
+  qr_url: z.url(),
+  reference: base58Key,
+  x402_url: z.url().nullable(),
+  recipient: base58Key,
+  token,
+  business_name: z.string().max(INVOICE_LIMITS.business_name),
+  client_name: z.string().max(INVOICE_LIMITS.client_name),
+  invoice_number: z.string().max(INVOICE_LIMITS.invoice_number).nullable(),
+  notes: z.string().max(INVOICE_LIMITS.notes).nullable(),
+  issue_date: isoDate,
+  due_date: isoDate,
+  items: z
+    .array(
+      z.object({
+        description: z.string().max(INVOICE_LIMITS.description),
+        quantity: decimal,
+        unit_price: decimal,
+        amount: decimal,
+      }),
+    )
+    .min(1)
+    .max(INVOICE_LIMITS.items),
+  total: decimal,
+  status: z.enum(["open", "paid", "underpaid", "cancelled"]),
+  paid: PaidInfo.nullable(),
+  created_at: isoTime,
+  flags: z.array(z.string()),
+  from_domain: domain.nullable(),
+  from_domain_verified_at: isoTime.nullable(),
+});
+export type InvoiceResponse = z.infer<typeof InvoiceResponse>;
 
 export const ErrorCode = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 export type ErrorCode = z.infer<typeof ErrorCode>;

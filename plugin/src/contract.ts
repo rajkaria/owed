@@ -161,6 +161,62 @@ export const errorResSchema = z.object({
   error: z.object({ code: errorCodeSchema, message: z.string().max(500) }),
 });
 
+// ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
+// An invoice is one request for its total with the same id, so the request schemas above apply to it too.
+
+export const INVOICE_LIMITS = { business_name: 60, client_name: 60, description: 80, invoice_number: 20, notes: 280, items: 20 } as const;
+export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** A positive decimal with at most 4 places ("1.5" hours). */
+export const quantitySchema = z.string().max(20).regex(/^(0|[1-9][0-9]*)(\.[0-9]{1,4})?$/);
+
+export const createInvoiceReqSchema = z.object({
+  recipient: addressSchema,
+  token: tokenSchema,
+  business_name: z.string().min(1).max(INVOICE_LIMITS.business_name),
+  client_name: z.string().min(1).max(INVOICE_LIMITS.client_name),
+  items: z.array(z.object({
+    description: z.string().min(1).max(INVOICE_LIMITS.description),
+    quantity: quantitySchema.optional(),
+    unit_price: decimalSchema,
+  }).strict()).min(1).max(INVOICE_LIMITS.items),
+  due_date: isoDateSchema,
+  invoice_number: z.string().min(1).max(INVOICE_LIMITS.invoice_number).optional(),
+  notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional(),
+  from_domain: z.string().min(1).max(253).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const invoiceResSchema = z.object({
+  id: requestIdSchema,
+  link: httpsUrl,
+  request_link: httpsUrl,
+  solana_pay_url: solanaPayUrl,
+  qr_url: httpsUrl,
+  reference: addressSchema,
+  x402_url: httpsUrl.nullable().optional(),
+  recipient: addressSchema,
+  token: tokenSchema,
+  business_name: z.string().max(INVOICE_LIMITS.business_name),
+  client_name: z.string().max(INVOICE_LIMITS.client_name),
+  invoice_number: z.string().max(INVOICE_LIMITS.invoice_number).nullable(),
+  notes: z.string().max(INVOICE_LIMITS.notes).nullable(),
+  issue_date: isoDateSchema,
+  due_date: isoDateSchema,
+  items: z.array(z.object({
+    description: z.string().max(INVOICE_LIMITS.description),
+    quantity: quantitySchema,
+    unit_price: decimalSchema,
+    amount: decimalSchema,
+  })).min(1).max(INVOICE_LIMITS.items),
+  total: decimalSchema,
+  status: requestStatusSchema,
+  paid: paidInfoSchema.nullable().optional(),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
+});
+
 export type Token = z.infer<typeof tokenSchema>;
 export type RequestStatus = z.infer<typeof requestStatusSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
@@ -176,3 +232,5 @@ export type StatsRes = z.infer<typeof statsResSchema>;
 export type ErrorRes = z.infer<typeof errorResSchema>;
 export type CreateGroupReq = z.infer<typeof createGroupReqSchema>;
 export type GroupRes = z.infer<typeof groupResSchema>;
+export type CreateInvoiceReq = z.infer<typeof createInvoiceReqSchema>;
+export type InvoiceRes = z.infer<typeof invoiceResSchema>;

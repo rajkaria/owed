@@ -359,3 +359,98 @@ export const fixtureShapes = {
   "groups.create.res.json": "groupRes",
   "groups.get.res.json": "groupRes",
 };
+
+// ---------------------------------------------------------------------------------------------- invoices
+// Appended with Object.assign so this block merges cleanly next to other wave-2 shapes.
+// An invoice is one request (same id) for its total: the id hashes (recipient, token, total, reference).
+
+/** "2026-10-31" that is a real calendar date. */
+const isRealDate = (text) => {
+  const ms = Date.parse(`${text}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === text;
+};
+const invoiceDate = string({ max: 10, pattern: /^\d{4}-\d{2}-\d{2}$/, test: isRealDate, label: "a real date written YYYY-MM-DD" });
+const QUANTITY_DECIMALS = 4;
+const invoiceQuantity = string({
+  max: 20, label: "a positive quantity with at most 4 decimal places",
+  test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
+});
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+
+/** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
+export function invoiceLineAtomic(quantity, unitPrice, decimals) {
+  const scale = 10n ** BigInt(QUANTITY_DECIMALS);
+  const scaled = toAtomic(unitPrice, decimals) * toAtomic(quantity, QUANTITY_DECIMALS);
+  return scaled % scale === 0n ? scaled / scale : null;
+}
+
+/** Every line's quantity × unit price is a whole number of the token's atomic units. */
+function invoiceItemsFit(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  value.items.forEach((item, index) => {
+    try {
+      if (invoiceLineAtomic(item.quantity ?? "1", item.unit_price, decimals) === null) {
+        ctx.errors.push(`${path}.items[${index}]: ${item.quantity ?? "1"} × ${item.unit_price} is not a whole number of ${value.token} units`);
+      }
+    } catch (error) {
+      ctx.errors.push(`${path}.items[${index}].unit_price: ${error.message}`);
+    }
+  });
+}
+
+/** Lines multiply out and add up to the total, the payment link pays exactly the total, and the id hashes those terms. */
+function invoiceConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (!new URL(value.link).pathname.endsWith(`/i/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /i/${value.id}`);
+  if (!new URL(value.request_link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.request_link: does not end in /r/${value.id}`);
+  if (value.created_at.slice(0, 10) !== value.issue_date) ctx.errors.push(`${path}.issue_date: ${value.issue_date} is not the UTC date of created_at`);
+  if ((value.from_domain === null) !== (value.from_domain_verified_at === null)) ctx.errors.push(`${path}.from_domain: set without from_domain_verified_at, or the reverse`);
+  if ((value.status === "paid" || value.status === "underpaid") && !value.paid) ctx.errors.push(`${path}.paid: status is ${value.status} but paid is ${show(value.paid)}`);
+  if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
+  urlMatchesFields({ id: value.id, recipient: value.recipient, amount: value.total, token: value.token, reference: value.reference, solana_pay_url: value.solana_pay_url }, path, ctx);
+  if (decimals === undefined) return;
+  let total = 0n;
+  value.items.forEach((item, index) => {
+    const at = `${path}.items[${index}]`;
+    try {
+      const line = invoiceLineAtomic(item.quantity, item.unit_price, decimals);
+      if (line === null) return void ctx.errors.push(`${at}: ${item.quantity} × ${item.unit_price} is not a whole number of ${value.token} units`);
+      if (line !== toAtomic(item.amount, decimals)) ctx.errors.push(`${at}.amount: ${item.amount}, but ${item.quantity} × ${item.unit_price} = ${fromAtomic(line, decimals)}`);
+      total += line;
+    } catch (error) {
+      ctx.errors.push(`${at}: ${error.message}`);
+    }
+  });
+  try {
+    if (toAtomic(value.total, decimals) !== total) ctx.errors.push(`${path}.total: ${value.total} but the items add up to ${fromAtomic(total, decimals)}`);
+  } catch (error) {
+    ctx.errors.push(`${path}.total: ${error.message}`);
+  }
+}
+
+Object.assign(shapes, {
+  createInvoiceReq: object({
+    recipient: pubkey, token, business_name: string({ min: 1, max: 60 }), client_name: string({ min: 1, max: 60 }),
+    items: array(object({ description: string({ min: 1, max: 80 }), quantity: optional(invoiceQuantity), unit_price: positiveAmount }), { min: 1, max: 20 }),
+    due_date: invoiceDate, invoice_number: optional(string({ min: 1, max: 20 })), notes: optional(string({ min: 1, max: 280 })),
+    from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
+  }, invoiceItemsFit),
+  invoiceRes: object({
+    id, link: httpsUrl, request_link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
+    x402_url: optional(nullable(httpsUrl)), recipient: pubkey, token,
+    business_name: untrusted(60), client_name: untrusted(60), invoice_number: untrusted(20), notes: untrusted(280),
+    issue_date: invoiceDate, due_date: invoiceDate,
+    items: array(object({ description: untrusted(80), quantity: invoiceQuantity, unit_price: positiveAmount, amount: positiveAmount }), { min: 1, max: 20 }),
+    total: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"), paid: nullable(invoicePaid),
+    created_at: iso, flags: array(flag),
+    from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+    from_domain_verified_at: nullable(iso),
+  }, invoiceConsistent),
+});
+
+Object.assign(fixtureShapes, {
+  "invoices.create.req.json": "createInvoiceReq",
+  "invoices.create.res.json": "invoiceRes",
+  "invoices.get.res.json": "invoiceRes",
+});

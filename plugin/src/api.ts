@@ -3,12 +3,13 @@ import {
   createRequestResSchema, errorResSchema, getRequestResSchema, groupResSchema, statusRawResSchema, statusResSchema,
   type CreateGroupReq, type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type GroupRes,
   type StatusRawRes, type StatusRes,
+  invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 export const API_TIMEOUT_MS = 4000;
 
-/** Hosts whose /r/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
+/** Hosts whose /r/<id>, /i/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
 export const KNOWN_OWED_HOSTS = ["owed.link", "www.owed.link", "owed-omega.vercel.app"];
 
 /** `code` mirrors the API's error codes; network errors, timeouts, 5xx and off-contract replies are `upstream_unavailable`. */
@@ -46,6 +47,7 @@ export interface ApiClient {
   status(ids: string[]): Promise<StatusRes>;
   statusRaw(solanaPayUrl: string): Promise<StatusRawRes>;
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
+  createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
 }
 
 export interface ApiOptions {
@@ -100,5 +102,6 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     status: (ids) => call("POST", "/status", statusResSchema, { ids }),
     statusRaw: (solanaPayUrl) => call("POST", "/status-raw", statusRawResSchema, { solana_pay_url: solanaPayUrl }),
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
+    createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
   };
 }

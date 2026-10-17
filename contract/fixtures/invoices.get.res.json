@@ -1,0 +1,50 @@
+{
+  "id": "3ERgzxsixBMk",
+  "link": "https://owed-omega.vercel.app/i/3ERgzxsixBMk",
+  "request_link": "https://owed-omega.vercel.app/r/3ERgzxsixBMk",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=1&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=3Jyn6g5vZm4ne6UJy947yLtKEtK9TyqNzv6NiQyN39eq&label=Northwind%20Translation&message=Invoice%20NT-2026-017&memo=owed%3A3ERgzxsixBMk",
+  "qr_url": "https://owed-omega.vercel.app/api/qr/3ERgzxsixBMk.png",
+  "reference": "3Jyn6g5vZm4ne6UJy947yLtKEtK9TyqNzv6NiQyN39eq",
+  "x402_url": null,
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "invoice_number": "NT-2026-017",
+  "notes": "Thanks, Lena. Payment within 14 days, please.",
+  "issue_date": "2026-10-17",
+  "due_date": "2026-10-31",
+  "items": [
+    {
+      "description": "Translation, English to Hindi (pages)",
+      "quantity": "3",
+      "unit_price": "0.2",
+      "amount": "0.6"
+    },
+    {
+      "description": "Proofreading",
+      "quantity": "1",
+      "unit_price": "0.25",
+      "amount": "0.25"
+    },
+    {
+      "description": "Call to review terms (hours)",
+      "quantity": "1.5",
+      "unit_price": "0.1",
+      "amount": "0.15"
+    }
+  ],
+  "total": "1",
+  "status": "paid",
+  "paid": {
+    "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+    "payer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+    "amount": "1",
+    "at": "2026-10-17T05:20:41Z",
+    "rail": "solana_pay"
+  },
+  "created_at": "2026-10-17T05:00:00Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null
+}

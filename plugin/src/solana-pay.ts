@@ -112,7 +112,8 @@ function parseOwedUrl(text: string, hosts: string[]): ParsedLink {
     );
   }
   const path = url.pathname.replace(/\/+$/, "");
-  const request = /^\/r(?:\/([^/]*))?$/.exec(path);
+  // /r/<id> is a request's pay page; /i/<id> is an invoice, whose id is its payment request's id.
+  const request = /^\/[ri](?:\/([^/]*))?$/.exec(path);
   if (request) {
     const id = request[1] ?? "";
     if (!OWED_ID_RE.test(id)) throw new LinkError("That Owed link has an invalid request id.");

@@ -6,6 +6,7 @@ import type * as z from "zod/v4";
 import {
   createGroupReqSchema, createRequestReqSchema, createRequestResSchema, errorResSchema, getRequestResSchema, groupResSchema,
   statsResSchema, statusRawReqSchema, statusRawResSchema, statusReqSchema, statusResSchema,
+  createInvoiceReqSchema, invoiceResSchema,
 } from "../src/contract.ts";
 import { fixture } from "./helpers.ts";
 
@@ -22,6 +23,9 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "status-raw.res.json": statusRawResSchema,
   "status.req.json": statusReqSchema,
   "status.res.json": statusResSchema,
+  "invoices.create.req.json": createInvoiceReqSchema,
+  "invoices.create.res.json": invoiceResSchema,
+  "invoices.get.res.json": invoiceResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();
