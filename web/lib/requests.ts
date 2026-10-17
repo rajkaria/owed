@@ -31,9 +31,9 @@ export interface RequestRow {
   paidRail: "solana_pay" | "x402" | null;
   source: "plugin" | "web";
   createdAt: string;
-  // W2-H verified payee
-  fromDomain: string | null;
-  fromDomainVerifiedAt: string | null;
+  // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
+  fromDomain?: string | null;
+  fromDomainVerifiedAt?: string | null;
 }
 
 const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomic::text as amount_atomic, reference,
@@ -110,8 +110,8 @@ export function toPublic(row: RequestRow): PublicRequest {
         }
       : null,
     flags: row.flags,
-    from_domain: row.fromDomain,
-    from_domain_verified_at: row.fromDomainVerifiedAt,
+    from_domain: row.fromDomain ?? null,
+    from_domain_verified_at: row.fromDomainVerifiedAt ?? null,
   };
 }
 
