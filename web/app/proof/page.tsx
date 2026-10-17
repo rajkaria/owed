@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { connection } from "next/server";
+import { unstable_cache } from "next/cache";
 import { CheckIcon, ExternalIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
 import { SiteFooter, SiteHeader } from "@/components/marketing/chrome";
@@ -12,8 +12,12 @@ import { groupDigits } from "@/lib/view/money";
 import { loadProof, PROOF_LIMIT, type ProofPayment, type ProofSummary } from "./data";
 
 // Real mainnet payments made to or from the team's own wallets (requests.is_team, lib/team.ts).
-// Read on every request, so a payment shows up as soon as it is recorded; a failed read says it
-// failed, never an empty list that looks real.
+// Served from the cache and re-read in the background at most every 30 s. A failed re-read keeps the
+// last good page; only a build that can't reach the database renders the "couldn't be read" notice,
+// never an empty list that looks real.
+export const revalidate = 30;
+
+const cachedProof = unstable_cache(() => loadProof(), ["proof", "v1"], { revalidate: 30 });
 
 const TITLE = "Proof: real payments on Solana mainnet";
 const DESCRIPTION =
@@ -111,12 +115,19 @@ function Summary({ proof }: { proof: ProofSummary }) {
   );
 }
 
-export default async function ProofPage() {
-  await connection();
-  const proof = await loadProof().catch((e: unknown) => {
-    console.error("proof: could not read payments", e instanceof Error ? e.message : e);
+async function readProof(): Promise<ProofSummary | null> {
+  try {
+    return await cachedProof();
+  } catch (e) {
+    // At runtime, throwing makes Next keep serving the previous page instead of caching an error.
+    if (process.env.NEXT_PHASE !== "phase-production-build") throw e;
+    console.error("proof: could not read payments at build", e instanceof Error ? e.message : e);
     return null;
-  });
+  }
+}
+
+export default async function ProofPage() {
+  const proof = await readProof();
   const wallets = teamWallets();
 
   return (
