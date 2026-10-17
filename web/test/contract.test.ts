@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import type { ZodType } from "zod";
 import {
+  CreateInvoiceBody,
+  InvoiceResponse,
   CreateRequestBody,
   CreateRequestResponse,
   ErrorResponse,
@@ -26,6 +28,9 @@ const SCHEMAS: Record<string, ZodType> = {
   "status-raw.res.json": StatusRawResponse,
   "status.req.json": StatusBody,
   "status.res.json": StatusResponse,
+  "invoices.create.req.json": CreateInvoiceBody,
+  "invoices.create.res.json": InvoiceResponse,
+  "invoices.get.res.json": InvoiceResponse,
 };
 
 test("every contract fixture has a schema", () => {
