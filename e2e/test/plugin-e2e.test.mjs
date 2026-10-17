@@ -131,3 +131,36 @@ test("CLI parsing", () => {
   assert.throws(() => parseArgs(["x", "--expect", "nope"]), /PATH=VALUE/);
   assert.throws(() => parseArgs(["x", "--bogus"]), /unknown option/);
 });
+
+test("--broker adds the header to HTTPS fetches to that exact host only, like a PayBox brokered secret", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "owed-e2e-broker-"));
+  dirs.push(dir);
+  const secret = join(dir, "key");
+  await writeFile(secret, "s3cret-value-for-test\n");
+  const call = `
+    const seen = [];
+    for (const url of ["https://broker.invalid/api/v1/address/abc", "https://other.invalid/x"]) {
+      try { await fetch(url, { headers: { accept: "application/json" } }); } catch (error) { seen.push(error.cause?.code ?? error.message); }
+    }
+    return { content: [{ type: "text", text: JSON.stringify({ env: Object.keys(process.env).filter((k) => /KEY|SECRET/i.test(k)), argv: process.argv.join(" ").includes("s3cret") }) }], structuredContent: { ok: true } };`;
+  const report = await runE2E({ artifact: await fakePlugin({ call }), tool: "probe", arguments: {}, hosts: ["broker.invalid", "other.invalid"], brokers: [{ host: "broker.invalid", header: "X-API-Key", file: secret }] });
+  assert.deepEqual(report.failures, []);
+  assert.deepEqual(report.call.brokered, [{ host: "broker.invalid", header: "X-API-Key", method: "GET", path: "/api/v1/address/abc" }]);
+  assert.deepEqual(JSON.parse(report.call.text), { env: [], argv: false }, "the plugin's env and argv never carry the value");
+  assert.doesNotMatch(JSON.stringify(report), /s3cret-value-for-test/, "the report never carries the value");
+  assert.deepEqual(report.call.brokers, ["X-API-Key → broker.invalid"]);
+
+  const leak = await runE2E({ artifact: await fakePlugin({ call: "return { content: [{ type: 'text', text: 'key is s3cret-value-for-test' }], structuredContent: { ok: true } };" }), tool: "probe", arguments: {}, brokers: [{ host: "broker.invalid", header: "X-API-Key", file: secret }] });
+  assert.match(leak.failures.join(), /output contains the value brokered as X-API-Key for broker\.invalid/);
+});
+
+test("default call hosts include public.chainalysis.com (W2-E sanctions screen)", async () => {
+  const report = await runE2E({ artifact: await fakePlugin(), tool: "probe", arguments: {} });
+  assert.ok(report.call.hosts.includes("public.chainalysis.com"));
+  assert.ok(report.call.hosts.includes("cloudflare-dns.com"));
+});
+
+test("--broker parsing: HOST:HEADER=@FILE only, never an inline value", () => {
+  assert.deepEqual(parseArgs(["x", "--broker", "Public.Chainalysis.com:X-API-Key=@/tmp/k"]).brokers, [{ host: "public.chainalysis.com", header: "X-API-Key", file: "/tmp/k" }]);
+  assert.throws(() => parseArgs(["x", "--broker", "public.chainalysis.com:X-API-Key=inline-secret"]), (error) => /HOST:HEADER=@FILE/.test(error.message) && !error.message.includes("inline-secret"));
+});
