@@ -54,11 +54,35 @@ export function toErrorResponse(e: unknown): Response {
   return json({ error: { code: "upstream_unavailable", message: "internal error" } }, { status: 500 });
 }
 
-const MAX_BODY_BYTES = 16 * 1024;
+const MAX_BODY_CHARS = 16 * 1024;
+/** UTF-8 bound for MAX_BODY_CHARS (4 bytes per character at most): reading stops past it. */
+const MAX_BODY_BYTES = 4 * MAX_BODY_CHARS;
+const TOO_LARGE = "request body is too large";
+
+/** W2-E: stop reading once the body is over the bound, instead of buffering whatever was sent. */
+async function readCapped(req: Request): Promise<string> {
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw new ApiError("invalid_input", TOO_LARGE);
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new ApiError("invalid_input", TOO_LARGE);
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+}
 
 export async function readJson(req: Request): Promise<unknown> {
-  const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw new ApiError("invalid_input", "request body is too large");
+  const text = await readCapped(req);
+  if (text.length > MAX_BODY_CHARS) throw new ApiError("invalid_input", TOO_LARGE);
   try {
     return JSON.parse(text);
   } catch {

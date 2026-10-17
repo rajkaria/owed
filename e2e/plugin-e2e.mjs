@@ -7,7 +7,7 @@
 //
 //   node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-args | @file.json] [options]   (see --help)
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -25,6 +25,8 @@ const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 const RPC_HOSTS = ["solana-rpc.publicnode.com", "api.mainnet-beta.solana.com"];
 // W2-H verified payee: the plugin reads _owed TXT records over DNS-over-HTTPS itself (same list as the portal).
 const DOH_HOSTS = ["cloudflare-dns.com", "dns.google"];
+// W2-E sanctions screen: Chainalysis's API, with X-API-Key as a PayBox brokered header (see --broker).
+const SCREEN_HOSTS = ["public.chainalysis.com"];
 export const LIMITS = { budgetMs: 10_000, stdoutBytes: 256 * 1024, stderrBytes: 16 * 1024, artifactBytes: 10 * 1024 * 1024, contentItems: 128, toolPages: 16 };
 
 const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-args | @file.json] [options]
@@ -33,8 +35,12 @@ const USAGE = `usage: node e2e/plugin-e2e.mjs <dist/plugin.mjs> [tool] [json-arg
   --sample             call the tool and arguments in plugin/paybox-plugin.json
   --base-url URL       OWED_BASE_URL for the plugin (default: $OWED_BASE_URL, else unset → plugin default)
   --hosts LIST         hosts the call may reach over HTTPS, comma-separated, or "none" / "any"
-                       (default: the Owed host + ${[...RPC_HOSTS, ...DOH_HOSTS].join(", ")})
+                       (default: the Owed host + ${[...RPC_HOSTS, ...DOH_HOSTS, ...SCREEN_HOSTS].join(", ")})
   --down LIST          hosts to refuse as a simulated outage (not a failure), e.g. the Owed host for row 8
+  --broker H:NAME=@F   add header NAME to the plugin's HTTPS fetches to host H, its value read from file F, the way
+                       PayBox brokers a secret (repeatable). The value never enters the plugin's env, argv or this
+                       report, and the run fails if the tool's output contains it (PayBox withholds such output).
+                       e.g. --broker public.chainalysis.com:X-API-Key=@$HOME/.config/owed/chainalysis-api-key
   --no-guard           launch without the network guard or stack probe (pure PayBox launch)
   --env KEY=VALUE      extra plugin env var (repeatable)
   --budget-ms N        per-process budget (default ${LIMITS.budgetMs}, the PayBox limit)
@@ -106,9 +112,10 @@ function matches(actual, raw) {
 async function runOperation(artifact, operation, { env, guard, budgetMs, protocolVersion, version }) {
   const { withProcess } = await import(pathToFileURL(join(PLUGIN_DIR, "scripts/process.mjs")).href);
   const home = await mkdtemp(join(tmpdir(), "owed-e2e-"));
-  const query = guard && `policy=${guard.policy}&hosts=${encodeURIComponent(guard.hosts.join(","))}&down=${encodeURIComponent(guard.down.join(","))}`;
+  const query = guard && `policy=${guard.policy}&hosts=${encodeURIComponent(guard.hosts.join(","))}&down=${encodeURIComponent(guard.down.join(","))}`
+    + (guard.brokers?.length ? `&broker=${encodeURIComponent(JSON.stringify(guard.brokers.map(({ host, header, file }) => ({ host, header, file }))))}` : "");
   const args = guard ? ["--import", `${NET_GUARD.href}?${query}`, artifact] : [artifact];
-  const trace = { network: [], stack: null, stderr: "", stdoutBytes: 0, stderrBytes: 0, ms: 0 };
+  const trace = { network: [], brokered: [], stack: null, stderr: "", stdoutBytes: 0, stderrBytes: 0, ms: 0 };
   const started = performance.now();
   try {
     const message = await withProcess(process.execPath, args, {
@@ -127,6 +134,10 @@ async function runOperation(artifact, operation, { env, guard, budgetMs, protoco
         for (const line of lines) {
           if (line.startsWith("OWED_E2E_NET ")) {
             try { trace.network.push(JSON.parse(line.slice(13))); } catch { /* partial line from a killed process */ }
+            continue;
+          }
+          if (line.startsWith("OWED_E2E_BROKER ")) {
+            try { trace.brokered.push(JSON.parse(line.slice(16))); } catch { /* partial line from a killed process */ }
             continue;
           }
           if (line.startsWith("OWED_E2E_STACK ")) {
@@ -188,9 +199,11 @@ export async function runE2E(options) {
   const budgetMs = options.budgetMs ?? LIMITS.budgetMs;
   const env = { ...(options.baseUrl ? { OWED_BASE_URL: options.baseUrl } : {}), ...options.env };
   const ownHost = new URL(options.baseUrl ?? DEFAULT_BASE_URL).hostname;
-  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS, ...DOH_HOSTS];
+  const hosts = options.hosts ?? [ownHost, ...RPC_HOSTS, ...DOH_HOSTS, ...SCREEN_HOSTS];
   const down = options.down ?? [];
-  const callGuard = options.guard === false ? null : { policy: hosts === "none" || hosts === "any" ? hosts : "allow", hosts: Array.isArray(hosts) ? hosts : [], down };
+  const brokers = (options.brokers ?? []).map((b) => ({ ...b, value: readBrokerValue(b) }));
+  if (brokers.length && options.guard === false) throw new HarnessError("--broker needs the network guard (it adds the header); drop --no-guard", "usage");
+  const callGuard = options.guard === false ? null : { policy: hosts === "none" || hosts === "any" ? hosts : "allow", hosts: Array.isArray(hosts) ? hosts : [], down, brokers };
   const listGuard = options.guard === false ? null : { policy: "none", hosts: [], down: [] };
   const operationOptions = { env, budgetMs, protocolVersion: release.protocolVersion, version: release.version };
 
@@ -255,7 +268,7 @@ export async function runE2E(options) {
     }
     warn(`arguments do not match the input schema (sent anyway): ${problems}`);
   }
-  const call = { tool: tool.name, arguments: args, hosts: !callGuard || callGuard.policy === "any" ? "any" : callGuard.hosts, down };
+  const call = { tool: tool.name, arguments: args, hosts: !callGuard || callGuard.policy === "any" ? "any" : callGuard.hosts, down, brokers: brokers.map(({ host, header }) => `${header} → ${host}`) };
   report.call = call;
   let message;
   let trace;
@@ -269,8 +282,11 @@ export async function runE2E(options) {
     return finish(report);
   }
   const result = message.result;
+  // PayBox withholds any output that contains a brokered credential's value.
+  const output = JSON.stringify(message);
+  for (const b of brokers) if (b.value && (output.includes(b.value) || trace.stderr.includes(b.value))) fail(`the tool's output contains the value brokered as ${b.header} for ${b.host} (PayBox withholds such output)`);
   Object.assign(call, {
-    ms: trace.ms, network: trace.network, stderr: trace.stderr, stdoutBytes: trace.stdoutBytes,
+    ms: trace.ms, network: trace.network, brokered: trace.brokered, stderr: trace.stderr, stdoutBytes: trace.stdoutBytes,
     isError: result.isError === true, content: result.content, structuredContent: result.structuredContent,
   });
   for (const attempt of trace.network.filter((entry) => !entry.allowed && !entry.simulated)) {
@@ -314,6 +330,15 @@ export async function runE2E(options) {
   }
   for (const needle of options.expectTexts ?? []) if (!text.includes(needle)) fail(`text does not contain ${JSON.stringify(needle)}`);
   return finish(report);
+}
+
+/** --broker values come from files only, so they never sit in argv, shell history or the plugin's environment. */
+function readBrokerValue({ host, header, file }) {
+  let value;
+  try { value = readFileSync(file, "utf8").trim(); } catch { throw new HarnessError(`--broker ${host}:${header}: cannot read ${file}`, "usage"); }
+  if (!value) throw new HarnessError(`--broker ${host}:${header}: ${file} is empty`, "usage");
+  if (/[\r\n]/.test(value)) throw new HarnessError(`--broker ${host}:${header}: ${file} must hold one line`, "usage");
+  return value;
 }
 
 function finish(report) {
@@ -365,6 +390,13 @@ export function parseArgs(argv) {
       }
       case "--no-guard": options.guard = false; break;
       case "--down": options.down = take(++index, arg).split(",").map((host) => host.trim().toLowerCase()).filter(Boolean); break;
+      case "--broker": {
+        const value = take(++index, arg);
+        const match = /^([a-z0-9.-]+):([A-Za-z0-9-]+)=@(.+)$/i.exec(value);
+        if (!match) throw new HarnessError(`--broker needs HOST:HEADER=@FILE (the value is read from a file, never given inline), got ${value.replace(/=.*/, "=…")}`, "usage");
+        (options.brokers ??= []).push({ host: match[1].toLowerCase(), header: match[2], file: match[3] });
+        break;
+      }
       case "--env": {
         const [key, ...rest] = take(++index, arg).split("=");
         options.env[key] = rest.join("=");
@@ -425,6 +457,7 @@ function formatReport(report) {
   if (call) {
     out.push(`tools/call ${call.tool} · ${call.ms ?? "?"} ms · hosts: ${Array.isArray(call.hosts) ? call.hosts.join(", ") || "none" : call.hosts}`);
     for (const attempt of call.network ?? []) out.push(`  network ${attempt.allowed ? "ok     " : attempt.simulated ? "DOWN   " : "BLOCKED"} ${attempt.host ?? attempt.path}:${attempt.port ?? ""}${attempt.tls ? " tls" : ""}${attempt.reason ? ` (${attempt.reason})` : ""}`);
+    for (const b of call.brokered ?? []) out.push(`  broker  ${b.header} added to ${b.method} https://${b.host}${b.path}`);
     if (call.text) out.push(...call.text.split("\n").map((line) => `  text  ${line}`));
     if (call.structuredContent !== undefined) out.push(`  structuredContent ${JSON.stringify(call.structuredContent, null, 2).replace(/\n/g, "\n  ")}`);
     if (call.proposal) {

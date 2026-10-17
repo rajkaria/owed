@@ -10,7 +10,10 @@ import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
 // W2-H verified payee start
 import { domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
 // W2-H verified payee end
-import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
+// W2-E sanctions screen start
+import { SCREENING_UNAVAILABLE_LINE } from "../screen.js";
+// W2-E sanctions screen end
+import { brandFlags, cautionLine, quote, shortAddress, withoutOwnBrandFlags } from "../text.js";
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), or the text of a payment QR code."),
@@ -46,6 +49,9 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  "It also screens the recipient against sanctions lists (Chainalysis) and refuses a listed address before proposing anything.",
+  // W2-E sanctions screen end
 ].join(" ");
 
 interface Resolved {
@@ -139,6 +145,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const payeeCheck = payeeForPayment(resolved.fromDomain, request.recipient, args.allow_unverified === true, deps,
     Math.min(PAYEE_BUDGET_MS, PAY_BUDGET_MS - (deps.now() - started)));
   // W2-H verified payee end
+  // W2-E sanctions screen start
+  // Beside the balance and DNS checks (≤2.5 s), so it adds no time; a listed recipient is refused before any proposal.
+  const screenCheck = deps.screenRecipient(request.recipient, deps);
+  // W2-E sanctions screen end
   let readiness;
   try {
     readiness = await within(
@@ -148,6 +158,10 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   } catch {
     readiness = null;
   }
+  // W2-E sanctions screen start
+  const screening = await screenCheck;
+  if (!screening.ok) return refusal(`${screening.message} Nothing was sent.`);
+  // W2-E sanctions screen end
   // W2-H verified payee start
   const payee = await payeeCheck;
   if (!payee.ok) return refusal(payee.refuse);
@@ -179,7 +193,11 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   }
 
   // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
-  const caution = cautionLine([...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])]);
+  // W2-E: a brand word is cleared only by a domain this call just verified over DNS (payee.lead is set only then).
+  const caution = cautionLine(withoutOwnBrandFlags(
+    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain)])],
+    payee.lead !== null ? resolved.fromDomain : null,
+  ));
   // W2-H verified payee end
   const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(resolved.name, 40);
@@ -194,7 +212,11 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
   // W2-H verified payee start
-  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines].filter(Boolean).join("\n");
+  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines,
+    // W2-E sanctions screen start
+    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
+    // W2-E sanctions screen end
+  ].filter(Boolean).join("\n");
   // W2-H verified payee end
   return { content: [{ type: "text" as const, text }], structuredContent };
 }

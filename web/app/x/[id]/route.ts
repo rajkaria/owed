@@ -1,5 +1,6 @@
 import { baseUrl, errorResponse, toErrorResponse } from "@/lib/http";
 import { isRequestId } from "@/lib/ids";
+import { clientIp, takeX402Attempt } from "@/lib/ratelimit";
 import { getRequest, settleFromChain, type RequestRow } from "@/lib/requests";
 import { waitForSettlement } from "@/lib/x402/chain";
 import { makeFacilitator } from "@/lib/x402/facilitator";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
 // Settlement submits a transaction and waits for the chain; keep well under Vercel's limit.
 export const maxDuration = 60;
 
-function deps(): X402Deps {
+function deps(req: Request): X402Deps {
   return {
     load: getRequest,
     async refresh(row: RequestRow, budgetMs: number) {
@@ -26,6 +27,7 @@ function deps(): X402Deps {
     store,
     waitForSettlement: (signature, t, deadline) => waitForSettlement(signature, t, { deadline }),
     now: Date.now,
+    limitAttempt: (requestId) => takeX402Attempt(requestId, clientIp(req)), // W2-E
   };
 }
 
@@ -33,7 +35,7 @@ async function handle(req: Request, ctx: RouteContext<"/x/[id]">): Promise<Respo
   try {
     const { id } = await ctx.params;
     if (!isRequestId(id)) return errorResponse("invalid_input", "id must be a 12-character Owed id");
-    return await handleX402(req, id, baseUrl(req), deps());
+    return await handleX402(req, id, baseUrl(req), deps(req));
   } catch (e) {
     return toErrorResponse(e);
   }
