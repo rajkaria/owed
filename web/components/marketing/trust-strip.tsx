@@ -7,7 +7,7 @@ import { Container } from "./ui";
 const ITEMS: { icon: ReactNode; label: string; detail: string }[] = [
   { icon: <ChatIcon />, label: "Claude", detail: "as an MCP connector" },
   { icon: <ChatIcon />, label: "ChatGPT", detail: "as an MCP connector" },
-  { icon: <WalletIcon />, label: "Phantom, Solflare, Backpack", detail: "and any Solana Pay wallet" },
+  { icon: <WalletIcon />, label: "Any Solana Pay wallet", detail: "from the link or the QR code" },
   { icon: <AgentIcon />, label: "PayBox agents", detail: "pay a link with a passkey" },
   { icon: <QrIcon />, label: "A QR code", detail: "on every pay page" },
 ];

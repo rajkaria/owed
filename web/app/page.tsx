@@ -47,7 +47,7 @@ const STEPS = [
     title: "They pay from any wallet",
     body: (
       <>
-        Priya opens the link and pays from a Solana wallet such as Phantom, or asks her own PayBox agent to pay it. She
+        Priya opens the link and pays from a Solana wallet, or asks her own PayBox agent to pay it. She
         doesn&apos;t need an Owed account, and the money goes straight to your wallet.
       </>
     ),
