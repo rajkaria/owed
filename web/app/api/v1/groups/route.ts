@@ -4,7 +4,7 @@ import { createGroup, GROUP_TEXT_LIMITS, planShares, toPublicGroup } from "@/lib
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { requireVerifiedDomain } from "@/lib/payee";
-import { takeCreateSlot } from "@/lib/ratelimit";
+import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { brandFlags, sanitizeText } from "@/lib/safety";
 
 export const runtime = "nodejs";
@@ -43,21 +43,12 @@ export async function POST(req: Request): Promise<Response> {
 
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // createGroup stores it on the group and on every share.
+    // W2-E: DNS lookups are capped per client IP and per domain.
+    if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
-    for (let i = 0; i < shares.length; i++) {
-      const slot = await takeCreateSlot(body.recipient);
-      if (!slot.allowed) {
-        throw new ApiError(
-          "rate_limited",
-          slot.scope === "recipient"
-            ? "too many requests for this recipient in the last hour, try again later"
-            : "Owed is handling too many new requests right now, try again later",
-          { "Retry-After": String(slot.retryAfterSeconds ?? 60) },
-        );
-      }
-    }
+    for (let i = 0; i < shares.length; i++) await requireCreateSlot(body.recipient);
 
     const created = await createGroup({
       recipient: body.recipient,

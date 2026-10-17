@@ -3,7 +3,7 @@ import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { requireVerifiedDomain } from "@/lib/payee";
-import { takeCreateSlot } from "@/lib/ratelimit";
+import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
 import { x402UrlFor } from "@/lib/x402/url";
@@ -31,18 +31,11 @@ export async function POST(req: Request): Promise<Response> {
 
     const flags = brandFlags([body.payer_name, body.for, body.note, body.requester_name]);
 
-    const slot = await takeCreateSlot(body.recipient);
-    if (!slot.allowed) {
-      throw new ApiError(
-        "rate_limited",
-        slot.scope === "recipient"
-          ? "too many requests for this recipient in the last hour, try again later"
-          : "Owed is handling too many new requests right now, try again later",
-        { "Retry-After": String(slot.retryAfterSeconds ?? 60) },
-      );
-    }
+    await requireCreateSlot(body.recipient);
 
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
+    // W2-E: DNS lookups are capped per client IP and per domain.
+    if (body.from_domain) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
 
     const row = await createRequest({

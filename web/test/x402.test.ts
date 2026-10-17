@@ -575,3 +575,24 @@ test("findLandedSettlement finds a real PayAI settlement on the recipient's USDC
     globalThis.fetch = real;
   }
 });
+
+test("handler (W2-E): payments that reach the facilitator are capped; over the cap → 429 with Retry-After and CORS, no verify/settle", async () => {
+  const w = world();
+  const asked: string[] = [];
+  let allowed = 2;
+  w.deps.limitAttempt = async (id) => { asked.push(id); return allowed-- > 0 ? { allowed: true } : { allowed: false, retryAfterSeconds: 321 }; };
+  // An unpaid GET and a tampered payment never reach the limiter (nothing reaches the facilitator).
+  await handleX402(req(), ID, BASE, w.deps);
+  await handleX402(req({ "payment-signature": payments.headers.tamperedAcceptedAmount }), ID, BASE, w.deps);
+  assert.deepEqual(asked, []);
+  w.verifyAnswer = { isValid: false, invalidReason: "insufficient_funds" };
+  for (let i = 0; i < 2; i++) assert.equal((await handleX402(req({ "payment-signature": payments.headers.honestV2 }), ID, BASE, w.deps)).status, 402);
+  const before = facilitatorMoneyCalls(w).length;
+  const res = await handleX402(req({ "payment-signature": payments.headers.honestV2 }), ID, BASE, w.deps);
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get("retry-after"), "321");
+  assert.equal(res.headers.get("access-control-allow-origin"), "*");
+  assert.deepEqual(await res.json(), { error: { code: "rate_limited", message: "too many payment attempts for this request, try again shortly" } });
+  assert.equal(facilitatorMoneyCalls(w).length, before, "no verify or settle once capped");
+  assert.deepEqual(asked, [ID, ID, ID]);
+});

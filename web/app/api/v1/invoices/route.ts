@@ -4,7 +4,7 @@ import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { createInvoice, prepareInvoice, toPublicInvoice } from "@/lib/invoices";
 import { AmountError } from "@/lib/money";
 import { requireVerifiedDomain } from "@/lib/payee";
-import { takeCreateSlot } from "@/lib/ratelimit";
+import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -38,18 +38,11 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // Verified payee (W2-H): the domain must publish this recipient in DNS now; stored on the invoice and its request.
+    // W2-E: DNS lookups are capped per client IP and per domain.
+    if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
 
-    const slot = await takeCreateSlot(body.recipient);
-    if (!slot.allowed) {
-      throw new ApiError(
-        "rate_limited",
-        slot.scope === "recipient"
-          ? "too many requests for this recipient in the last hour, try again later"
-          : "Owed is handling too many new requests right now, try again later",
-        { "Retry-After": String(slot.retryAfterSeconds ?? 60) },
-      );
-    }
+    await requireCreateSlot(body.recipient);
 
     const created = await createInvoice({ ...input, fromDomain }, now);
     const res: InvoiceResponse = toPublicInvoice(created, baseUrl(req));
