@@ -9,7 +9,7 @@ import { LedgerResponse } from "@/lib/contract";
 import { requestIdFor } from "@/lib/ids";
 import { createGroup } from "@/lib/groups";
 import { createInvoice } from "@/lib/invoices";
-import { getLedger, LEDGER_MAX_ROWS } from "@/lib/ledger";
+import { brandWords, getLedger, LEDGER_CAUTION, LEDGER_MAX_ROWS, LEDGER_TOTALS_NOTE } from "@/lib/ledger";
 import { parseJsonExact } from "@/lib/solana";
 import { isoSeconds, ledgerPrefix, spendOnce, checkSignedMessage, SIGNATURES_PER_HOUR } from "@/lib/verify-signature";
 
@@ -320,4 +320,19 @@ it("split shares and invoices are listed as such, on the configured base, with t
     group_title: null, group_link: null, invoice_number: null, due_date: null, from_domain: null,
   });
   assert.deepEqual(ledger.totals, [{ token: "USDC", outstanding: "32.5", received_30d: "0", open_count: 4, paid_count: 0 }]);
+});
+
+it("QA-20: every ledger says anyone can add rows to it, and carries each row's brand flags", async () => {
+  // A stranger needs no signature to ask this wallet to be paid; their row lands in its ledger.
+  const stranger = await insert({ amountAtomic: 5_000_000_000n, payerName: "Priya", forText: "IRS penalty, call +1 555 0100" });
+  await pg.query("update requests set flags = '{brand_word:irs}' where id = $1", [stranger]);
+  const res = await post(signedBody());
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  const ledger = LedgerResponse.parse(res.json);
+  assert.equal(ledger.caution, LEDGER_CAUTION);
+  assert.deepEqual(ledger.open.map((e) => [e.id, e.flags]), [[stranger, ["brand_word:irs"]]]);
+  assert.deepEqual(brandWords(ledger.open[0].flags), ["irs"]);
+  // The plugin shows the same words (it can't import web code).
+  const plugin = readFileSync(new URL("../plugin/src/tools/who_owes_me.ts", WEB), "utf8");
+  for (const text of [LEDGER_CAUTION, LEDGER_TOTALS_NOTE]) assert.ok(plugin.includes(`"${text}"`), `plugin is missing: ${text}`);
 });

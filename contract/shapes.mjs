@@ -320,6 +320,7 @@ const ledgerEntry = object({
   group_id: nullable(string({ max: 40 })), group_title: untrusted(60), group_link: nullable(httpsUrl),
   invoice_number: untrusted(20), due_date: nullable(string({ pattern: /^\d{4}-\d{2}-\d{2}$/, label: "a YYYY-MM-DD date" })),
   from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
+  flags: array(flag, { max: 32 }),
 }, (value, path, ctx) => {
   decimalsFit("amount")(value, path, ctx);
   // Invoices are paid on their invoice page; requests and split shares on their own pay page.
@@ -427,7 +428,9 @@ export const shapes = {
   errorRes: object({ error: object({ code: oneOf(...ERROR_CODES), message: string({ min: 1, max: 500 }) }) }),
   ledgerReq: object({ recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) }, ledgerSigned),
   ledgerRes: object({
-    recipient: pubkey, generated_at: iso, chain_checked: oneOf(true, false),
+    // QA-20: the ledger always says its rows may come from anyone (web/lib/ledger.ts LEDGER_CAUTION).
+    recipient: pubkey, caution: string({ max: 400, pattern: /^Anyone can create a request that pays your wallet/, label: "the ledger caution" }),
+    generated_at: iso, chain_checked: oneOf(true, false),
     open: array(ledgerEntry, { max: 100 }), paid_recently: array(ledgerEntry, { max: 100 }),
     totals: array(totalsEntry, { max: 2 }), truncated: oneOf(true, false),
   }, (value, path, ctx) => {

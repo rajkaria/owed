@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { inputSchema, outputSchema, writeReminder, type ReminderOutput } from "../src/tools/write_reminder.ts";
+import { inputSchema, outputSchema, REMINDER_CAUTION as CAUTION, writeReminder, type ReminderOutput } from "../src/tools/write_reminder.ts";
 import { fixture, json, makeDeps, SENDER, SIGNATURE, textOf, type Route } from "./helpers.ts";
 import { dohFixture, dohRoutes } from "./payee-helpers.ts";
 
@@ -41,7 +41,7 @@ test("defaults: a friendly SMS with the link and how long it has waited", async 
   assert.equal(o.text, `Hi Priya, just a friendly reminder about the 15 USDC for "dinner" from 3 days ago. Pay here: ${LINK} Thanks! – Raj`);
   assert.deepEqual({ ...o, text: undefined }, {
     status: "open", kind: "single", text: undefined, tone: "friendly", channel: "sms", token: "USDC", id: "JArQ6g9JvoWr", days_outstanding: 3,
-    amount_due: "15", link: LINK,
+    amount_due: "15", link: LINK, caution: CAUTION,
   });
   assert.equal(text.split("\n")[0], "Still open after 3 days: 15 USDC. Reminder (friendly, sms) for the user to send:");
 });
@@ -76,7 +76,7 @@ test("email has a subject per tone and a signed-off body", async () => {
   assert.equal(formal.subject, 'Payment reminder: 15 USDC for "dinner", requested 17 October 2026');
   assert.match(formal.text!, /^Dear Priya,\n\nThis is a reminder that payment of 15 USDC/);
   assert.match(formal.text!, /Kind regards,\nRaj$/);
-  assert.match(textOf((await remind({ channel: "email" })).result), /^Still open after 3 days: 15 USDC\. Reminder \(friendly, email\) for the user to send:\nSubject: Quick reminder/);
+  assert.match(textOf((await remind({ channel: "email" })).result), /^Still open after 3 days: 15 USDC\. Reminder \(friendly, email\) for the user to send:\nBefore sending: anyone can create a request that pays your wallet, and Owed can't tell whether you made this one\. Check the name and amount\.\nSubject: Quick reminder/);
 });
 
 test("every tone and channel names the amount and carries the link", async () => {
@@ -196,6 +196,7 @@ test("a split bill's board link: one message for the group naming who still owes
       { name: "Sam", amount_due: "0.5", link: `${BASE}/r/3KXqsVYirEes` },
       { name: "Alex", amount_due: "0.5", link: `${BASE}/r/KrAMfU42kuuZ` },
     ],
+    caution: CAUTION,
   });
   assert.equal(o.text, [
     'Hi all, a friendly reminder about "Pizza night" from 2 days ago: 1 of 3 has paid. Still to pay: Sam (0.5 USDC), Alex (0.5 USDC).',
@@ -234,7 +235,7 @@ test("an invoice link: number, due date and how late it is, linking the invoice 
   assert.deepEqual({ ...o, text: undefined }, {
     status: "open", kind: "invoice", text: undefined, tone: "formal", channel: "email", token: "USDC", id: "3ERgzxsixBMk",
     days_outstanding: 17, due_date: "2026-10-31", days_overdue: 3, amount_due: "1", link: `${BASE}/i/3ERgzxsixBMk`,
-    subject: "Payment reminder: invoice NT-2026-017, 1 USDC, due 31 October 2026",
+    subject: "Payment reminder: invoice NT-2026-017, 1 USDC, due 31 October 2026", caution: CAUTION,
   });
   assert.equal(o.text, [
     "Dear Lena,",
@@ -278,7 +279,7 @@ test("a request from a verified domain: DNS checked by the plugin, then the remi
   const o = out(result);
   assert.equal(o.from_domain, "getowed.xyz");
   assert.equal(o.text, `Hi Priya, just a friendly reminder about the 15 USDC for "dinner" from 3 days ago. Pay here: ${LINK} The link pays getowed.xyz (verified by DNS). Thanks! – Raj`);
-  assert.equal(text.split("\n")[1], "getowed.xyz still publishes this wallet (checked over DNS just now), so the reminder names it.");
+  assert.deepEqual(text.split("\n").slice(1, 3), [CAUTION, "getowed.xyz still publishes this wallet (checked over DNS just now), so the reminder names it."]);
   assert.ok(d.rec.calls.some((c) => c.url.startsWith("https://cloudflare-dns.com/dns-query?name=_owed.getowed.xyz")));
   // Already paid: no DNS lookup at all.
   const paid = routed({ "GET /api/v1/requests/JArQ6g9JvoWr": () => json(200, { ...paidFixture, from_domain: "getowed.xyz" }), ...dohRoutes(published) });
@@ -305,4 +306,26 @@ test("DNS down: the reminder is written without naming the domain, and says why"
   assert.equal("from_domain" in o, false);
   assert.ok(!o.text!.includes("getowed.xyz"));
   assert.match(text, /DNS couldn't be checked just now, so the reminder doesn't name getowed\.xyz\./);
+});
+
+test("QA-20: a request that name-drops a brand scams use gets no draft; anything else carries the caution", async () => {
+  const refusedText = (r: Awaited<ReturnType<typeof writeReminder>>) => {
+    assert.equal((r as { isError?: boolean }).isError, true, "expected a refusal");
+    return textOf(r);
+  };
+  // A stranger's request to the user's wallet, flagged by the server.
+  const irs = { ...openFixture, amount: "5000", payer_name: "Priya", for: "IRS penalty, call +1 555 0100", flags: ["brand_word:irs"] };
+  const t = refusedText((await remind({}, deps(irs))).result);
+  assert.match(t, /^No reminder drafted: this request mentions "IRS", a word scams use to look official/);
+  assert.match(t, /anyone can create a request that pays your wallet/);
+  // Flags are re-derived here too, so an unflagged row with a brand word is refused the same way.
+  assert.match(refusedText((await remind({}, deps({ ...openFixture, for: "PayBox refund", flags: [] }))).result), /mentions "PayBox", "refund"/);
+  // A share name on a board, and a raw Solana Pay link's message.
+  const board = { ...groupFixture, shares: [groupFixture.shares[0], groupFixture.shares[1], { ...groupFixture.shares[2], name: "Coinbase support" }] };
+  assert.match(refusedText((await call(`${BASE}/g/TompKg61uDGV`, {}, routed({ "GET /api/v1/groups/TompKg61uDGV": () => json(200, board) }))).result), /this split bill mentions "Coinbase"/);
+  const raw = /[?&]message=/.test(rawUrl) ? rawUrl.replace(/([?&]message=)[^&]*/, "$1Tax%20office%20fine") : `${rawUrl}&message=Tax%20office%20fine`;
+  const rawDeps = routed({ "POST /api/v1/status-raw": () => json(200, { status: "open", amount_requested: "1", token: "USDC" }) });
+  assert.match(refusedText((await call(raw, {}, rawDeps)).result), /this request mentions "tax office"/);
+  // Paid stays "nothing to chase", flagged or not.
+  assert.equal(out((await remind({}, deps({ ...paidFixture, flags: ["brand_word:irs"] }))).result).text, null);
 });

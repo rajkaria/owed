@@ -254,10 +254,12 @@ const LedgerEntry = z.object({
   invoice_number: z.string().nullable(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
   from_domain: z.string().nullable(),
+  flags: z.array(z.string()),
 });
 
 export const LedgerResponse = z.object({
   recipient: base58Key,
+  caution: z.string(),
   generated_at: isoTime,
   chain_checked: z.boolean(),
   open: z.array(LedgerEntry),
