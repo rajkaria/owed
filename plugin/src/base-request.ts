@@ -2,7 +2,7 @@ import { ApiError } from "./api.js";
 import type { CreateRequestReq, CreateRequestRes, GetRequestRes } from "./contract.js";
 import { callContext, errorText, refusal, type CallContext, type Deps } from "./deps.js";
 import { BASE_CAIP2, BASE_USDC, eip681Transfer, isHexAddress, parseEvmAddress, sameEvmAddress } from "./evm.js";
-import { checkFromDomain, PAYEE_BUDGET_MS, payeeForPayment } from "./payee.js";
+import { checkFromDomain, domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } from "./payee.js";
 import { proposeX402 } from "./paybox.js";
 import { idMatchesTerms, VERIFIED_ID_LENGTH } from "./request-id.js";
 import { brandFlags, cautionLine, clean, quote, shortAddress } from "./text.js";
@@ -256,7 +256,8 @@ export async function payBaseRequest(rq: GetRequestRes, id: string, args: BasePa
   } catch (error) {
     return refusal(`Couldn't build the x402 payment: ${errorText(error, "unknown error")}. ${fromWallet}.`);
   }
-  const caution = cautionLine([...new Set([...rq.flags, ...brandFlags(rq.requester_name, rq.for, rq.note)])]);
+  // Brand words in the requester's text or in the claimed domain are a caution, as on Solana (QA-02).
+  const caution = cautionLine([...new Set([...rq.flags, ...brandFlags(rq.requester_name, rq.for, rq.note), ...domainBrandFlags(rq.from_domain)])]);
   const notes = [rq.for, rq.note].map((n) => quote(n, 140)).filter(Boolean);
   const name = quote(rq.requester_name, 40);
   const preview = [
@@ -266,6 +267,6 @@ export async function payBaseRequest(rq: GetRequestRes, id: string, args: BasePa
     `PayBox pays from your Base wallet, which needs ${amount} USDC on Base; the x402 facilitator pays the gas.`,
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
-  const text = [caution, preview, `Recipient: ${recipient} (Base)`, ...payee.lines].filter(Boolean).join("\n");
+  const text = [caution, payee.caution, preview, `Recipient: ${recipient} (Base)`, ...payee.lines].filter(Boolean).join("\n");
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
