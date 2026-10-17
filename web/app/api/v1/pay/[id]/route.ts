@@ -1,7 +1,9 @@
-import { baseUrl, readJson } from "@/lib/http";
+import { ApiError, baseUrl, readJson } from "@/lib/http";
+import { fromAtomic } from "@/lib/money";
 import { isRequestId } from "@/lib/ids";
 import { buildRequestTx, payerKey, PayTxError } from "@/lib/pay-tx";
 import { getRequest, isBaseRow, settleFromChain, type RequestRow } from "@/lib/requests";
+import { requireNotSanctioned } from "@/lib/sanctions";
 import { rpcBatch } from "@/lib/solana";
 
 export const runtime = "nodejs";
@@ -13,7 +15,7 @@ export const runtime = "nodejs";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept, Accept-Encoding",
+  "Access-Control-Allow-Headers": "Content-Type, Accept",
   "Cache-Control": "no-store",
 };
 
@@ -53,6 +55,13 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/pay/[id]">):
     let row = await getRequest(id);
     if (!row) return refuse(404, "not_found", "No Owed request with this id.");
     if (isBaseRow(row)) return refuse(400, "invalid_input", "This request is paid on Base, not Solana.");
+    // W2-E: never hand out a transaction that pays an address on OFAC's SDN list.
+    try {
+      requireNotSanctioned(row.recipient);
+    } catch (e) {
+      if (e instanceof ApiError) return refuse(403, e.code, e.message);
+      throw e;
+    }
     // Never hand out a transaction for something that's already been paid.
     try {
       [row] = await settleFromChain([row], { deadline: Date.now() + 1500, timeoutMs: 1500 });
@@ -74,7 +83,10 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/pay/[id]">):
     } catch (e) {
       return refuse(400, "invalid_input", e instanceof PayTxError ? e.message : "This payment couldn't be built.");
     }
-    return Response.json({ transaction, message: `Owed request ${row.id}. The money goes straight to the recipient.` }, { headers: CORS });
+    // Shown by the wallet as Owed's words, so never requester-written text: the verified payee domain or the address.
+    const who = row.fromDomain && row.fromDomainVerifiedAt ? row.fromDomain : `${row.recipient.slice(0, 4)}…${row.recipient.slice(-4)}`;
+    const message = `Pay ${fromAtomic(row.amountAtomic, row.token)} ${row.token} to ${who}`;
+    return Response.json({ transaction, message }, { headers: CORS });
   } catch (e) {
     console.error("transaction request failed", e);
     return refuse(503, "upstream_unavailable", "Owed couldn't prepare this payment. Try again in a moment.");
