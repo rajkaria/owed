@@ -12,6 +12,7 @@ import {
   headline,
   modelFromRequest,
   modelFromTransfer,
+  pageDescription,
   pageTitle,
   pickStatusResult,
   stateFromStatus,
@@ -169,10 +170,19 @@ test("hosted model from the canonical paid request", () => {
   assert.equal(m.payerName, "Priya");
   assert.equal(m.forText, "dinner");
   assert.equal(m.note, "Thanks for coming!");
-  assert.deepEqual(headline(m), { lead: "Raj is asking Priya for", amount: "15 USDC" });
+  assert.deepEqual(headline(m), {
+    lead: "Raj is asking Priya for",
+    past: "Raj asked Priya for",
+    amount: "15 USDC",
+  });
+  assert.equal(m.claimedName, null);
   assert.equal(m.shareLink, "https://owed.link/r/7Gh2kQpXa9");
   assert.equal(m.agentPrompt, "Use the Owed plugin in PayBox to pay https://owed.link/r/7Gh2kQpXa9");
   assert.equal(pageTitle(m), "Raj is asking you for 15 USDC");
+  assert.equal(
+    pageDescription(m),
+    "15 USDC for \u201cdinner\u201d. Pay with any Solana wallet, or with your AI agent in PayBox.",
+  );
   assert.deepEqual(m.poll, { endpoint: "/api/v1/status", id: "7Gh2kQpXa9" });
   assert.deepEqual(m.initial, {
     status: "paid",
@@ -233,6 +243,20 @@ test("brand words come from API flags and from the text itself", () => {
   );
   assert.deepEqual(flagged.brandWords, ["MoonPay"]);
   assert.equal(pageTitle(flagged), "Payment request for 15 USDC");
+  assert.equal(pageDescription(flagged), "15 USDC. Pay with any Solana wallet, or with your AI agent in PayBox.");
+  // A flagged name never headlines the page; it shows only as quoted text.
+  assert.equal(flagged.asker, "FN6G…cbvs");
+  assert.equal(flagged.askerIsAddress, true);
+  assert.equal(flagged.claimedName, "MoonPay Support");
+  assert.equal(headline(flagged).lead, "FN6G…cbvs is asking Priya for");
+  const label = parseTransferRequest(`solana:${RECIPIENT}?amount=1&label=PayBox%20Refunds`);
+  assert.ok(label.ok);
+  if (label.ok) {
+    const t = modelFromTransfer(label.value, "https://owed.link");
+    assert.equal(t.asker, "FN6G…cbvs");
+    assert.equal(t.claimedName, "PayBox Refunds");
+    assert.deepEqual(t.brandWords, ["PayBox"]);
+  }
 });
 
 test("status results map to live states; unknown results change nothing", () => {
@@ -268,6 +292,7 @@ test("stateless model from a raw Solana Pay link", () => {
   assert.equal(m.agentPrompt, `Use the Owed plugin in PayBox to pay ${created.solana_pay_url}`);
   assert.equal(m.shareLink, `https://owed.link/p?u=${encodeURIComponent(created.solana_pay_url)}`);
   assert.deepEqual(m.poll, { endpoint: "/api/v1/status-raw", solanaPayUrl: created.solana_pay_url });
+  assert.equal(headline({ ...m, amount: null }).lead, "Raj is asking you for a payment in");
   const bare = parseTransferRequest(`solana:${RECIPIENT}?amount=1`);
   assert.ok(bare.ok);
   if (bare.ok) {

@@ -3,7 +3,7 @@ import { MessagePage } from "@/components/message-page";
 import { PayView } from "@/components/pay-view";
 import { requestOrigin } from "@/lib/site";
 import { PAY_URL_ERROR_TEXT, parseTransferRequest } from "@/lib/view/pay-url";
-import { modelFromTransfer, pageTitle } from "@/lib/view/request-view";
+import { modelFromTransfer, pageDescription, pageTitle } from "@/lib/view/request-view";
 
 // Stateless pay page: everything comes from the Solana Pay link in ?u=, no
 // database. The plugin falls back to these links when the API is unreachable.
@@ -18,7 +18,7 @@ export async function generateMetadata({ searchParams }: PageProps<"/p">): Promi
   if (!parsed.ok) return { title: "Payment link", robots };
   const model = modelFromTransfer(parsed.value, await requestOrigin());
   const title = pageTitle(model);
-  const description = "Pay with any Solana wallet, or with your AI agent in PayBox.";
+  const description = pageDescription(model);
   return {
     title: { absolute: title },
     description,

@@ -35,9 +35,11 @@ export interface PayModel {
   kind: "hosted" | "stateless";
   amount: string | null;
   token: Token;
-  /** Requester name, or the short recipient address when there is none. */
+  /** Requester name, or the short recipient address when there is none or the request is flagged. */
   asker: string;
   askerIsAddress: boolean;
+  /** Name the requester gave on a flagged request, shown only as quoted text. */
+  claimedName: string | null;
   payerName: string | null;
   forText: string | null;
   note: string | null;
@@ -200,12 +202,18 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
   const forText = cleanText(req.for, LIMITS.for);
   const note = cleanText(req.note, LIMITS.note);
   const shareLink = `${origin}/r/${encodeURIComponent(req.id)}`;
+  const brandWords = unique([
+    ...brandWordsFromFlags(req.flags),
+    ...detectBrandWords([req.requester_name, req.payer_name, req.for, req.note]),
+  ]);
+  const flagged = brandWords.length > 0;
   return {
     kind: "hosted",
     amount: dec(req.amount),
     token,
-    asker: requester ?? shortAddress(req.recipient),
-    askerIsAddress: requester === null,
+    asker: requester !== null && !flagged ? requester : shortAddress(req.recipient),
+    askerIsAddress: requester === null || flagged,
+    claimedName: flagged ? requester : null,
     payerName,
     forText,
     note,
@@ -213,10 +221,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     solanaPayUrl: req.solana_pay_url,
     shareLink,
     agentPrompt: `Use the Owed plugin in PayBox to pay ${shareLink}`,
-    brandWords: unique([
-      ...brandWordsFromFlags(req.flags),
-      ...detectBrandWords([req.requester_name, req.payer_name, req.for, req.note]),
-    ]),
+    brandWords,
     initial: stateFromRequest(req),
     poll: { endpoint: "/api/v1/status", id: req.id },
   };
@@ -225,12 +230,15 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
 export function modelFromTransfer(t: TransferRequest, origin: string): PayModel {
   const requester = cleanText(t.label, LIMITS.name);
   const forText = cleanText(t.message, LIMITS.for);
+  const brandWords = detectBrandWords([t.label, t.message]);
+  const flagged = brandWords.length > 0;
   return {
     kind: "stateless",
     amount: t.amount,
     token: t.token,
-    asker: requester ?? shortAddress(t.recipient),
-    askerIsAddress: requester === null,
+    asker: requester !== null && !flagged ? requester : shortAddress(t.recipient),
+    askerIsAddress: requester === null || flagged,
+    claimedName: flagged ? requester : null,
     payerName: null,
     forText,
     note: null,
@@ -239,22 +247,29 @@ export function modelFromTransfer(t: TransferRequest, origin: string): PayModel 
     shareLink: `${origin}/p?u=${encodeURIComponent(t.raw)}`,
     // pay_link takes the solana: URL directly; it may not know /p links.
     agentPrompt: `Use the Owed plugin in PayBox to pay ${t.raw}`,
-    brandWords: detectBrandWords([t.label, t.message]),
+    brandWords,
     initial: { status: "open" },
     poll: t.references.length > 0 ? { endpoint: "/api/v1/status-raw", solanaPayUrl: t.raw } : null,
   };
 }
 
-/** "Raj is asking Priya for" + "15 USDC". */
-export function headline(model: Pick<PayModel, "asker" | "payerName" | "amount" | "token">): {
+export interface Headline {
+  /** "Raj is asking Priya for" */
   lead: string;
+  /** "Raj asked Priya for", once the request is settled. */
+  past: string;
+  /** "15 USDC" */
   amount: string;
-} {
+}
+
+export function headline(model: Pick<PayModel, "asker" | "payerName" | "amount" | "token">): Headline {
   const who = model.payerName ?? "you";
-  if (model.amount === null) {
-    return { lead: `${model.asker} is asking ${who} for a payment in`, amount: model.token };
-  }
-  return { lead: `${model.asker} is asking ${who} for`, amount: formatAmount(model.amount, model.token) };
+  const tail = model.amount === null ? " a payment in" : "";
+  return {
+    lead: `${model.asker} is asking ${who} for${tail}`,
+    past: `${model.asker} asked ${who} for${tail}`,
+    amount: model.amount === null ? model.token : formatAmount(model.amount, model.token),
+  };
 }
 
 /**
@@ -265,4 +280,13 @@ export function pageTitle(model: Pick<PayModel, "asker" | "amount" | "token" | "
   const what = model.amount === null ? `a payment in ${model.token}` : formatAmount(model.amount, model.token);
   if (model.brandWords.length > 0) return `Payment request for ${what}`;
   return `${model.asker} is asking you for ${what}`;
+}
+
+/** Preview text under the title: amount, quoted reason, how to pay. */
+export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords">): string {
+  const how = "Pay with any Solana wallet, or with your AI agent in PayBox.";
+  if (model.amount === null) return how;
+  const amount = formatAmount(model.amount, model.token);
+  if (model.forText && model.brandWords.length === 0) return `${amount} for \u201c${model.forText}\u201d. ${how}`;
+  return `${amount}. ${how}`;
 }

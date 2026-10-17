@@ -49,7 +49,7 @@ function Bubble({ from, children }: { from: "you" | "agent"; children: ReactNode
 
 function ExampleChat() {
   return (
-    <figure className="w-full">
+    <figure className="w-full min-w-0">
       <div className="rounded-3xl border border-line bg-surface p-4 shadow-[0_1px_0_var(--line),0_24px_48px_-24px_rgb(0_0_0/0.18)] sm:p-5">
         <div className="flex flex-col gap-3">
           <Bubble from="you">Ask Priya for 15 USDC for dinner</Bubble>
@@ -67,10 +67,10 @@ function ExampleChat() {
           </div>
           <Bubble from="you">Did Priya pay?</Bubble>
           <Bubble from="agent">
-            <span className="inline-flex items-center gap-1.5 font-medium text-paid">
+            <span className="mb-1 flex items-center gap-1.5 font-semibold text-paid">
               <CheckIcon width={16} height={16} strokeWidth={2.75} />
               Paid
-            </span>{" "}
+            </span>
             Priya sent 15 USDC, confirmed on Solana. Here&apos;s the transaction.
           </Bubble>
         </div>
@@ -140,7 +140,7 @@ export default async function Home() {
       </header>
 
       <main>
-        <section className="grid items-center gap-12 pb-16 pt-8 md:grid-cols-[1.15fr_0.85fr] md:gap-14 md:pb-24 md:pt-16">
+        <section className="grid grid-cols-1 items-center gap-12 pb-16 pt-8 md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] md:gap-14 md:pb-24 md:pt-16">
           <div>
             <p className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-sm font-medium text-muted">
               <span className="size-1.5 rounded-full bg-paid" aria-hidden="true" />
@@ -190,7 +190,7 @@ export default async function Home() {
           <h2 id="how-title" className="text-3xl font-semibold tracking-tight">
             How it works
           </h2>
-          <ol className="mt-8 grid gap-4 md:grid-cols-3">
+          <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
             {STEPS.map((step, i) => (
               <li key={step.title} className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
                 <span className="grid size-8 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
@@ -211,7 +211,7 @@ export default async function Home() {
           <h2 id="safety-title" className="text-3xl font-semibold tracking-tight">
             Built to be safe to use
           </h2>
-          <ul className="mt-8 grid gap-x-10 gap-y-5 md:grid-cols-2">
+          <ul className="mt-8 grid grid-cols-1 gap-x-10 gap-y-5 md:grid-cols-2">
             {SAFETY.map((line) => (
               <li key={line} className="flex gap-3 leading-relaxed">
                 <CheckIcon className="mt-0.5 shrink-0 text-paid" />
@@ -225,13 +225,13 @@ export default async function Home() {
           <h2 id="add-title" className="text-3xl font-semibold tracking-tight">
             Add Owed in PayBox
           </h2>
-          <ol className="mt-8 grid gap-4 md:grid-cols-3">
+          <ol className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
             <li className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
               <p className="text-sm font-semibold text-accent">Step 1</p>
               <h3 className="mt-1 text-lg font-semibold">Connect PayBox to your agent</h3>
               <p className="mt-2 leading-relaxed text-muted">In Claude or ChatGPT, add PayBox as a connector with this address:</p>
-              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-sunken py-1.5 pl-3 pr-1.5">
-                <code className="truncate font-mono text-sm">{PAYBOX_MCP_URL}</code>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-sunken py-1.5 pl-3 pr-1.5">
+                <code className="break-all font-mono text-sm">{PAYBOX_MCP_URL}</code>
                 <CopyButton
                   text={PAYBOX_MCP_URL}
                   label="Copy"

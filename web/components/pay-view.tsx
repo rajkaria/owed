@@ -10,25 +10,23 @@ import { Wordmark } from "./wordmark";
 const secondaryButton =
   "inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-medium leading-tight text-fg transition-colors hover:bg-sunken active:scale-[0.99]";
 
-function Info({ model }: { model: PayModel }) {
-  const { lead, amount } = headline(model);
-  const hasText = model.forText !== null || model.note !== null;
+const listFormat = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+
+function RequesterDetails({ model }: { model: PayModel }) {
+  const hasText = model.forText !== null || model.note !== null || model.claimedName !== null;
   return (
     <div>
-      <h1>
-        <span className="block text-lg text-muted sm:text-xl">
-          {model.askerIsAddress ? <span className="font-mono text-[0.95em]">{lead}</span> : lead}
-        </span>
-        <span className="mt-1 block text-5xl font-semibold tracking-tight tabular-nums break-words sm:text-6xl">
-          {amount}
-        </span>
-      </h1>
-
       {hasText && (
         <figure className="mt-5 rounded-xl border border-line bg-surface px-4 py-3.5">
           <figcaption className="text-xs font-medium uppercase tracking-wider text-muted">
             Written by the requester
           </figcaption>
+          {model.claimedName && (
+            <blockquote className="mt-2 text-lg leading-snug break-words">
+              <span className="text-muted">Name </span>
+              <q className="font-medium">{model.claimedName}</q>
+            </blockquote>
+          )}
           {model.forText && (
             <blockquote className="mt-2 text-lg leading-snug break-words">
               <span className="text-muted">For </span>
@@ -48,10 +46,9 @@ function Info({ model }: { model: PayModel }) {
           <AlertIcon className="mt-0.5 shrink-0 text-warn" />
           <p>
             <strong className="font-semibold">
-              Caution: this request mentions {model.brandWords.map((w) => `"${w}"`).join(", ")}.
+              Caution: this request mentions {listFormat.format(model.brandWords.map((w) => `\u201c${w}\u201d`))}.
             </strong>{" "}
-            Owed can&apos;t confirm who sent it. Real companies don&apos;t ask for money through payment links. Check the
-            address below before you pay.
+            Owed can&apos;t confirm who sent it. Only pay if you know the person asking, and check the address below.
           </p>
         </div>
       )}
@@ -150,7 +147,8 @@ export function PayView({ model }: { model: PayModel }) {
           requested={model.amount}
           token={model.token}
           asker={model.asker}
-          info={<Info model={model} />}
+          heading={{ ...headline(model), mono: model.askerIsAddress }}
+          info={<RequesterDetails model={model} />}
           actions={<Actions model={model} />}
           qr={<QrPanel model={model} />}
           recipient={<Recipient model={model} />}

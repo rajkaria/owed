@@ -3,7 +3,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { formatAmount, type Token } from "@/lib/view/money";
 import { formatUtc, shortAddress, solscanTx } from "@/lib/view/format";
-import { pickStatusResult, stateFromStatus, type LiveState, type PollTarget } from "@/lib/view/request-view";
+import {
+  pickStatusResult,
+  stateFromStatus,
+  type Headline,
+  type LiveState,
+  type PollTarget,
+} from "@/lib/view/request-view";
 import { AlertIcon, CheckIcon, ExternalIcon } from "./icons";
 import { LocalTime } from "./local-time";
 
@@ -174,8 +180,8 @@ function UnderpaidCard({
       <p className="mt-4 text-lg">
         {state.amountPaid && requested ? (
           <>
-            <strong className="tabular-nums">{formatAmount(state.amountPaid, token)}</strong> of{" "}
-            <span className="tabular-nums">{formatAmount(requested, token)}</span> arrived.
+            <strong className="whitespace-nowrap tabular-nums">{formatAmount(state.amountPaid, token)}</strong> of{" "}
+            <span className="whitespace-nowrap tabular-nums">{formatAmount(requested, token)}</span> arrived.
           </>
         ) : (
           <>Less than the requested amount arrived.</>
@@ -183,7 +189,7 @@ function UnderpaidCard({
         {state.remaining && (
           <>
             {" "}
-            <strong className="tabular-nums">{formatAmount(state.remaining, token)}</strong> is still owed.
+            <strong className="whitespace-nowrap tabular-nums">{formatAmount(state.remaining, token)}</strong> is still owed.
           </>
         )}
       </p>
@@ -216,11 +222,11 @@ function Waiting({ tracking }: { tracking: boolean }) {
         <span className="relative inline-flex size-2.5 rounded-full bg-accent" />
       </span>
       <p className="text-sm">
-        <span className="font-medium">Waiting for payment.</span>{" "}
+        <span className="font-medium">{tracking ? "Waiting for payment." : "No live status for this link."}</span>{" "}
         <span className="text-muted">
           {tracking
             ? "This page updates on its own when the money lands."
-            : "This link has no tracking reference, so this page can't confirm the payment. Check your wallet history instead."}
+            : "It has no tracking reference, so this page can't confirm the payment. Check your wallet history instead."}
         </span>
       </p>
     </div>
@@ -238,6 +244,7 @@ export function LiveRequest({
   requested,
   token,
   asker,
+  heading,
   info,
   actions,
   qr,
@@ -248,6 +255,7 @@ export function LiveRequest({
   requested: string | null;
   token: Token;
   asker: string;
+  heading: Headline & { mono: boolean };
   info: ReactNode;
   actions: ReactNode;
   qr: ReactNode;
@@ -259,9 +267,19 @@ export function LiveRequest({
 
   return (
     <div
-      className={`grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:gap-x-12 md:gap-y-6 lg:gap-x-16 ${open ? OPEN_AREAS : DONE_AREAS}`}
+      className={`grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] md:gap-x-12 md:gap-y-6 lg:gap-x-16 ${open ? OPEN_AREAS : DONE_AREAS}`}
     >
-      <div className="[grid-area:info]">{info}</div>
+      <div className="[grid-area:info]">
+        <h1>
+          <span className={`block text-lg text-muted sm:text-xl ${heading.mono ? "font-mono text-base sm:text-lg" : ""}`}>
+            {open ? heading.lead : heading.past}
+          </span>
+          <span className="mt-1 block text-5xl font-semibold tracking-tight tabular-nums break-words sm:text-6xl">
+            {heading.amount}
+          </span>
+        </h1>
+        {info}
+      </div>
       {open ? (
         <>
           <div className="[grid-area:status]">

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PayView } from "@/components/pay-view";
 import { loadPublicRequest } from "@/lib/request-source";
 import { requestOrigin } from "@/lib/site";
-import { modelFromRequest, pageTitle } from "@/lib/view/request-view";
+import { modelFromRequest, pageDescription, pageTitle } from "@/lib/view/request-view";
 
 export async function generateMetadata({ params }: PageProps<"/r/[id]">): Promise<Metadata> {
   const { id } = await params;
@@ -11,7 +11,7 @@ export async function generateMetadata({ params }: PageProps<"/r/[id]">): Promis
   if (!request) return { title: "Request not found", robots: { index: false, follow: false } };
   const model = modelFromRequest(request, await requestOrigin());
   const title = pageTitle(model);
-  const description = "Pay with any Solana wallet, or with your AI agent in PayBox.";
+  const description = pageDescription(model);
   return {
     title: { absolute: title },
     description,
