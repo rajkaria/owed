@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  checkFromDomain, DOH_HOSTS, DOH_RESOLVERS, DOH_TIMEOUT_MS, domainLabel, domainWarnings, dohUrl, fromDomainSchema,
+  checkFromDomain, DOH_HOSTS, DOH_RESOLVERS, DOH_TIMEOUT_MS, domainBrandFlags, domainLabel, domainWarnings, dohUrl, fromDomainSchema,
   normalizeDomain, owedPayValues, parseTxtAnswer, payeeForPayment, PAYEE_BUDGET_MS, txtValue, verifyPayee,
 } from "../src/payee.ts";
 import { makeDeps, RECIPIENT, SENDER } from "./helpers.ts";
@@ -28,6 +28,7 @@ test("domain vectors: lower-case ASCII, punycode for IDN, Unicode display, exact
     assert.equal(d.ascii, v.ascii, v.input);
     assert.equal(d.unicode, v.unicode, v.input);
     assert.deepEqual(domainWarnings(d), v.warnings, v.input);
+    assert.deepEqual(domainBrandFlags(v.input), v.flags, v.input);
   }
   for (const input of vectors.invalid) assert.equal(normalizeDomain(input), null, `${JSON.stringify(input)} should be refused`);
 });
@@ -335,4 +336,27 @@ test("payeeForPayment: lookalike warnings ride along with a verified IDN domain"
   assert.equal(p.lines.at(-1), "Check the spelling letter by letter.");
   assert.ok(p.lines.some((l) => l.includes("internationalized")));
   assert.ok(routeKey(f.responses[0]!.url).startsWith("GET /dns-query?name=_owed.xn--mnchen-3ya.de"));
+});
+
+// ---------------------------------------------------------------- QA-02: brand words and embedded domains
+
+test("QA-02: brand words in a domain warn and flag; each brand's own domains don't", () => {
+  const warn = (input: string) => vectors.domains.find((v) => v.input === input)!;
+  assert.match(warn("paybox-support.com").warnings[0]!, /^paybox-support\.com looks like PayBox but isn't PayBox's domain \(paybox\.sh\)/);
+  assert.deepEqual(warn("coinbase.refunds-desk.com").flags, ["brand_word:coinbase", "brand_word:refund"]);
+  assert.deepEqual(warn("payb0x.com").flags, ["brand_word:paybox"], "digits read as letters");
+  assert.deepEqual(warn("рaybox.com").flags, ["brand_word:paybox"], "other alphabets read as Latin");
+  assert.match(warn("getowed-pay.com").warnings.join(" "), /isn't Owed's domain \(getowed\.xyz/);
+  for (const own of ["paybox.sh", "www.paybox.sh", "app.phantom.app", "coinbase.com", "irs.gov", "getowed.xyz", "www.getowed.xyz", "owed-omega.vercel.app", "first.com", "owedmoney.com"]) {
+    assert.deepEqual(warn(own).warnings, [], own);
+    assert.deepEqual(warn(own).flags, [], own);
+  }
+});
+
+test("QA-02: a name in front of another domain warns that it only starts with it", () => {
+  const v = vectors.domains.find((x) => x.input === "getowed.xyz.example-attacker.com")!;
+  assert.ok(v.warnings.includes("getowed.xyz.example-attacker.com only starts with \"getowed.xyz\": the end of a domain name decides who controls it, so this is not getowed.xyz."));
+  for (const ok of ["example.co.uk", "shop.example.co.uk", "mail.google.com"]) {
+    assert.ok(!vectors.domains.find((x) => x.input === ok)!.warnings.some((w) => w.includes("only starts with")), ok);
+  }
 });
