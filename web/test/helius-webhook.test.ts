@@ -13,7 +13,8 @@ import { TOKENS, type Token } from "@/lib/money";
 import { hookTarget, publicBase } from "@/lib/notify/config";
 import { drain } from "@/lib/notify/defer";
 import { syncWatch, watchSoon } from "@/lib/notify/helius";
-import { authorized, deliveryTiming, reportedTransactions } from "@/lib/notify/webhook";
+import { authorized, reportedTransactions } from "@/lib/notify/payload";
+import { deliveryTiming } from "@/lib/notify/webhook";
 import { parseJsonExact } from "@/lib/solana";
 
 // W3-A paid-request webhooks on real Postgres: migrations 0001 → 0009 on PGlite (Postgres compiled to

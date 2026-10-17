@@ -1,7 +1,7 @@
 import { errorResponse, json } from "@/lib/http";
 import { webhookSecret } from "@/lib/notify/config";
 import { defer } from "@/lib/notify/defer";
-import { authorized, processDelivery, reportedTransactions } from "@/lib/notify/webhook";
+import { authorized, reportedTransactions } from "@/lib/notify/payload";
 
 export const runtime = "nodejs";
 // The re-checks run after the 200 (Helius wants an answer within 1 s) and may wait for the chain.
@@ -31,6 +31,7 @@ export async function POST(req: Request): Promise<Response> {
     return errorResponse("invalid_input", "body must be JSON");
   }
   const txs = reportedTransactions(body);
-  if (txs.length) defer("Helius delivery", () => processDelivery(txs));
+  // Loaded after the answer: the settle path (requests, chain, x402) stays off the cold-start path.
+  if (txs.length) defer("Helius delivery", async () => (await import("@/lib/notify/webhook")).processDelivery(txs));
   return json({ received: txs.length });
 }
