@@ -134,10 +134,14 @@ export function PayView({ model }: { model: PayModel }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-4 pb-10 pt-5 sm:px-6 md:pt-8">
       <header className="flex items-center justify-between">
-        <Wordmark />
-        <span className="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted">
-          Solana mainnet
-        </span>
+        <Wordmark prefetch={false} />
+        <Link
+          href="/"
+          prefetch={false}
+          className="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted hover:text-fg"
+        >
+          PayBox plugin · Solana mainnet
+        </Link>
       </header>
 
       <main className="mt-8 flex-1 md:mt-14">
@@ -159,7 +163,7 @@ export function PayView({ model }: { model: PayModel }) {
         <p>
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Owed never holds
           money: you pay the recipient directly, in one Solana transaction.{" "}
-          <Link href="/" className="font-medium text-accent underline-offset-4 hover:underline">
+          <Link href="/" prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
             How Owed works
           </Link>
         </p>

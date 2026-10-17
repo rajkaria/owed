@@ -17,10 +17,11 @@ export function Mark({ size = 28, className }: { size?: number; className?: stri
   );
 }
 
-export function Wordmark({ href = "/", size = 28 }: { href?: string; size?: number }) {
+export function Wordmark({ href = "/", size = 28, prefetch }: { href?: string; size?: number; prefetch?: boolean }) {
   return (
     <Link
       href={href}
+      prefetch={prefetch}
       className="inline-flex items-center gap-2 rounded-lg text-[1.15rem] font-semibold tracking-tight text-fg"
       aria-label="Owed home"
     >
