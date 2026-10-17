@@ -17,6 +17,14 @@ export const BRAND_WORDS = [
   "refund",
   "irs",
   "tax office",
+  // W2-E (QA-06): Owed's own name, as phrases the ordinary word "owed" never forms, and the model maker.
+  "owed support",
+  "owed team",
+  "owed security",
+  "owed admin",
+  "owed billing",
+  "getowed",
+  "anthropic",
 ] as const;
 
 const WEB_TLDS =
@@ -36,8 +44,15 @@ const URL_PATTERNS: RegExp[] = [
   ),
 ];
 
-/** Format characters (zero-width, bidi overrides): removed outright. */
-const INVISIBLE = /\p{Cf}/gu;
+/**
+ * Removed outright: format characters (zero-width, bidi overrides, tag characters), and (W2-E, QA-01)
+ * everything else that renders as nothing but a model still reads: Unicode tag characters
+ * (U+E0000–E007F), variation selectors (U+FE00–FE0F, U+E0100–E01EF), the combining grapheme joiner,
+ * Mongolian free variation selectors, Khmer inherent vowels, Hangul fillers and the Braille blank.
+ * plugin/src/text.ts and lib/view/text.ts drop the same set.
+ */
+export const INVISIBLE =
+  /[\p{Cf}\u034F\u115F\u1160\u17B4\u17B5\u180B-\u180F\u2800\u3164\uFE00-\uFE0F\uFFA0\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/gu;
 /** Control characters and line/paragraph separators: become spaces. */
 const BREAKS = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
 const DOUBLE_QUOTES = /["“”„‟«»″＂]/gu;

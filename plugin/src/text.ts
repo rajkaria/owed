@@ -1,15 +1,22 @@
 // Text shown to people. Everything a requester writes (for, note, names, Solana Pay label/message/memo)
 // is untrusted: it goes through clean() before display and is rendered quoted, never as a verified identity.
 
-// Character classes are built from code points so the source stays ASCII.
-const hex = (n: number) => "\\u" + n.toString(16).padStart(4, "0");
-const charClass = (ranges: Array<[number, number?]>) =>
-  `[${ranges.map(([a, b]) => (b === undefined ? hex(a) : `${hex(a)}-${hex(b)}`)).join("")}]`;
-const LINE_BREAKS = new RegExp(`${charClass([[0x09, 0x0d], [0x85], [0x2028, 0x2029]])}+`, "g");
-// C0/C1 controls, soft hyphen, zero-width and bidi controls, word joiners, BOM, interlinear annotations.
+// Character classes are built from code points so the source stays ASCII (u flag: astral planes too).
+const hex = (n: number) => `\\u{${n.toString(16)}}`;
+const charClass = (ranges: Array<[number, number?]>, extra = "") =>
+  `[${ranges.map(([a, b]) => (b === undefined ? hex(a) : `${hex(a)}-${hex(b)}`)).join("")}${extra}]`;
+const LINE_BREAKS = new RegExp(`${charClass([[0x09, 0x0d], [0x85], [0x2028, 0x2029]])}+`, "gu");
+// C0/C1 controls, soft hyphen, zero-width and bidi controls, word joiners, BOM, interlinear annotations,
+// and (W2-E, QA-01) everything else that renders as nothing but a model still reads: every format
+// character (\p{Cf}), Unicode tag characters ("ASCII smuggling", U+E0000–E007F), variation selectors
+// (U+FE00–FE0F, U+E0100–E01EF, one per byte in "emoji smuggling"), the combining grapheme joiner,
+// Mongolian free variation selectors, Khmer inherent vowels, Hangul fillers and the Braille blank.
+// web/lib/safety.ts and web/lib/view/text.ts drop the same set.
 const INVISIBLE = new RegExp(charClass([
-  [0x00, 0x1f], [0x7f, 0x9f], [0xad], [0x61c], [0x180e], [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x206f], [0xfeff], [0xfff9, 0xfffb],
-]), "g");
+  [0x00, 0x1f], [0x7f, 0x9f], [0xad], [0x34f], [0x61c], [0x115f, 0x1160], [0x17b4, 0x17b5], [0x180b, 0x180f], [0x200b, 0x200f],
+  [0x202a, 0x202e], [0x2060, 0x206f], [0x2800], [0x3164], [0xfe00, 0xfe0f], [0xfeff], [0xffa0], [0xfff9, 0xfffb],
+  [0xe0000, 0xe007f], [0xe0100, 0xe01ef],
+], "\\p{Cf}"), "gu");
 const TLDS = "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|wallet|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|support|help|claims|bet|page|click|today|world|network|exchange";
 const URL_PATTERNS = [
   /\b[a-z][a-z0-9+.-]*:\/\/\S*/gi,
@@ -40,6 +47,8 @@ export function quote(untrusted: string | null | undefined, max: number): string
 export const BRAND_WORDS = [
   "moonpay", "paybox", "coinbase", "binance", "phantom", "solflare", "solana foundation",
   "circle", "usdc support", "refund", "irs", "tax office",
+  // W2-E (QA-06): Owed's own name, as phrases the ordinary word "owed" never forms, and the model maker.
+  "owed support", "owed team", "owed security", "owed admin", "owed billing", "getowed", "anthropic",
 ] as const;
 export type BrandWord = (typeof BRAND_WORDS)[number];
 
@@ -47,6 +56,8 @@ const BRAND_DISPLAY: Record<BrandWord, string> = {
   moonpay: "MoonPay", paybox: "PayBox", coinbase: "Coinbase", binance: "Binance", phantom: "Phantom",
   solflare: "Solflare", "solana foundation": "Solana Foundation", circle: "Circle", "usdc support": "USDC support",
   refund: "refund", irs: "IRS", "tax office": "tax office",
+  "owed support": "Owed Support", "owed team": "Owed team", "owed security": "Owed Security", "owed admin": "Owed admin",
+  "owed billing": "Owed billing", getowed: "getowed", anthropic: "Anthropic",
 };
 
 // Letters may be split by one space, dot, dash or underscore ("Moon Pay", "I.R.S"); the word must stand alone.

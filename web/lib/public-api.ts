@@ -30,8 +30,9 @@ export interface PublicRequest {
   from_domain_verified_at: string | null;
   // W3-B Base requests: the chain the request is paid on, and the link a wallet opens to pay it
   // (the solana: URL, or ethereum:<USDC>@8453/transfer?address=…&uint256=… on Base).
-  chain: "solana" | "base";
-  pay_url: string;
+  // Optional in the type so rows built by hand elsewhere (tests, other sprints) still compile; toPublic always sets both.
+  chain?: "solana" | "base";
+  pay_url?: string;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */

@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { BrandOgCard, OG_SIZE } from "@/components/marketing/og";
+import { cardText } from "@/components/marketing/og-text";
 import { payeeDisplay } from "@/lib/payee";
 import { loadPublicRequest } from "@/lib/request-source";
 import { formatAmount, isToken } from "@/lib/view/money";
@@ -34,7 +35,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   }
 
   const token = isToken(request.token) ? request.token : "USDC";
-  const forText = cleanText(request.for, LIMITS.ogFor);
+  // Right-to-left or invisible characters can't be drawn faithfully on the card (QA-17): leave the line off.
+  const forText = cardText(cleanText(request.for, LIMITS.ogFor));
   return new ImageResponse(
     (
       <BrandOgCard

@@ -1,0 +1,103 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.",
+  "generated_at": "2026-10-17T10:30:02Z",
+  "chain_checked": true,
+  "open": [
+    {
+      "id": "Hb7kQ2xRmN4p",
+      "kind": "invoice",
+      "link": "https://www.getowed.xyz/i/Hb7kQ2xRmN4p",
+      "amount": "25",
+      "token": "USDC",
+      "status": "open",
+      "payer_name": "Lumen Analytics",
+      "for": "Invoice 2026-114",
+      "created_at": "2026-10-16T14:05:00Z",
+      "amount_due": "25",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": "2026-114",
+      "due_date": "2026-10-30",
+      "from_domain": "getowed.xyz",
+      "flags": []
+    },
+    {
+      "id": "Bq3wL8mNc2",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/Bq3wL8mNc2",
+      "amount": "4.5",
+      "token": "USDC",
+      "status": "open",
+      "payer_name": "Sam",
+      "for": "taxi",
+      "created_at": "2026-10-15T09:12:00Z",
+      "amount_due": "4.5",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": "getowed.xyz",
+      "flags": []
+    },
+    {
+      "id": "Dq3wL8mNc2",
+      "kind": "split_share",
+      "link": "https://www.getowed.xyz/r/Dq3wL8mNc2",
+      "amount": "0.5",
+      "token": "USDC",
+      "status": "underpaid",
+      "payer_name": "Alex",
+      "for": "Pizza night",
+      "created_at": "2026-10-17T10:14:00Z",
+      "amount_due": "0.2",
+      "amount_paid": "0.3",
+      "payer": "iksxPfWrHBzj7iZfD3Up3ft5Mz5DSGwm328v2349Zcc",
+      "signature": "2zsb1Wk1RP7npYZf9sPFUkPDuF4wGMaFVivDbxVDpaCgfkB4nfY19iuu4cHJjdw5MDcodBu8APEJHhsNbuRDpuMK",
+      "paid_at": "2026-10-17T10:20:41Z",
+      "group_id": "nmPSzN1D1KEn",
+      "group_title": "Pizza night",
+      "group_link": "https://www.getowed.xyz/g/nmPSzN1D1KEn",
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": []
+    }
+  ],
+  "paid_recently": [
+    {
+      "id": "JArQ6g9JvoWr",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/JArQ6g9JvoWr",
+      "amount": "15",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": "Priya",
+      "for": "dinner",
+      "created_at": "2026-10-17T05:00:00Z",
+      "amount_paid": "15",
+      "payer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+      "paid_at": "2026-10-17T05:00:09Z",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": []
+    }
+  ],
+  "totals": [
+    {
+      "token": "USDC",
+      "outstanding": "29.7",
+      "received_30d": "15.3",
+      "open_count": 3,
+      "paid_count": 1
+    }
+  ],
+  "truncated": false
+}

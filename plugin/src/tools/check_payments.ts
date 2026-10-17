@@ -94,7 +94,7 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
     if (p.kind === "transfer") return transfers[i] as CheckResult;
     if (typeof owed === "string") return { input: p.input, id: p.id, status: "unknown", amount_requested: null, token: null, error: owed };
     const r = owed.get(p.id);
-    if (!r) return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: "No Owed request has this id." };
+    if (!r) return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: NOT_FOUND };
     return fromOwed(p.input, r, now);
   });
 
@@ -126,8 +126,12 @@ function parse(raw: string, ctx: CallContext, deps: Deps): Parsed {
   return { kind: "transfer", input, request, token: request.splToken === USDC_MINT ? "USDC" : "SOL" };
 }
 
+const NOT_FOUND = "No Owed request has this id.";
+
 function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
-  const out: CheckResult = { input, id: r.id, status: r.status, amount_requested: r.amount_requested, token: r.token };
+  const out: CheckResult = { input, id: r.id, status: r.status, amount_requested: r.amount_requested ?? null, token: r.token ?? null };
+  if (r.status === "not_found") out.error = NOT_FOUND;
+  if (r.status === "invalid") out.error = "Owed's server couldn't read this id.";
   if (r.amount_paid !== undefined) out.amount_paid = r.amount_paid;
   if (r.payer !== undefined) out.payer = r.payer;
   if (r.signature !== undefined) {
@@ -193,7 +197,19 @@ function totals(map: Map<Token, bigint>, deps: Deps): string {
   return [...map].filter(([, v]) => v > 0n).map(([token, v]) => `${deps.fromAtomic(v, token)} ${token}`).join(" + ");
 }
 
-export function summarize(results: CheckResult[], deps: Deps): string {
+/** One result per request: the same Owed id given twice (as id and as link, or a share twice) counts once (QA-10). */
+function distinct(results: CheckResult[]): CheckResult[] {
+  const seen = new Set<string>();
+  return results.filter((r) => {
+    const key = r.id ? `id:${r.id}` : `input:${r.input}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function summarize(all: CheckResult[], deps: Deps): string {
+  const results = distinct(all);
   const received = new Map<Token, bigint>();
   const outstanding = new Map<Token, bigint>();
   const count = (status: CheckResult["status"]) => results.filter((r) => r.status === status).length;

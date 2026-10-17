@@ -28,7 +28,11 @@ export const DOH_RESOLVERS = [
   { host: "cloudflare-dns.com", url: "https://cloudflare-dns.com/dns-query" },
   { host: "dns.google", url: "https://dns.google/resolve" },
 ] as const;
-export const DOH_TIMEOUT_MS = 2500;
+// The server re-checks inside a plugin call: POST /requests (or /groups, /invoices) must answer within the plugin's
+// 4 s API timeout (plugin/src/api.ts), or the plugin hands out an offline, unverified link while this server still
+// stores a verified row (QA-21). So 1.5 s per resolver, 3 s in all, leaving 1 s for the rate-limit slot and the insert.
+// The plugin's own check, before it calls the API, keeps 2.5 s per resolver (plugin/src/payee.ts).
+export const DOH_TIMEOUT_MS = 1500;
 export const PAYEE_BUDGET_MS = 2 * DOH_TIMEOUT_MS;
 const MAX_DOH_BYTES = 64 * 1024;
 const TXT = 16;
