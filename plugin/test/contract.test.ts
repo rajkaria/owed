@@ -64,6 +64,10 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "fiat.groups.create.res.json": groupResSchema,
   "fiat.invoices.create.req.json": createInvoiceReqSchema,
   "fiat.invoices.create.res.json": invoiceResSchema,
+  // W3-S
+  "sns.create-request.req.json": createRequestReqSchema,
+  "sns.create-request.res.json": createRequestResSchema,
+  "sns.get-request.res.json": getRequestResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

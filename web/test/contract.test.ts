@@ -74,6 +74,10 @@ const SCHEMAS: Record<string, ZodType> = {
   "fiat.groups.create.res.json": GroupResponse,
   "fiat.invoices.create.req.json": CreateInvoiceBody,
   "fiat.invoices.create.res.json": InvoiceResponse,
+  // W3-S
+  "sns.create-request.req.json": CreateRequestBody,
+  "sns.create-request.res.json": CreateRequestResponse,
+  "sns.get-request.res.json": GetRequestResponse,
 };
 
 test("every contract fixture has a schema", () => {

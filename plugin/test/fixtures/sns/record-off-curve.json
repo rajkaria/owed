@@ -1,0 +1,64 @@
+{
+  "input": "gamaedtech.sns",
+  "note": "Valid SOL record v2 naming an off-curve address: the SDK returns it, Owed refuses (not a wallet).",
+  "sdk": {
+    "wallet": "8oAaAbMmbYzaFcg1cAwzhaXd5KtbpFay5wWUXx6AmoRv"
+  },
+  "owed": "no_wallet",
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "gamaedtech.sns",
+    "code": "no_wallet",
+    "message": "gamaedtech.sns points to 8oAaAbMmbYzaFcg1cAwzhaXd5KtbpFay5wWUXx6AmoRv, which is a program or token account, not a wallet. Owed won't pay it."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "2qd2Snysk6SUc3uH1qCrWNGtWXiHXh9LWRgMRT43SdVX",
+          "nFC3MW55zE8ied4iZkQJXpnFdgS3DYxSCSaFZQDFVmr",
+          "CpJ8GdcBaNu12v26Ruah462W9B5K13NP8L9xnbs5g35",
+          "88ujyop8beQWkAe2A3JWm4AyLBXP7mQg8DBShdvfTxCB"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177836
+        },
+        "value": [
+          null,
+          null,
+          {
+            "data": [
+              "agiCNJNzPxErxXBSE0m8+FBSSrLRWmSrFCSwv43ZIdQa/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQABACAAAABz1Vk9MBRxYeOKaMZc8VoOXOWtbsHVLgqMShXxF0XabXPVWT0wFHFh44poxlzxWg5c5a1uwdUuCoxKFfEXRdptc9VZPTAUcWHjimjGXPFaDlzlrW7B1S4KjEoV8RdF2m0=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZVz1Vk9MBRxYeOKaMZc8VoOXOWtbsHVLgqMShXxF0XabQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

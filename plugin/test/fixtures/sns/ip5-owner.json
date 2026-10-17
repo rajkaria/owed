@@ -1,0 +1,54 @@
+{
+  "input": "sns-ip-5-wallet-9.sns",
+  "note": "No records: the owner.",
+  "sdk": {
+    "wallet": "ALd1XSrQMCPSRayYUoUZnp6KcP6gERfJhWzkP49CkXKs"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "sns-ip-5-wallet-9.sns",
+    "wallet": "ALd1XSrQMCPSRayYUoUZnp6KcP6gERfJhWzkP49CkXKs",
+    "source": "owner",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "3jov5DQzxedpdxNM64PHXHrakWgfeovbGVAmuCjFCfBY",
+          "D6JwE5TfJk854dGjGjq34oDAnigQTcnncJCqHVkTZPYN",
+          "5aibJ9SEtycPsdrGWJ2udyu1nAdpqf2wXQTHPtXZJLFo",
+          "Hya5nYHHxjwcFM8uHFaannCjQHbDPZtyxrdDrWuHh4aX"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177809
+        },
+        "value": [
+          null,
+          null,
+          null,
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZWKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

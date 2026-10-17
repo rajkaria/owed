@@ -49,6 +49,8 @@ export type FiatQuote = z.infer<typeof FiatQuote>;
 // first, then the clean text is cut to the cap. 4x the cap bounds the work.
 const untrusted = (cap: number) => z.string().max(cap * 4).nullish();
 
+export const snsSource = z.enum(["sol_record_v2", "sol_record_v1", "owner"]); // W3-S
+
 export const CreateRequestBody = z.object({
   recipient: z.string().max(64), // W3-B: checked per chain below
 
@@ -65,6 +67,7 @@ export const CreateRequestBody = z.object({
   expires_in_days: expiresInDays, // W3-C
   chain: chain.default("solana"), // W3-B
   currency, // local-currency ask: `amount` is in this currency
+  sns_name: z.string().min(1).max(140).nullish(), // W3-S: re-resolved to recipient before the request is created (lib/sns.ts)
 }).superRefine((b, ctx) => {
   // W3-B: a Solana request keeps its base58 rule and message; a Base request takes a 0x address.
   const schema = b.chain === "base" ? evmAddress : base58Key;
@@ -88,6 +91,8 @@ export const CreateRequestResponse = z.object({
   pay_url: z.string().optional(), // W3-B: the link a wallet opens (solana: or ethereum:)
   amount: decimal.optional(), // local-currency asks: the USDC amount locked (the caller didn't know it)
   fiat: FiatQuote.optional(),
+  sns_name: z.string().nullable().optional(), // W3-S
+  sns_source: snsSource.nullable().optional(),
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -144,6 +149,10 @@ export const GetRequestResponse = z.object({
   rest_of: requestId.nullable().optional(),
   rest_request: RestLink.nullable().optional(),
   fiat: FiatQuote.optional(), // local-currency asks
+  // W3-S: the SNS name that pointed to recipient when the request was made. Display only; the plugin re-resolves it.
+  sns_name: z.string().nullable().optional(),
+  sns_source: snsSource.nullable().optional(),
+  sns_resolved_at: isoTime.nullable().optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 

@@ -1,0 +1,42 @@
+{
+  "note": "SNS name rules (W3-S). Run by plugin/test/sns.test.ts and web/test/sns.test.ts against parseSnsName.",
+  "valid": [
+    { "input": "bonfida.sns", "name": "bonfida.sns", "labels": ["bonfida"], "warnings": [] },
+    { "input": "  Bonfida.SNS. ", "name": "bonfida.sns", "labels": ["bonfida"], "warnings": [] },
+    { "input": "sub-0.wallet-guide-3.sns", "name": "sub-0.wallet-guide-3.sns", "labels": ["sub-0", "wallet-guide-3"], "warnings": ["sub-0.wallet-guide-3.sns is a subdomain of wallet-guide-3.sns: whoever controls wallet-guide-3.sns can change it.", "Check the name letter by letter."] },
+    { "input": "pay0nline.sns", "name": "pay0nline.sns", "labels": ["pay0nline"], "warnings": ["pay0nline.sns has characters that can pass for others: \"0\" (zero) for \"o\".", "Check the name letter by letter."] },
+    { "input": "modern_wallet.sns", "name": "modern_wallet.sns", "labels": ["modern_wallet"], "warnings": ["modern_wallet.sns has characters that can pass for others: \"rn\" for \"m\" and \"_\" for \"-\".", "Check the name letter by letter."] },
+    { "input": "a1ice.sns", "name": "a1ice.sns", "labels": ["a1ice"], "warnings": ["a1ice.sns has characters that can pass for others: \"1\" (one) for \"l\".", "Check the name letter by letter."] },
+    { "input": "加布.sns", "name": "加布.sns", "labels": ["加布"], "warnings": ["加布.sns is written in Han characters.", "Check the name letter by letter."] },
+    { "input": "さくら.sns", "name": "さくら.sns", "labels": ["さくら"], "warnings": ["さくら.sns is written in Hiragana characters.", "Check the name letter by letter."] },
+    { "input": "한국.sns", "name": "한국.sns", "labels": ["한국"], "warnings": ["한국.sns is written in Hangul characters.", "Check the name letter by letter."] },
+    { "input": "sns-ip-5-wallet-1.sns", "name": "sns-ip-5-wallet-1.sns", "labels": ["sns-ip-5-wallet-1"], "warnings": [] }
+  ],
+  "invalid": [
+    { "input": "", "code": "invalid_name" },
+    { "input": "bonfida", "code": "invalid_name" },
+    { "input": "bonfida.com", "code": "invalid_name" },
+    { "input": "bоnfida.sns", "code": "invalid_name", "why": "Cyrillic о (U+043E) in a Latin name" },
+    { "input": "раураl.sns", "code": "invalid_name", "why": "all-Cyrillic name that reads as Latin" },
+    { "input": "ｂｏｎｆｉｄａ.sns", "code": "invalid_name", "why": "full-width Latin letters" },
+    { "input": "bon​fida.sns", "code": "invalid_name", "why": "zero-width space" },
+    { "input": "bon fida.sns", "code": "invalid_name", "why": "space" },
+    { "input": "bonfida‮.sns", "code": "invalid_name", "why": "right-to-left override" },
+    { "input": "café.sns", "code": "invalid_name", "why": "accented Latin" },
+    { "input": "e\u0301cole.sns", "code": "invalid_name", "why": "combining accent (NFC makes it é)" },
+    { "input": "钱包👝.sns", "code": "invalid_name", "why": "emoji" },
+    { "input": "ロロ.sns", "code": "invalid_name", "why": "Katakana (ロ looks like Han 口)" },
+    { "input": "加布さくら.sns", "code": "invalid_name", "why": "Han and Hiragana mixed" },
+    { "input": "raj加布.sns", "code": "invalid_name", "why": "Latin and Han mixed" },
+    { "input": "〇〇.sns", "code": "invalid_name", "why": "ideographic zero reads as o or 0" },
+    { "input": "a.b.c.sns", "code": "invalid_name", "why": "two subdomain levels" },
+    { "input": ".sns", "code": "invalid_name" },
+    { "input": "a..sns", "code": "invalid_name" },
+    { "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.sns", "code": "invalid_name", "why": "64-character label" },
+    { "input": "raj.sol", "code": "sol_tld" },
+    { "input": "RAJ.SOL", "code": "sol_tld" },
+    { "input": "pay.raj.sol", "code": "sol_tld" },
+    { "input": "bоnfida.sol", "code": "sol_tld" }
+  ],
+  "sol_message": "raj.sol is a .sol name. SNS moved its names to .sns in August 2026 and \".sol\" now belongs to the Solana Record Service, which isn't live yet; SNS's own resolver stopped resolving .sol at Solana slot 452,825,395 (October 2026). Owed won't guess who a .sol name pays. If the user means the SNS name, ask again with raj.sns, and check with them that it is theirs."
+}

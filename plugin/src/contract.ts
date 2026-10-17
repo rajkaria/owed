@@ -41,6 +41,7 @@ export const fiatQuoteSchema = z.object({
   rate_source: z.string().min(1).max(120),
   quoted_at: isoTime,
 });
+export const snsSourceSchema = z.enum(["sol_record_v2", "sol_record_v1", "owner"]); // W3-S
 
 export const createRequestReqSchema = z.object({
   recipient: anyAddress, // W3-B: a 0x address with chain "base"
@@ -57,6 +58,7 @@ export const createRequestReqSchema = z.object({
   expires_in_days: expiresInDaysSchema.optional(), // W3-C
   chain: chainSchema.optional(), // W3-B: absent = solana
   currency: currencySchema.optional(), // local-currency ask: `amount` is in this currency
+  sns_name: z.string().min(1).max(140).optional(), // W3-S: the plugin resolved it to recipient first
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -74,6 +76,8 @@ export const createRequestResSchema = z.object({
   pay_url: payUrl.optional(), // W3-B: what a wallet opens (solana:, or ethereum: EIP-681 on Base)
   amount: decimalSchema.optional(), // local-currency asks: the USDC amount locked
   fiat: fiatQuoteSchema.optional(),
+  sns_name: z.string().max(140).nullable().optional(), // W3-S: the name the server re-resolved to recipient
+  sns_source: snsSourceSchema.nullable().optional(),
 });
 
 export const paidInfoSchema = z.object({
@@ -131,6 +135,10 @@ export const getRequestResSchema = z.object({
   rest_of: requestIdSchema.nullable().optional(),
   rest_request: restLinkSchema.nullable().optional(),
   fiat: fiatQuoteSchema.optional(), // local-currency asks
+  // W3-S: display copy only. pay_link re-resolves the name itself before paying.
+  sns_name: z.string().max(140).nullable().optional(),
+  sns_source: snsSourceSchema.nullable().optional(),
+  sns_resolved_at: isoTime.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();

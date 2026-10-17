@@ -1,0 +1,63 @@
+{
+  "input": "sns-ip-5-wallet-6.sns",
+  "note": "Program-address owner; record stale.",
+  "sdk": {
+    "error": "PdaOwnerNotAllowed"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "sns-ip-5-wallet-6.sns",
+    "code": "no_wallet",
+    "message": "sns-ip-5-wallet-6.sns is owned by a program address (96GK…2rMr) and has no SOL record, so it doesn't name a wallet. Owed won't pay it."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "HfxFxit9kJwajNgNJC476X6NyyfCeDH83poyrE4h8NbG",
+          "6nKDxFEet6ukXAEBN2QPBLsnsstgLq1mjAJbaWcEm717",
+          "6UZx7mJnMuzjxF3zYaBMpHWt3nBQMMnja2VAkP3jKhpQ",
+          "DUPneMhAMaTA9VZgW4fkbUcgWBmNpLxJ3EnGwUggnM3t"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177796
+        },
+        "value": [
+          null,
+          null,
+          {
+            "data": [
+              "uVCwtVUDu7UbJ9b9PYQVZ/gI73rbpIddCMPui66tvg8a/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQABACAAAACKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEippQOTc+ObgYOyM0D+/hyv1RIP2L0QnoZtaHHtp+D8rQXlA5Nz45uBg7IzQP7+HK/VEg/YvRCehm1oce2n4PytBc=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZV4NreEUIZx3lmoaDbWGJQj6RSDIgybqKZ1Duk4+gEZtQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

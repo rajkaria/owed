@@ -4,6 +4,7 @@ import { CardPay } from "@/components/card-pay";
 import { PayView } from "@/components/pay-view";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
+import { SnsBadge } from "@/components/sns-badge"; // W3-S
 import { loadPublicRequest } from "@/lib/request-source";
 import { requestOrigin } from "@/lib/site";
 import { modelFromRequest, pageDescription, pageTitle } from "@/lib/view/request-view";
@@ -30,7 +31,13 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
   if (!request) notFound();
   const model = modelFromRequest(request, await requestOrigin());
   // W2-H verified payee: "From <domain> · verified <time ago>" when the request names a domain.
-  const badge = <VerifiedBadge domain={request.from_domain} verifiedAt={request.from_domain_verified_at} />;
+  // W3-S: "To <name>.sns · verified on-chain" when the recipient was given as an SNS name (re-checked as the page renders).
+  const badge = (
+    <>
+      <VerifiedBadge domain={request.from_domain} verifiedAt={request.from_domain_verified_at} />
+      <SnsBadge name={request.sns_name} recipient={request.recipient} source={request.sns_source} resolvedAt={request.sns_resolved_at} />
+    </>
+  );
   // Pay by card (MoonPay): nothing unless MoonPay is configured; a note when the amount can't be bought by card.
   const offer = await cardOffer(request, "r");
   const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;

@@ -1,0 +1,64 @@
+{
+  "input": "sns-ip-5-wallet-4.sns",
+  "note": "SOL record v2 set by a previous owner: ignored, the owner is used.",
+  "sdk": {
+    "wallet": "7PLHHJawDoa4PGJUK3mUnusV7SEVwZwEyV5csVzm86J4"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "sns-ip-5-wallet-4.sns",
+    "wallet": "7PLHHJawDoa4PGJUK3mUnusV7SEVwZwEyV5csVzm86J4",
+    "source": "owner",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "DSkcXr2vRLeTV5fkunUWKvTn52vnhH9AcsNZhnMqXqs5",
+          "DLeGsep8ovnwd1oYLaPhYJPqjVKsDctuVRWCpdvxfKqM",
+          "9h5oz1ZZDXV3xjsCHkGf8iMxsv7Nbs36HVBRtDDcQZbM",
+          "9ju6zziBUQegZkbWQRwSNxkPYDLD5YQfMhE1Uht15BnL"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177789
+        },
+        "value": [
+          null,
+          null,
+          {
+            "data": [
+              "gdrNjfCEZ1DPw2qQ2tJU3Ws/5a4u0KQgmLT/BePGjK0a/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQABACAAAACKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEippQOTc+ObgYOyM0D+/hyv1RIP2L0QnoZtaHHtp+D8rQXlA5Nz45uBg7IzQP7+HK/VEg/YvRCehm1oce2n4PytBc=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZVe3rM7WJsnDoVHJ+zwzyF9wxjCImOir7qlZ5TSaShzCQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

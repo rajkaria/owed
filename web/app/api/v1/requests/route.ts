@@ -12,6 +12,7 @@ import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "@/l
 import { x402UrlFor } from "@/lib/x402/url";
 import { fiatAsk, lockRate, quoteAt } from "@/lib/fx"; // local-currency asks
 import type { FiatQuote } from "@/lib/fiat";
+import { requireSnsName } from "@/lib/sns"; // W3-S
 
 export const runtime = "nodejs";
 
@@ -66,10 +67,17 @@ export async function POST(req: Request): Promise<Response> {
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // W2-E: DNS lookups are capped per client IP and per domain.
     if (body.from_domain) await requireDnsSlot(req, body.from_domain);
-    const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
+    // W3-S: an SNS name is stored only if it resolves on Solana to this recipient right now, read beside the DNS check.
+    if (body.sns_name && body.chain !== "solana") throw new ApiError("invalid_input", "sns_name: SNS names point to Solana wallets; a Base request can't carry one");
+    const [fromDomain, sns] = await Promise.all([
+      body.from_domain ? requireVerifiedDomain(body.from_domain, body.recipient) : null,
+      body.sns_name ? requireSnsName(body.sns_name, body.recipient) : null,
+    ]);
     // A brand word in the verified domain flags the request like one in the text (QA-02): the pay page shows the caution.
     // W2-E: a brand word the verified domain owns ("Owed Support" from getowed.xyz) isn't a caution.
-    const allFlags = withoutOwnBrandFlags([...new Set([...flags, ...domainBrandFlags(fromDomain)])], fromDomain);
+    // W3-S: so does one in the SNS name ("phantom.sns" is anyone's).
+    const nameFlags = sns ? [...brandFlags([sns.name]), ...domainBrandFlags(sns.name.replace(/_/g, "-").replace(/\.sns$/, ".example"))] : [];
+    const allFlags = withoutOwnBrandFlags([...new Set([...flags, ...domainBrandFlags(fromDomain), ...nameFlags])], fromDomain);
 
     const row = await createRequest({
       recipient: body.recipient,
@@ -85,6 +93,7 @@ export async function POST(req: Request): Promise<Response> {
       expiresInDays: body.expires_in_days ?? null, // W3-C: the database computes expires_at from its own clock
       chain: body.chain, // W3-B
       fiat,
+      sns, // W3-S
     });
 
     const base = baseUrl(req);
@@ -104,6 +113,8 @@ export async function POST(req: Request): Promise<Response> {
       pay_url: payUrl(row),
       // Local-currency asks: the caller named an amount in another currency, so it learns the USDC here.
       ...(row.fiat && { amount: fromAtomic(row.amountAtomic, row.token), fiat: row.fiat }),
+      sns_name: row.snsName ?? null, // W3-S
+      sns_source: row.snsSource ?? null,
     };
     return json(res, { status: 201 });
   } catch (e) {

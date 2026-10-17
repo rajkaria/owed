@@ -58,6 +58,10 @@ export interface PublicRequest {
   rest_request?: null | { id: string; status: RequestStatus; link?: string };
   /** Local-currency asks: the quote that locked `amount` (USDC). Display only; absent on USDC/SOL asks. */
   fiat?: FiatQuote;
+  // W3-S: the SNS name that pointed to recipient at creation (lib/sns.ts). Optional for rows built by hand.
+  sns_name?: string | null;
+  sns_source?: "sol_record_v2" | "sol_record_v1" | "owner" | null;
+  sns_resolved_at?: string | null;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */

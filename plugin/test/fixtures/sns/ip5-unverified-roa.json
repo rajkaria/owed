@@ -1,0 +1,63 @@
+{
+  "input": "sns-ip-5-wallet-3.sns",
+  "note": "SOL record v2 with RoA validation UnverifiedSolana.",
+  "sdk": {
+    "error": "WrongValidation"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "sns-ip-5-wallet-3.sns",
+    "code": "bad_record",
+    "message": "sns-ip-5-wallet-3.sns has a SOL record that isn't validated by its wallet's signature, so SNS itself won't resolve it. Ask the owner to fix the record, or pay a wallet address instead."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "H4SeQW3pCG4y7SyTwz163f3hgXw5m9ZwEJ8cg22cFYMz",
+          "DBBYDomUQ2cDoyMqdi6oVGSUddj4uTJBrNM9jFDwQJL2",
+          "AyEMrNz1G92Y9uA8o5i2utBiPkYHsueUqoSwe34sZ2Mp",
+          "6QQmKS5ojbTWzSy35RP8C3xfKC9EDGFsUrtK57eg1yKx"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177785
+        },
+        "value": [
+          null,
+          null,
+          {
+            "data": [
+              "UEmp1DEkx1YPT7FFfpQMunsV/iv3m7nZPzkgsFD3bTsa/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQADACAAAACKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEippQOTc+ObgYOyM0D+/hyv1RIP2L0QnoZtaHHtp+D8rQXlA5Nz45uBg7IzQP7+HK/VEg/YvRCehm1oce2n4PytBc=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZWKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

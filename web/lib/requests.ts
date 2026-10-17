@@ -6,6 +6,7 @@ import { buildTransferUrl } from "./solana-pay";
 import { findPayments, type PaymentCheck } from "./validate";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
+import type { SnsSource } from "./sns"; // W3-S
 import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
 import { isTeamSql, teamWallets } from "./team"; // W2-F is_team
@@ -62,6 +63,10 @@ export interface RequestRow {
   restRequest?: { id: string; status: RequestStatus } | null;
   /** Local-currency asks (0013): the quote that locked amountAtomic. Display only; null or absent for USDC/SOL asks. */
   fiat?: FiatQuote | null;
+  // W3-S SNS name payee (0015). Optional for the same reason as the W2-H fields.
+  snsName?: string | null;
+  snsSource?: SnsSource | null;
+  snsResolvedAt?: string | null;
 }
 
 /** A payment without the request's reference that the recipient's own wallet attributed to it (0012). */
@@ -98,7 +103,8 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
   ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
   chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS},
-  fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*
+  fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at,
+  sns_name, sns_source, ${isoUtc("sns_resolved_at")} as sns_resolved_at`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*; W3-S: sns_*
 
 export function fromRow(r: Row): RequestRow {
   return {
@@ -135,6 +141,9 @@ export function fromRow(r: Row): RequestRow {
     restOf: r.rest_of ?? null,
     restRequest: r.rest_request ? (JSON.parse(r.rest_request) as { id: string; status: RequestStatus }) : null,
     fiat: fiatFromRow(r),
+    snsName: r.sns_name ?? null, // W3-S
+    snsSource: (r.sns_source as SnsSource | null) ?? null,
+    snsResolvedAt: r.sns_resolved_at ?? null,
   };
 }
 
@@ -236,6 +245,9 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     rest_of: row.restOf ?? null,
     rest_request: row.restRequest ? { ...row.restRequest, ...(base && { link: `${base}/r/${row.restRequest.id}` }) } : null,
     ...(row.fiat && { fiat: row.fiat }), // local-currency asks: display only, never part of the id
+    sns_name: row.snsName ?? null, // W3-S
+    sns_source: row.snsSource ?? null,
+    sns_resolved_at: row.snsResolvedAt ?? null,
   };
 }
 
@@ -284,6 +296,8 @@ export interface CreateInput {
   restOf?: string | null;
   /** A local-currency ask's quote (lib/fx.ts); amountAtomic must be the USDC it locks. USDC on Solana only. */
   fiat?: FiatQuote | null;
+  /** W3-S: only a value returned by requireSnsName (lib/sns.ts); stores sns_wallet = recipient and stamps sns_resolved_at. */
+  sns?: { name: string; source: SnsSource } | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
@@ -301,11 +315,13 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
            payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain, rest_of,
-           fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at)
+           fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at,
+           sns_name, sns_wallet, sns_source, sns_resolved_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
            $14, case when $14::text is null then null else now() end,
            case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16, $17,
-           $18, $19, $20, $21, $22::timestamptz)
+           $18, $19, $20, $21, $22::timestamptz,
+           $23, case when $23::text is null then null else $2::text end, $24, case when $23::text is null then null else now() end)
          returning ${COLUMNS}`,
         [
           id,
@@ -330,6 +346,8 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           fiat?.rate ?? null,
           fiat?.rate_source ?? null,
           fiat?.quoted_at ?? null,
+          input.sns?.name ?? null, // W3-S
+          input.sns?.source ?? null,
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key

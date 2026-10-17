@@ -1,0 +1,64 @@
+{
+  "input": "sns-ip-5-wallet-2.sns",
+  "note": "Valid SOL record v2 (staleness = owner, RoA = content).",
+  "sdk": {
+    "wallet": "AxwzQXhZNJb9zLyiHUQA12L2GL7CxvUNrp6neee6r3cA"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": true,
+    "name": "sns-ip-5-wallet-2.sns",
+    "wallet": "AxwzQXhZNJb9zLyiHUQA12L2GL7CxvUNrp6neee6r3cA",
+    "source": "sol_record_v2",
+    "warnings": []
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "Atstg26sVCuXwZCw4mrBFAUJWF2aj47KVGG2uBUMULhS",
+          "4TuNaiUrwe229Daxc82agCc5XGZBUT3Q6ysBWZSSyayd",
+          "82a7opjDQGyanNj9BTqmdzHBnh6e4qpSx5tT6dSx2mWp",
+          "FVLJ5KEqQk3jiHsB84Rt5cnUac4s8fyHC2YaNDJVwKHJ"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177781
+        },
+        "value": [
+          null,
+          null,
+          {
+            "data": [
+              "10WyI4qfo9U3Dpthmn4vWG9n0Bpnlt57c7NAVSnh3Ika/X4WPHX766nOooHJFCwMxS6M+OTJ1WbsupZ/EhPyqhr9fhY8dfvrqc6igckULAzFLoz45MnVZuy6ln8SE/KqAQABACAAAACKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEippQOTc+ObgYOyM0D+/hyv1RIP2L0QnoZtaHHtp+D8rQXlA5Nz45uBg7IzQP7+HK/VEg/YvRCehm1oce2n4PytBc=",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 2282880,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 200
+          },
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZWKv+7q9nQ9zhLEW7axKPjs+IGpHkTwpJmCaGk0DkEipgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

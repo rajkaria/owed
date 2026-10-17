@@ -1,0 +1,53 @@
+{
+  "input": "sns-ip-5-wallet-11.sns",
+  "note": "No records, program-address owner.",
+  "sdk": {
+    "error": "PdaOwnerNotAllowed"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "sns-ip-5-wallet-11.sns",
+    "code": "no_wallet",
+    "message": "sns-ip-5-wallet-11.sns is owned by a program address (96GK…2rMr) and has no SOL record, so it doesn't name a wallet. Owed won't pay it."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "7HTdrSV7JRqtkKReMqp2AZS3Rc69tctCNScZfkkpyQ34",
+          "7QECyohfdGYMQ3ybTHtxHEwS9kaQNYMxZbkpiK6A1e3G",
+          "Fx3rBAbEyxb89DBpoyFAfzi5GKgXiuNgrueSsk5aanM3",
+          "6d7DcVDxTNKzBXu7CWNkHfYWXocwJNtMCziJ53B6deV5"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177813
+        },
+        "value": [
+          null,
+          null,
+          null,
+          {
+            "data": [
+              "PVPCSzg2DtOBOiPfst/YIKtYIct5KaONLqqyUug4JZV4NreEUIZx3lmoaDbWGJQj6RSDIgybqKZ1Duk4+gEZtQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "base64"
+            ],
+            "executable": false,
+            "lamports": 1559040,
+            "owner": "namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX",
+            "rentEpoch": 18446744073709552000,
+            "space": 96
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -23,11 +23,15 @@ import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from
 import {
   checkQuote, currencyInput, fiatAmountText, fiatApiRefusal, fiatHeadline, fiatOutput, fiatRateLine, parseFiatAsk, type FiatAsk,
 } from "../local-currency.js";
-import type { FiatQuoteRes } from "../contract.js";
 // Local-currency asks end
+// W3-S SNS names start
+import { snsSourceSchema, type FiatQuoteRes } from "../contract.js";
+import { looksLikeSnsName } from "../sns.js";
+import { resolveName, snsLead, snsLines, snsNameSchema } from "../sns-payee.js";
+// W3-S SNS names end
 
 export const inputSchema = z.object({
-  recipient: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address."), // W3-B: 0x with chain base
+  recipient: z.union([addressSchema, evmAddressSchema, snsNameSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address. If the user names their wallet by an SNS name (\"pay to example.sns\"), pass the name: Owed resolves it on Solana itself and payers see it as verified on-chain."), // W3-B: 0x with chain base; W3-S: an SNS name
   amount: decimalSchema.describe('Amount in whole token units as a decimal string, e.g. "15" or "2.5". Not atomic units. With currency, the amount in that currency, e.g. "1200" for ₹1,200.'),
   token: tokenSchema.default("USDC").describe('"USDC" (default) or "SOL".'),
   payer_name: z.string().min(1).max(40).optional().describe("First name of the person who owes the money, e.g. \"Priya\"."),
@@ -70,6 +74,10 @@ export const outputSchema = z.object({
   pay_url: z.string().optional().describe("Base requests: the EIP-681 link a Base wallet opens (USDC transfer on chain 8453)."),
   // W3-B Base requests end
   fiat: fiatOutput.optional(), // local-currency asks: amount is then the USDC locked
+  // W3-S SNS names start
+  sns_name: z.string().optional().describe("The SNS name the recipient was given as; it pointed to recipient when the request was made. Absent offline."),
+  sns_source: snsSourceSchema.optional().describe("Which SNS rule picked the wallet: the name's SOL record (v2 or signed v1), or its owner."),
+  // W3-S SNS names end
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -79,6 +87,8 @@ export type AskOutput = z.output<typeof outputSchema>;
 /** DNS for from_domain gets 4 s (Cloudflare 2.5 s, then dns.google), leaving the API its 4 s inside PayBox's 10 s. */
 export const ASK_PAYEE_BUDGET_MS = 4000;
 // W2-H verified payee end
+/** W3-S: an SNS name (≤2.5 s) and the DNS check share this, so the API keeps its 4 s of PayBox's 10 s. */
+export const ASK_NAME_AND_DNS_BUDGET_MS = 4500;
 
 const DESCRIPTION = [
   "Ask someone for money: creates an Owed payment request and returns a short link (with QR) that anyone can pay from any Solana wallet (Phantom, Solflare, Backpack) or from their own PayBox agent.",
@@ -94,9 +104,21 @@ const DESCRIPTION = [
   "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
   "If the user asks in their own currency (\"ask Priya for ₹1,200 for dinner\", \"bill the team €45\"), pass currency (\"INR\", \"EUR\") with amount in that currency: Owed locks the USDC amount at a live rate, the payer pays that USDC, and the pay page shows both.", // local-currency asks
   BASE_DESCRIPTION, // W3-B
+  "If the user gives their wallet as an SNS name (example.sns), pass it as recipient: Owed resolves it on Solana (the name's SOL record, else its owner), screens and pays that wallet, and the request shows the name as verified on-chain. Owed refuses .sol names (SNS moved to .sns; .sol isn't resolvable today), tokenized names and names with lookalike characters.", // W3-S
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
+  // W3-S SNS names start: resolve a name given as the recipient, then go on with the wallet it names.
+  const started = deps.now();
+  let sns: Extract<Awaited<ReturnType<typeof resolveName>>, { ok: true }> | undefined;
+  if (looksLikeSnsName(args.recipient)) {
+    if (args.chain === "base") return refusal("SNS names point to Solana wallets. Ask on Solana (leave chain out), or give a Base 0x address for a Base request.");
+    const named = await resolveName(args.recipient, deps);
+    if (!named.ok) return refusal(`${named.message} Nothing was created.`);
+    sns = named;
+    args = { ...args, recipient: named.wallet };
+  }
+  // W3-S SNS names end
   // Local-currency asks start: `amount` is in `currency`; Owed's server locks the USDC (Solana USDC only).
   let ask: FiatAsk | undefined;
   if (args.currency !== undefined) {
@@ -136,7 +158,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   const [screening, check] = await Promise.all([
     deps.screenRecipient(args.recipient, deps),
     // W2-H verified payee start
-    args.from_domain !== undefined ? checkFromDomain(args.from_domain, args.recipient, deps, ASK_PAYEE_BUDGET_MS) : undefined,
+    args.from_domain !== undefined ? checkFromDomain(args.from_domain, args.recipient, deps, Math.min(ASK_PAYEE_BUDGET_MS, ASK_NAME_AND_DNS_BUDGET_MS - (deps.now() - started))) : undefined, // W3-S: less after a name
     // W2-H verified payee end
   ]);
   if (!screening.ok) return refusal(screening.message);
@@ -173,6 +195,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     ...(fromDomain && { from_domain: fromDomain.domain }),
     // W2-H verified payee end
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
+    ...(sns && { sns_name: sns.name }), // W3-S
   };
 
   let created: { id: string | null; mode: "hosted" | "offline"; link: string; solana_pay_url: string; qr_url: string | null; reference: string };
@@ -192,6 +215,10 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
       return refusal(`Owed's server didn't attach ${fromDomain.domain} to the request, so the link wasn't used. Try again, or ask without from_domain.`);
     }
     // W2-H verified payee end
+    // W3-S: the server must have re-resolved and attached the same name.
+    if (sns && res.sns_name !== sns.name) {
+      return refusal(`Owed's server didn't attach ${sns.name} to the request, so the link wasn't used. Try again, or ask with the wallet address.`);
+    }
     // W3-C: the server must have set the expiry that was asked for.
     const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
     if (expiry) return refusal(expiry);
@@ -225,6 +252,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-E sanctions screen end
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
     ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
+    ...(sns && created.mode === "hosted" && { sns_name: sns.name, sns_source: sns.source }), // W3-S
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -242,6 +270,10 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     lines.push(`Offline links can't carry a domain, so payers will see this one as unverified, not as from ${fromDomain.domain}.`);
   }
   // W2-H verified payee end
+  // W3-S SNS names start
+  if (sns && created.mode === "hosted") lines.push(`Paid to ${snsLead(sns)}.`, ...snsLines(sns));
+  if (sns && created.mode === "offline") lines.push(`Paid to ${sns.wallet}, which ${sns.name} points to. Offline links can't carry a name, so payers see the wallet address, not ${sns.name}.`);
+  // W3-S SNS names end
   // W2-E sanctions screen start
   if (screening.screening === "unavailable") lines.push(SCREENING_UNAVAILABLE_LINE);
   // W2-E sanctions screen end

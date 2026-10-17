@@ -1,0 +1,43 @@
+{
+  "input": "owed-sns-fixture-unregistered-7f3a.sns",
+  "note": "No such name.",
+  "sdk": {
+    "error": "DomainDoesNotExist"
+  },
+  "captured_from": "api.mainnet-beta.solana.com",
+  "result": {
+    "ok": false,
+    "name": "owed-sns-fixture-unregistered-7f3a.sns",
+    "code": "not_found",
+    "message": "owed-sns-fixture-unregistered-7f3a.sns isn't registered on SNS. Check the spelling."
+  },
+  "calls": [
+    {
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "CtZqcDAUNzvDD23baqX3BxQNFLxSegA7i7iJsHvgutid",
+          "H5jSaTKsckmmorJkVTR6GJfAVKHvaSUUzQpwjK4kQssH",
+          "GsZt9egfhoFG8Jif4B7Qdm3V8WtE3V1gz6gnS6fwgqu",
+          "DNSHSwwFg2Pp1XTrTFMuDiHoMFmXTvaZ6KFJqP3jwEaw"
+        ],
+        {
+          "encoding": "base64",
+          "commitment": "confirmed"
+        }
+      ],
+      "result": {
+        "context": {
+          "apiVersion": "4.3.0",
+          "slot": 458177848
+        },
+        "value": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    }
+  ]
+}

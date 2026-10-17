@@ -51,6 +51,10 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
   answers into `plugin/test/fixtures/doh/`. `OWED_CAPTURE_DOMAIN=<domain> node test/fixtures/capture-doh.mjs published-record`
   records a live `_owed` TXT record; it refuses to write unless both resolvers return an `owed-pay=` record. The web
   suite (`web/test/payee*.test.ts`) runs the same fixtures and `plugin/test/fixtures/payee-vectors.json`.
+- SNS names (W3-S): `cd plugin && node --import tsx test/fixtures/capture-sns.mjs [case…]` re-records the mainnet accounts
+  `src/sns.ts` reads for each name into `plugin/test/fixtures/sns/`, with what SNS's own SDK returns for it. Both
+  `plugin/test/sns.test.ts` and `web/test/sns.test.ts` replay them, and the web test also checks that `web/lib/sns.ts`'s core is
+  the plugin's, byte for byte. `web/test/sns-db.test.ts` runs migration 0015 and the request routes on PGlite.
 - Sanctions list: `cd web && node scripts/ofac-sdn.mjs [sdn.xml]` rebuilds `plugin/src/ofac-sdn.ts` and `web/lib/ofac-sdn.ts`
   from the U.S. Treasury's OFAC SDN list (Solana and EVM digital currency addresses, with the list's publish date).
   Re-run it before a release; `web/test/sanctions.test.ts` checks both copies are identical.
