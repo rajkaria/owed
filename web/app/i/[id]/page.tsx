@@ -61,7 +61,7 @@ function Head({ model }: { model: InvoiceModel }) {
         ) : (
           <>
             <span className="sr-only">Invoice number </span>
-            <q>{model.number}</q>
+            <q><bdi>{model.number}</bdi></q>
           </>
         )}
       </h1>
@@ -75,7 +75,7 @@ function Parties({ model }: { model: InvoiceModel }) {
       <div>
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">From</h2>
         <p className="mt-1 text-lg font-semibold leading-snug break-words">
-          <q>{model.businessName}</q>
+          <q><bdi>{model.businessName}</bdi></q>
         </p>
         <VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />
         <p className="mt-2 text-sm text-muted">
@@ -85,7 +85,7 @@ function Parties({ model }: { model: InvoiceModel }) {
       <div>
         <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Bill to</h2>
         <p className="mt-1 text-lg font-semibold leading-snug break-words">
-          <q>{model.clientName}</q>
+          <q><bdi>{model.clientName}</bdi></q>
         </p>
       </div>
     </div>
@@ -129,7 +129,7 @@ function Items({ model }: { model: InvoiceModel }) {
           {model.lines.map((line, i) => (
             <tr key={i} className="border-b border-line align-top print:break-inside-avoid">
               <td className="py-3 pr-3 break-words print:py-1">
-                <q>{line.description}</q>
+                <q><bdi>{line.description}</bdi></q>
                 <span className="mt-0.5 block text-xs text-muted tabular-nums sm:hidden print:hidden">
                   {line.quantity} × {line.unitPrice}
                 </span>
@@ -167,7 +167,7 @@ function Notes({ model }: { model: InvoiceModel }) {
         <div className="print:break-inside-avoid">
           <h2 className="text-xs font-medium uppercase tracking-wider text-muted">Notes</h2>
           <blockquote className="mt-1 leading-relaxed break-words">
-            <q>{model.notes}</q>
+            <q><bdi>{model.notes}</bdi></q>
           </blockquote>
         </div>
       )}

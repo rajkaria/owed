@@ -1,0 +1,85 @@
+import "server-only";
+import { isoUtc, sql } from "@/lib/db";
+import { formatUnits, fromAtomic, TOKENS, type Token } from "@/lib/money";
+
+// /proof: the team's own real mainnet payments, read straight from requests. Only paid rows with
+// is_team set (lib/team.ts); nothing requester-written is selected, so nothing a stranger typed can
+// reach this page.
+
+export const PROOF_LIMIT = 200;
+
+export type ProofKind = "single" | "split_share" | "invoice";
+export type ProofRail = "solana_pay" | "x402";
+
+export interface ProofPayment {
+  id: string;
+  kind: ProofKind;
+  groupId: string | null;
+  token: Token;
+  /** What arrived, as a decimal string in whole tokens. */
+  amount: string;
+  rail: ProofRail;
+  signature: string;
+  paidAt: string;
+  fromDomain: string | null;
+  fromDomainVerifiedAt: string | null;
+}
+
+export interface ProofSummary {
+  payments: ProofPayment[];
+  count: number;
+  usdc: string;
+  sol: string;
+  rails: Record<ProofRail, number>;
+}
+
+const KINDS: readonly string[] = ["single", "split_share", "invoice"];
+
+export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
+  const [rows, [totals]] = await Promise.all([
+    sql(
+      `select id, kind, group_id, token, paid_amount_atomic::text as paid_amount_atomic,
+              coalesce(paid_rail, 'solana_pay') as paid_rail, paid_signature, ${isoUtc("paid_at")} as paid_at,
+              from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at
+         from requests
+        where status = 'paid' and is_team and paid_signature is not null and paid_at is not null
+        order by paid_at desc, id
+        limit $1`,
+      [limit],
+    ),
+    sql(
+      `select count(*)::text as count,
+              coalesce(sum(paid_amount_atomic) filter (where token = 'USDC'), 0)::text as usdc_atomic,
+              coalesce(sum(paid_amount_atomic) filter (where token = 'SOL'), 0)::text as sol_atomic,
+              count(*) filter (where paid_rail = 'x402')::text as x402
+         from requests
+        where status = 'paid' and is_team and paid_signature is not null and paid_at is not null`,
+    ),
+  ]);
+
+  const payments = rows.map((r): ProofPayment => {
+    const token = (r.token === "SOL" ? "SOL" : "USDC") as Token;
+    return {
+      id: r.id!,
+      kind: (KINDS.includes(r.kind!) ? r.kind : "single") as ProofKind,
+      groupId: r.group_id,
+      token,
+      amount: fromAtomic(BigInt(r.paid_amount_atomic ?? "0"), token),
+      rail: r.paid_rail === "x402" ? "x402" : "solana_pay",
+      signature: r.paid_signature!,
+      paidAt: r.paid_at!,
+      fromDomain: r.from_domain,
+      fromDomainVerifiedAt: r.from_domain_verified_at,
+    };
+  });
+
+  const count = Number(totals.count);
+  const x402 = Number(totals.x402);
+  return {
+    payments,
+    count,
+    usdc: formatUnits(BigInt(totals.usdc_atomic!), TOKENS.USDC.decimals),
+    sol: formatUnits(BigInt(totals.sol_atomic!), TOKENS.SOL.decimals),
+    rails: { solana_pay: count - x402, x402 },
+  };
+}

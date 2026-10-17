@@ -139,7 +139,7 @@ function ShareRow({ share, token }: { share: BoardShare; token: Token }) {
     <li className="px-4 py-3.5 sm:px-5">
       <div className="flex items-baseline justify-between gap-4">
         <a href={share.payLink} className="min-w-0 text-lg font-medium leading-snug break-words hover:underline">
-          {share.quoted ? <q>{share.label}</q> : <span className="text-muted">{share.label}</span>}
+          {share.quoted ? <q><bdi>{share.label}</bdi></q> : <span className="text-muted">{share.label}</span>}
         </a>
         <span className="shrink-0 text-lg font-semibold tabular-nums">{formatAmount(share.amount, token)}</span>
       </div>
@@ -208,7 +208,7 @@ export function GroupBoard({ initial, badge }: { initial: BoardModel; badge?: Re
         {model.title && (
           <p className="mt-3 text-xl leading-snug break-words">
             <span className="text-muted">for </span>
-            <q className="font-medium">{model.title}</q>
+            <q className="font-medium"><bdi>{model.title}</bdi></q>
           </p>
         )}
         <p className="mt-2 text-xs font-medium uppercase tracking-wider text-muted">

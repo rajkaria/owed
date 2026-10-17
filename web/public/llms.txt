@@ -1,0 +1,40 @@
+# Owed
+
+> Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Your agent asks one person, splits a bill or sends an invoice, and any Solana wallet or PayBox agent can pay it. Before your agent pays a request, Owed checks the payee against the sender's own domain. Everything runs on Solana mainnet with real funds (USDC or SOL). Owed never holds money and charges no fees: every payment goes from the payer's wallet straight to the recipient in one Solana transaction.
+
+To use Owed, connect PayBox to your agent as an MCP connector (https://api.paybox.sh/mcp) and turn on the Owed plugin in PayBox. Payments your agent proposes are approved by the user with a passkey in PayBox; Owed returns unsigned proposals and never signs anything.
+
+## Tools
+
+The plugin has six tools. `recipient` and `sender` are the user's own PayBox Solana wallet address (from PayBox's `list_credentials`).
+
+- `ask_for_money`: create a payment request and get a short link, a QR code and a ready-to-send message that anyone can pay from a Solana wallet or their own PayBox agent. Inputs: `recipient`, `amount` (decimal string), `token` (`USDC` or `SOL`), optional `payer_name`, `for`, `note`, `requester_name`, `from_domain`. Example: "ask Priya for 15 USDC for dinner".
+- `check_payments`: check whether up to 20 requests have been paid, by reading Solana mainnet. Input: `requests` (Owed ids, Owed links or Solana Pay transfer URLs with a reference). Returns each one's status (`open`, `paid`, `underpaid`, `not_found`, `invalid`, `unknown`) with payer, amount and transaction when paid. Example: "did Priya pay?"
+- `pay_link`: pay someone's request (an Owed link or id, or any Solana Pay transfer link or QR text, USDC or SOL). Checks the request is still open and the wallet can cover it, then returns an unsigned Solana transaction for the user to approve in PayBox. Inputs: `link`, `sender`, optional `max_amount`, `amount` (only for links without one), `allow_unverified`. Refuses checkout links (Solana Pay transaction requests), paid requests and amounts above `max_amount`.
+- `verify_payee`: check who a request is from: whether a domain publishes the wallet that gets paid, read from DNS by the plugin itself. Inputs: `link`, or `address` and `domain`. Verified means the domain lists the wallet; it shows who controls the domain, not that the request is fair. Lookalike spellings and internationalized names come with warnings.
+- `split_bill`: split a bill into one request per person plus a live board that shows who has paid. Inputs: `recipient`, `total`, `token`, `title`, `people` (2 to 20, each a `name` and an optional set `amount`; the rest split evenly), optional `requester_name`, `from_domain`. Example: "split 45 USDC for pizza between Priya, Sam and Alex".
+- `create_invoice`: create a printable invoice with line items, total, due date and invoice number, payable from any Solana wallet by QR or link, or by the client's PayBox agent. Inputs: `recipient`, `token`, `business_name`, `client_name`, `items` (1 to 20, each `description`, `quantity`, `unit_price`), `due_date` (YYYY-MM-DD), optional `invoice_number`, `notes`, `from_domain`. Example: "invoice Acme for 3 hours of consulting at 40 USDC, due Friday".
+
+## Verified payee
+
+A requester proves a domain by publishing their wallet in DNS: a TXT record named `_owed.<domain>` with the value `owed-pay=<Solana address>` (one record per wallet). `ask_for_money`, `split_bill` and `create_invoice` take an optional `from_domain`; Owed checks the record before creating the request and the pay page shows "From <domain> · verified". Before `pay_link` pays a request that names a domain, the plugin reads the record itself (DNS over HTTPS, cloudflare-dns.com then dns.google) and refuses a wallet the domain doesn't list. Example: `_owed.getowed.xyz` TXT `owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs`.
+
+## Pages
+
+- [Home](https://www.getowed.xyz/): what Owed does and how to add it in PayBox.
+- [Proof](https://www.getowed.xyz/proof): real mainnet payments made to or from the Owed team's own wallets, each with its transaction on Solscan.
+- `https://www.getowed.xyz/r/<id>`: a request's pay page: QR code, wallet button, live status, receipt once paid.
+- `https://www.getowed.xyz/g/<id>`: a split bill's board, "N of M paid".
+- `https://www.getowed.xyz/i/<id>`: a printable invoice.
+
+## Read-only API
+
+JSON, no auth. Errors are `{"error":{"code","message"}}`.
+
+- `GET https://www.getowed.xyz/api/v1/requests/<id>`: a request's terms, status and payment.
+- `POST https://www.getowed.xyz/api/v1/status` with `{"ids":[...]}` (up to 20): current status, checked against the chain.
+- `GET https://www.getowed.xyz/api/v1/stats`: count and USDC volume of paid requests.
+
+## Source
+
+- [GitHub: rajkaria/owed](https://github.com/rajkaria/owed): the plugin (`plugin/`) and this site (`web/`).

@@ -216,7 +216,7 @@ function Underpaid({ state, token, total, sender }: { state: Extract<LiveState, 
         )}
       </p>
       <p className="mt-2 text-sm text-muted">
-        Ask {sender} for a new link for the rest. Paying this invoice again would send the full amount.
+        Ask <bdi>{sender}</bdi> for a new link for the rest. Paying this invoice again would send the full amount.
       </p>
       {state.signature && (
         <p className="mt-2 text-sm">

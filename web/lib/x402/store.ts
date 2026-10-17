@@ -1,6 +1,7 @@
 import "server-only";
 import { isoUtc, isUniqueViolation, sql, transaction } from "../db";
 import type { Credit } from "../validate";
+import { isTeamSql, teamWallets } from "../team"; // W2-F is_team
 
 // x402_receipts (migration 0004): one row per settlement attempt, and the step that marks a
 // request paid over x402. See the migration for the states.
@@ -116,10 +117,11 @@ export const store: Store = {
         {
           text: `update requests
                     set status = 'paid', paid_signature = $2, paid_payer = $3, paid_amount_atomic = $4,
-                        paid_at = $5::timestamptz, paid_rail = 'x402'
+                        paid_at = $5::timestamptz, paid_rail = 'x402',
+                        is_team = ${isTeamSql("$6", "$3::text")} -- W2-F is_team (lib/team.ts)
                   where id = $1 and status = 'open'
                   returning id`,
-          params: [receipt.requestId, credit.signature, credit.payer, credit.amountAtomic, credit.at],
+          params: [receipt.requestId, credit.signature, credit.payer, credit.amountAtomic, credit.at, teamWallets()],
         },
       ]);
       return updated.length > 0;

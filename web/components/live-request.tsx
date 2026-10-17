@@ -196,7 +196,7 @@ function UnderpaidCard({
         )}
       </p>
       <p className="mt-3 text-sm text-muted">
-        Ask {asker} for a new link for the rest. Paying this link again would send the full amount.
+        Ask <bdi>{asker}</bdi> for a new link for the rest. Paying this link again would send the full amount.
       </p>
       {state.signature && (
         <p className="mt-4">
