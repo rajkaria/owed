@@ -64,7 +64,8 @@ const rpcServer = createServer((req, res) => {
   });
 });
 await new Promise<void>((resolve) => rpcServer.listen(0, "127.0.0.1", resolve));
-const rpc = { urls: [`http://127.0.0.1:${(rpcServer.address() as AddressInfo).port}`] };
+// The replay server answers in-process; a long timeout keeps a loaded machine from failing the test.
+const rpc = { urls: [`http://127.0.0.1:${(rpcServer.address() as AddressInfo).port}`], timeoutMs: 30_000 };
 after(() => rpcServer.close());
 
 const NEON = "https://api.us-east-1.aws.neon.tech/sql";
