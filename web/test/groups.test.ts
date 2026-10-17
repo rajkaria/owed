@@ -78,6 +78,20 @@ test("toPublicGroup produces exactly the contract fixtures (open and 2 of 3 paid
   }
 });
 
+test("toPublicGroup: a verified domain is echoed on the group and on every share (QA-15)", () => {
+  const withDomain = rowsFromFixture(fixture("groups.create.res.json"));
+  withDomain.group.fromDomain = "getowed.xyz";
+  withDomain.group.fromDomainVerifiedAt = "2026-10-17T07:30:00Z";
+  for (const row of withDomain.shares) Object.assign(row, { fromDomain: "getowed.xyz", fromDomainVerifiedAt: "2026-10-17T07:30:00Z" });
+  const pub = toPublicGroup(withDomain, "https://owed.link");
+  assert.equal(pub.from_domain, "getowed.xyz");
+  assert.deepEqual(pub.shares.map((s) => s.from_domain), ["getowed.xyz", "getowed.xyz", "getowed.xyz"]);
+  assert.deepEqual(check(shapes.groupRes, pub).errors, []);
+  GroupResponse.parse(pub);
+  const plain = toPublicGroup(rowsFromFixture(fixture("groups.create.res.json")), "https://owed.link");
+  assert.deepEqual(plain.shares.map((s) => s.from_domain), [null, null, null]);
+});
+
 // ---- the routes against an in-memory Neon endpoint and an empty chain ----
 
 interface Stored { [column: string]: string | null }

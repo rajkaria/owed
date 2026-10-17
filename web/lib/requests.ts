@@ -8,6 +8,7 @@ import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
+import { isTeamSql, teamWallets } from "./team"; // W2-F is_team
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -191,10 +192,11 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
     const rows = await sql(
       `update requests
           set status = $2, paid_signature = $3, paid_payer = $4, paid_amount_atomic = $5,
-              paid_at = $6::timestamptz, paid_rail = 'solana_pay'
+              paid_at = $6::timestamptz, paid_rail = 'solana_pay',
+              is_team = ${isTeamSql("$7", "$4::text")} -- W2-F is_team (lib/team.ts)
         where id = $1 and status in ('open', 'underpaid')
         returning ${COLUMNS}`,
-      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at],
+      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets()],
     );
     if (rows.length) return fromRow(rows[0]);
     return (await getRequest(row.id)) ?? row; // settled concurrently
@@ -205,6 +207,15 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
     }
     throw e;
   }
+}
+
+/**
+ * Which of these transactions already settle a stored request (signature -> request id). A
+ * transaction naming two requests' references pays only one; the other must find its own (QA-03).
+ */
+async function claimedSignatures(signatures: readonly string[]): Promise<Map<string, string>> {
+  const rows = await sql(`select paid_signature, id from requests where paid_signature = any($1::text[])`, [signatures]);
+  return new Map(rows.map((r) => [r.paid_signature!, r.id!]));
 }
 
 const RECHECK_MS = 3000;
@@ -232,8 +243,9 @@ export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptio
   }
 
   const checks = await findPayments(
-    due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic })),
+    due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic, requestId: r.id })),
     rpc,
+    { claimed: claimedSignatures },
   );
   if (lastChecked.size > 10_000) lastChecked.clear();
   for (const r of due) lastChecked.set(r.id, now);

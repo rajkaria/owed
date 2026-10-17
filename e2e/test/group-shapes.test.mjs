@@ -48,6 +48,15 @@ test("groupRes catches a board that misreports who has paid", async () => {
   assert.match(tamper((g) => { g.shares[2].paid = g.shares[0].paid; }), /status is open but paid is set/);
   assert.match(tamper((g) => { g.share_count = 4; }), /share_count: 4 but 3 shares/);
   assert.match(tamper((g) => { g.shares[0].name = "Priya https://evil.example"; }), /sanitized text/);
+  // QA-15: pay_link checks a share on its own, so every share must carry the board's verified domain.
+  const verified = (g) => {
+    g.from_domain = "getowed.xyz";
+    g.from_domain_verified_at = "2026-10-17T07:30:00Z";
+    for (const share of g.shares) share.from_domain = "getowed.xyz";
+  };
+  assert.equal(tamper(verified), "");
+  assert.match(tamper((g) => { verified(g); g.shares[1].from_domain = null; }), /shares\[1\]\.from_domain: null but the group's is "getowed\.xyz"/);
+  assert.match(tamper((g) => { g.shares[0].from_domain = "getowed.xyz"; }), /shares\[0\]\.from_domain: "getowed\.xyz" but the group's is null/);
 });
 
 test("createGroupReq: set amounts must fit the total", async () => {

@@ -7,6 +7,6 @@
   "reference": "Bpo5quLAxFJj2eeQ9DrBGLEK69WwMD9k8ZbUF1aSeby9"
  },
  "calls": [
-{"method":"getSignaturesForAddress","params":["Bpo5quLAxFJj2eeQ9DrBGLEK69WwMD9k8ZbUF1aSeby9",{"limit":10,"commitment":"confirmed"}],"result":[]}
+{"method":"getSignaturesForAddress","params":["Bpo5quLAxFJj2eeQ9DrBGLEK69WwMD9k8ZbUF1aSeby9",{"limit":1000,"commitment":"confirmed"}],"result":[]}
  ]
 }
