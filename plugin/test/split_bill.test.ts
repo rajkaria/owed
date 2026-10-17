@@ -31,13 +31,17 @@ function server(tamper: (res: GroupRes) => void = () => {}): Route {
         recipient: body.recipient, amount: p.amount, references: [reference], memo: `owed:${id}`, message: body.title,
         ...(token === "USDC" && { splToken: USDC_MINT }), ...(body.requester_name && { label: body.requester_name }),
       });
-      return { id, name: p.name, amount: p.amount!, status: "open", link: `https://owed.link/r/${id}`, solana_pay_url, reference, paid: null };
+      return {
+        id, name: p.name, amount: p.amount!, status: "open", link: `https://owed.link/r/${id}`, solana_pay_url, reference, paid: null,
+        from_domain: body.from_domain ?? null,
+      };
     });
     const totalAtomic = money.toAtomic(body.total, token);
     const id = groupIdFor({ recipient: body.recipient, token, totalAtomic, shareIds: shares.map((s) => s.id) });
     const res: GroupRes = {
       id, link: `https://owed.link/g/${id}`, title: body.title, recipient: body.recipient, token, total: body.total,
       requester_name: body.requester_name ?? null, created_at: "2026-10-17T07:30:00Z", flags: [],
+      from_domain: body.from_domain ?? null, from_domain_verified_at: body.from_domain ? "2026-10-17T07:30:00Z" : null,
       share_count: shares.length, paid_count: 0, amount_received: "0", shares,
     };
     tamper(res);
@@ -267,11 +271,33 @@ test("from_domain: verified → sent on the split and said in the text; unverifi
   const off = await splitBill(input({ from_domain: "getowed.xyz" }), offline.deps, clear, verified);
   assert.equal(structured(off).from_domain, undefined);
   assert.match(textOf(off), /can't carry the verified domain getowed\.xyz/);
+  assert.doesNotMatch(textOf(off), /Payee verified/, "offline links carry no domain, so the text must not say they are verified");
 
   const unverified: CheckFromDomain = async () => ({ ok: false, message: "getowed.xyz does not publish this wallet. Add a TXT record at _owed.getowed.xyz." });
   const other = makeDeps({ routes: { "POST /api/v1/groups": server() } });
   assert.match(refused(await splitBill(input({ from_domain: "getowed.xyz" }), other.deps, clear, unverified)), /does not publish this wallet/);
   assert.equal(other.rec.calls.length, 0);
+});
+
+for (const [name, tamper] of [
+  ["a board without the domain", (r: GroupRes) => { r.from_domain = null; }],
+  ["a board with another domain", (r: GroupRes) => { r.from_domain = "getowed.xyz.evil.example"; }],
+  ["one share without the domain", (r: GroupRes) => { r.shares[1]!.from_domain = null; }],
+  ["one share with the field missing (older server)", (r: GroupRes) => { delete r.shares[2]!.from_domain; }],
+] as const) {
+  test(`from_domain (QA-15): refuses a hosted split with ${name}`, async () => {
+    const verified: CheckFromDomain = async () => ({ ok: true, from_domain: "getowed.xyz", lines: ["Payee verified: getowed.xyz publishes this wallet."] });
+    const { deps } = makeDeps({ routes: { "POST /api/v1/groups": server(tamper) } });
+    const text = refused(await splitBill(input({ from_domain: "getowed.xyz" }), deps, clear, verified));
+    assert.match(text, /didn't attach getowed\.xyz to every share, so the links weren't used/);
+    assert.doesNotMatch(text, /Payee verified/);
+  });
+}
+
+test("without from_domain, a reply that carries none is accepted as before", async () => {
+  const { deps } = makeDeps({ routes: { "POST /api/v1/groups": server() } });
+  const out = structured(await splitBill(input(), deps, clear));
+  assert.equal(out.from_domain, undefined);
 });
 
 test("planShares uses splitEvenly for everyone without a set amount", () => {
