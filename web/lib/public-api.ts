@@ -24,7 +24,7 @@ export interface PublicRequest {
   reference: string;
   x402_url: string | null;
   created_at: string;
-  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" };
+  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" | "moonpay_card" };
   flags: string[];
   // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
   from_domain: string | null;

@@ -79,7 +79,7 @@ export const PaidInfo = z.object({
   payer: anyAddress, // W3-B
   amount: decimal,
   at: isoTime,
-  rail: z.enum(["solana_pay", "x402", "base_transfer"]), // W3-B: base_transfer
+  rail: z.enum(["solana_pay", "x402", "base_transfer", "moonpay_card"]), // W3-B: base_transfer; moonpay_card: paid by card
 });
 
 export const GetRequestResponse = z.object({
@@ -130,6 +130,7 @@ export const StatusResult = z.object({
   id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional(),
   expires_at: isoTime.optional(), cancelled_at: isoTime.optional(), // W3-C
   chain: chain.optional(), // W3-B
+  rail: z.enum(["moonpay_card"]).optional(), // set only when a request was paid by card through MoonPay
 });
 export type StatusResult = z.infer<typeof StatusResult>;
 

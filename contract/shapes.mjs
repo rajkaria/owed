@@ -232,6 +232,7 @@ const statusFields = {
   expires_at: optional(iso), // W3-C: when an expiring request ends
   cancelled_at: optional(iso), // W3-C
   chain: optional(oneOf("base")), // W3-B: set on Base requests
+  rail: optional(oneOf("moonpay_card")), // set only when a request was paid by card through MoonPay
 };
 function statusConsistent(value, path, ctx) {
   if (["open", "paid", "underpaid", "cancelled", "expired"].includes(value.status)) {
@@ -256,7 +257,7 @@ export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
 }
 
 const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
-const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "moonpay_card") });
 
 /** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
 function peopleFitTotal(value, path, ctx) {
@@ -418,7 +419,7 @@ const getRequestFields = {
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
   status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
   solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
-  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
+  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "moonpay_card") }))),
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
@@ -532,7 +533,7 @@ const invoiceQuantity = string({
   max: 20, label: "a positive quantity with at most 4 decimal places",
   test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
 });
-const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "moonpay_card") });
 
 /** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
 export function invoiceLineAtomic(quantity, unitPrice, decimals) {

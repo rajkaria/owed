@@ -26,6 +26,9 @@ function result(row: RequestRow): StatusResult {
     out.payer = row.paidPayer ?? undefined;
     out.signature = row.paidSignature ?? undefined;
     out.paid_at = row.paidAt ?? undefined;
+    // Pay by card: lets an open pay page flip straight to "Paid by card via MoonPay". Only card payments carry it,
+    // so every other response is unchanged.
+    if (row.paidRail === "moonpay_card") out.rail = row.paidRail;
   }
   return out;
 }
