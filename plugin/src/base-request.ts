@@ -70,7 +70,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
-  // W2-E: the sanctions screen (Chainalysis takes 0x addresses too) runs beside the DNS check, as on Solana.
+  // W2-E: the sanctions screen (OFAC SDN list, 0x addresses included) runs beside the DNS check, as on Solana.
   const [screening, check] = await Promise.all([
     deps.screenRecipient(recipient, deps),
     args.from_domain !== undefined ? checkFromDomain(args.from_domain, recipient, deps, 4000) : undefined,

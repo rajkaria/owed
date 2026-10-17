@@ -20,13 +20,12 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - No tool: lists tools only. `--sample` calls `plugin/paybox-plugin.json`. Arguments can be `@file.json`.
 - Network: discovery runs with none (PayBox forbids network at startup and in `tools/list`). A call may reach the
   Owed host plus `solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `cloudflare-dns.com` and `dns.google`
-  (verified payee's DNS-over-HTTPS) and `public.chainalysis.com` (sanctions screen) over HTTPS:443; override with
+  (verified payee's DNS-over-HTTPS) over HTTPS:443; override with
   `--hosts a,b`, `--hosts none`, `--hosts any` or `--no-guard`. Every attempt is printed; blocked ones fail the run.
   `--down host` refuses a host as a simulated outage without failing (golden-path row 8).
-- Brokered secrets: `--broker public.chainalysis.com:X-API-Key=@$HOME/.config/owed/chainalysis-api-key` adds the
-  header to the plugin's HTTPS fetches to that exact host, as PayBox does with the portal's Secret. The value is read
-  from the file inside the network guard: it never reaches the plugin's env or argv, or the report. The run fails if the
-  tool's output contains it. Without `--broker` the screen gets Cloudflare's 403 and reports `screening: "unavailable"`.
+- Brokered secrets: `--broker <host>:<Header>=@<file>` adds the header to the plugin's HTTPS fetches to that exact host,
+  as PayBox does with a portal Secret. The value is read from the file inside the network guard: it never reaches the
+  plugin's env or argv, or the report. The run fails if the tool's output contains it. (Owed uses no brokered secret.)
 - Startup health: at the plugin's first response the harness checks that `new Error().stack` still works. A bundled
   CommonJS dependency that breaks it (`__filename is not defined`) would crash every later error path.
 - Assertions: `--expect results.0.status=paid` (structuredContent), `--expect proposal.transfer.amount=1` (decoded
@@ -44,10 +43,9 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
   answers into `plugin/test/fixtures/doh/`. `OWED_CAPTURE_DOMAIN=<domain> node test/fixtures/capture-doh.mjs published-record`
   records a live `_owed` TXT record; it refuses to write unless both resolvers return an `owed-pay=` record. The web
   suite (`web/test/payee*.test.ts`) runs the same fixtures and `plugin/test/fixtures/payee-vectors.json`.
-- Sanctions screen: `cd plugin && node test/fixtures/capture-chainalysis.mjs [case…]` re-records Chainalysis's answers
-  into `plugin/test/fixtures/chainalysis/`. Cases: the four OFAC SDN Solana addresses, the team wallet (clean), a bad
-  key (401) and no key (403, Cloudflare's block page with the IP address removed). The key comes from `CHAINALYSIS_API_KEY`
-  or `~/.config/owed/chainalysis-api-key` and is never written.
+- Sanctions list: `cd web && node scripts/ofac-sdn.mjs [sdn.xml]` rebuilds `plugin/src/ofac-sdn.ts` and `web/lib/ofac-sdn.ts`
+  from the U.S. Treasury's OFAC SDN list (Solana and EVM digital currency addresses, with the list's publish date).
+  Re-run it before a release; `web/test/sanctions.test.ts` checks both copies are identical.
 - Postgres: `web/test/x402-store.test.ts` and `web/test/payee-db.test.ts` run the migrations and SQL on PGlite and skip
   until the devDependency `@electric-sql/pglite` is installed.
 
