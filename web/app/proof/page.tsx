@@ -106,9 +106,10 @@ function Summary({ proof }: { proof: ProofSummary }) {
         <dd className="text-3xl font-semibold tabular-nums">{totals.length ? totals.join(" + ") : "0 USDC"}</dd>
       </div>
       <div className="flex flex-col-reverse rounded-2xl border border-line bg-surface p-5">
-        <dt className="mt-1 text-muted">Solana Pay · x402</dt>
+        {/* A rail is named only once a real payment used it. */}
+        <dt className="mt-1 text-muted">{proof.rails.x402 > 0 ? "Solana Pay · x402" : "paid with Solana Pay"}</dt>
         <dd className="text-3xl font-semibold tabular-nums">
-          {proof.rails.solana_pay} · {proof.rails.x402}
+          {proof.rails.x402 > 0 ? `${proof.rails.solana_pay} · ${proof.rails.x402}` : proof.rails.solana_pay}
         </dd>
       </div>
     </dl>
