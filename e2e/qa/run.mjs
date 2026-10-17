@@ -5,6 +5,7 @@
 //   command node e2e/qa/run.mjs              # every finding: "open" (its tests fail) or "fixed" (they pass)
 //   command node e2e/qa/run.mjs QA-01 QA-03  # only these
 //   command node e2e/qa/run.mjs --expect-fixed QA-01   # exit 1 unless every named finding passes (owners)
+//   CHECKS = checks-*.test.ts: attacks that are already handled; they must pass (exit 1 otherwise).
 //
 // Not part of `pnpm unit`/`pnpm test` on purpose: these fail until fixed. Needs `pnpm install` in plugin/ and web/.
 import { spawnSync } from "node:child_process";
@@ -30,12 +31,13 @@ const byId = new Map();
 for (const suite of SUITES) {
   let files = [];
   try {
-    files = readdirSync(suite.dir).filter((f) => /^qa-\d+.*\.test\.ts$/.test(f)).sort();
+    files = readdirSync(suite.dir).filter((f) => /^(qa-\d+|checks-).*\.test\.ts$/.test(f)).sort();
   } catch {
     continue;
   }
   for (const f of files) {
-    const id = `QA-${f.match(/^qa-(\d+)/)[1]}`;
+    // checks-*.test.ts pin behaviour that is already right (no finding); they must always pass.
+    const id = f.startsWith("checks-") ? "CHECKS" : `QA-${f.match(/^qa-(\d+)/)[1]}`;
     if (wanted.length && !wanted.includes(id)) continue;
     if (!byId.has(id)) byId.set(id, []);
     byId.get(id).push({ suite, file: join(suite.dir, f) });
@@ -43,6 +45,7 @@ for (const suite of SUITES) {
 }
 
 let failedExpectation = false;
+let errors = false;
 for (const [id, entries] of [...byId.entries()].sort()) {
   const parts = [];
   let open = false;
@@ -51,12 +54,16 @@ for (const [id, entries] of [...byId.entries()].sort()) {
     const out = `${r.stdout}\n${r.stderr}`;
     const pass = Number(out.match(/^# pass (\d+)/m)?.[1] ?? 0);
     const fail = Number(out.match(/^# fail (\d+)/m)?.[1] ?? (r.status === 0 ? 0 : 1));
+    // A file that can't load (missing module, syntax) is a broken test, not an open finding.
+    const broken = /Error \[ERR_|SyntaxError|Cannot find (module|package)/.test(out) && pass === 0;
+    if (broken) errors = true;
     if (fail > 0 || r.status !== 0) open = true;
-    parts.push(`${suite.name} ${relative(root, file)}: ${pass} pass, ${fail} fail`);
+    parts.push(`${suite.name} ${relative(root, file)}: ${broken ? "ERROR (file did not load; QA_VERBOSE=1 shows why)" : `${pass} pass, ${fail} fail`}`);
     if (process.env.QA_VERBOSE && r.status !== 0) process.stderr.write(out);
   }
-  console.log(`${id}  ${open ? "OPEN " : "FIXED"}  ${parts.join(" · ")}`);
-  if (expectFixed && open) failedExpectation = true;
+  const label = id === "CHECKS" ? (open ? "FAIL " : "PASS ") : (open ? "OPEN " : "FIXED");
+  console.log(`${id.padEnd(6)} ${label}  ${parts.join(" · ")}`);
+  if ((expectFixed || id === "CHECKS") && open) failedExpectation = true;
 }
 if (byId.size === 0) console.log("no QA tests matched");
-process.exit(failedExpectation ? 1 : 0);
+process.exit(failedExpectation || errors ? 1 : 0);
