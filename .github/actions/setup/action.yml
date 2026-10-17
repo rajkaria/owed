@@ -1,0 +1,35 @@
+name: Node 24 + pnpm install
+description: Node 24, pnpm 11.11.0 from the package's packageManager via corepack, cached store, frozen install.
+inputs:
+  dir:
+    description: Package directory (plugin or web)
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: "24"
+    - name: Enable corepack
+      shell: bash
+      run: corepack enable
+    - name: Locate pnpm store
+      id: store
+      shell: bash
+      working-directory: ${{ inputs.dir }}
+      env:
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      run: |
+        pnpm --version
+        echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ inputs.dir }}-${{ hashFiles(format('{0}/pnpm-lock.yaml', inputs.dir)) }}
+        restore-keys: pnpm-store-${{ runner.os }}-${{ inputs.dir }}-
+    - name: Install (frozen lockfile)
+      shell: bash
+      working-directory: ${{ inputs.dir }}
+      env:
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      run: pnpm install --frozen-lockfile

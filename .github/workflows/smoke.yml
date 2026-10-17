@@ -1,0 +1,52 @@
+name: Smoke
+
+# Runs web/scripts/smoke.mjs against production after every successful Vercel production deployment, or on demand.
+# Read-only unless "create" is ticked on a manual run (then it writes one real 0.01 USDC request, source "smoke").
+# Set the repository variable SMOKE_STRICT=1 once wave 1 is live so missing routes fail instead of reporting pending.
+
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Base URL to test
+        default: https://owed-omega.vercel.app
+      strict:
+        description: Fail on routes that are not deployed yet
+        type: boolean
+        default: false
+      create:
+        description: Create one real 0.01 USDC request to the team wallet (source smoke)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' && startsWith(github.event.deployment.environment, 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Smoke
+        env:
+          BASE_URL: ${{ inputs.base_url || vars.OWED_PROD_URL || 'https://owed-omega.vercel.app' }}
+          STRICT: ${{ inputs.strict == true || vars.SMOKE_STRICT == '1' }}
+          CREATE: ${{ inputs.create == true }}
+        run: |
+          flags=()
+          [ "$STRICT" = "true" ] && flags+=(--strict)
+          [ "$CREATE" = "true" ] && flags+=(--create)
+          set -o pipefail
+          node web/scripts/smoke.mjs "$BASE_URL" "${flags[@]}" | tee smoke.txt
+      - name: Summary
+        if: always()
+        run: |
+          { echo '### Smoke'; echo '```'; cat smoke.txt 2>/dev/null || echo "smoke did not run"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
