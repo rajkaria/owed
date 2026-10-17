@@ -13,6 +13,8 @@ import { AmountError } from "@/lib/money";
 import { POST } from "@/app/api/v1/invoices/route";
 import { GET } from "@/app/api/v1/invoices/[id]/route";
 
+// Invoice shapes are added to contract/shapes.mjs with Object.assign, so TypeScript can't see them on `shapes`.
+const contractShapes = shapes as unknown as Record<"invoiceRes" | "errorRes", Parameters<typeof check>[0]>;
 const fixtures = new URL("../../contract/fixtures/", import.meta.url);
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), "utf8"));
 const RECIPIENT = "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs";
@@ -200,7 +202,7 @@ test("POST /invoices: 201, contract-valid, one request row + one invoice row in 
   assert.equal(res.status, 201);
   const body = await res.json();
   InvoiceResponse.parse(body);
-  const shaped = check(shapes.invoiceRes, body);
+  const shaped = check(contractShapes.invoiceRes, body);
   assert.deepEqual([shaped.errors, shaped.warnings], [[], []]);
   assert.equal(db.batches, 1);
   assert.equal(db.rateEvents, 1);
@@ -237,7 +239,7 @@ test("POST /invoices: untrusted text is sanitized; brand words flag the invoice 
   assert.equal(row.requester_name, "Northwind Translation and Localisation…");
   assert.ok(Array.from(row.requester_name!).length <= 40);
   assert.equal(pgArrayToJson(row.flags), JSON.stringify(["brand_word:moonpay", "brand_word:refund"]));
-  assert.deepEqual(check(shapes.invoiceRes, body).errors, []);
+  assert.deepEqual(check(contractShapes.invoiceRes, body).errors, []);
 });
 
 test("POST /invoices: invalid input is a 400 that names the problem, and spends no rate-limit slot", async () => {
@@ -259,7 +261,7 @@ test("POST /invoices: invalid input is a 400 that names the problem, and spends 
     const err = await res.json();
     assert.equal(err.error.code, "invalid_input");
     assert.match(err.error.message, message);
-    assert.deepEqual(check(shapes.errorRes, err).errors, []);
+    assert.deepEqual(check(contractShapes.errorRes, err).errors, []);
   }
   assert.equal(db.rateEvents, 0);
   assert.equal(db.requests.size, 0);
@@ -287,7 +289,7 @@ test("GET /invoices/:id: a paid invoice carries the payment; rows that disagree 
   const paid = await (await get(created.id)).json();
   assert.equal(paid.status, "paid");
   assert.deepEqual(paid.paid, { signature: row.paid_signature, payer: row.paid_payer, amount: "1", at: "2026-10-17T07:41:09Z", rail: "solana_pay" });
-  assert.deepEqual(check(shapes.invoiceRes, paid).errors, []);
+  assert.deepEqual(check(contractShapes.invoiceRes, paid).errors, []);
   row.amount_atomic = "2000000";
   assert.equal((await get(created.id)).status, 404);
 });
