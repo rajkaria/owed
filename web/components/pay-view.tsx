@@ -25,18 +25,18 @@ function RequesterDetails({ model }: { model: PayModel }) {
           {model.claimedName && (
             <blockquote className="mt-2 text-lg leading-snug break-words">
               <span className="text-muted">Name </span>
-              <q className="font-medium">{model.claimedName}</q>
+              <q className="font-medium"><bdi>{model.claimedName}</bdi></q>
             </blockquote>
           )}
           {model.forText && (
             <blockquote className="mt-2 text-lg leading-snug break-words">
               <span className="text-muted">For </span>
-              <q className="font-medium">{model.forText}</q>
+              <q className="font-medium"><bdi>{model.forText}</bdi></q>
             </blockquote>
           )}
           {model.note && (
             <blockquote className="mt-2 leading-snug break-words text-muted">
-              <q>{model.note}</q>
+              <q><bdi>{model.note}</bdi></q>
             </blockquote>
           )}
         </figure>

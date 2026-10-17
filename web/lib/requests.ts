@@ -8,6 +8,7 @@ import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
+import { isTeamSql, teamWallets } from "./team"; // W2-F is_team
 // W3-B Base requests start
 import { BASE_USDC, BASE_USDC_DECIMALS, eip681Transfer, type Chain } from "./evm/base";
 import { settleBaseRequests } from "./evm/settle";
@@ -222,10 +223,11 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
     const rows = await sql(
       `update requests
           set status = $2, paid_signature = $3, paid_payer = $4, paid_amount_atomic = $5,
-              paid_at = $6::timestamptz, paid_rail = 'solana_pay'
+              paid_at = $6::timestamptz, paid_rail = 'solana_pay',
+              is_team = ${isTeamSql("$7", "$4::text")} -- W2-F is_team (lib/team.ts)
         where id = $1 and status in ('open', 'underpaid')
         returning ${COLUMNS}`,
-      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at],
+      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets()],
     );
     if (rows.length) return fromRow(rows[0]);
     return (await getRequest(row.id)) ?? row; // settled concurrently
