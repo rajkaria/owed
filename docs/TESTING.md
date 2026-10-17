@@ -35,6 +35,14 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
   `GET /api/v1/requests/<id>` for Owed links): fee payer, size, legacy format, amount, mint, recipient account,
   references read-only, memo.
 
+## Local-currency asks
+
+- `plugin/test/local_currency.test.ts`: `fiat.ts` math (minor units, zero-decimal currencies, rounding up, 2% rule, display) and every tool's `currency` path against the `fiat.*` contract fixtures and a stand-in server.
+- `web/test/fiat.test.ts`: the two `fiat.ts` copies are identical; `lib/fx.ts` reads exact decimals from real captured replies (`web/test/fixtures/fx/`, 2026-10-17T21:06:41Z) and locks, cross-checks, falls back or refuses.
+- `web/test/fiat-db.test.ts`: migration 0013 on PGlite, then `/requests`, `/groups`, `/invoices`, `/status`, `/schedules`, the ledger, the CSV and the page models with `currency`.
+- `node --test e2e/test/fiat-shapes.test.mjs`: `contract/shapes.mjs` rejects a quote that doesn't give its USDC.
+- Against a local server: `next start` with a `NODE_OPTIONS=--import` preload that answers the Neon SQL-over-HTTP calls from an in-memory PGlite (all migrations), behind an HTTPS proxy on a throwaway CA; then `node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs ask_for_money '{"recipient":…,"amount":"1200","currency":"INR"}' --base-url https://localhost:<port> --env NODE_EXTRA_CA_CERTS=<ca.pem> --hosts any` (the guard only allows port 443, so `--hosts any`; its report still lists every connection).
+
 ## Fixtures
 
 - Solana: `cd plugin && node test/fixtures/capture.mjs [case…]` re-records mainnet JSON-RPC exchanges; tests replay them
