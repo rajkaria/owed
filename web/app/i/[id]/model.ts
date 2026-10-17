@@ -37,6 +37,9 @@ export interface InvoiceLineView {
   quantity: string;
   unitPrice: string;
   amount: string;
+  /** The same numbers without the token: print puts the token in the column headers to give descriptions room. */
+  unitPriceValue: string;
+  amountValue: string;
 }
 
 export interface InvoiceModel {
@@ -97,6 +100,8 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
       quantity: groupDigits(i.quantity),
       unitPrice: formatAmount(i.unit_price, token),
       amount: formatAmount(i.amount, token),
+      unitPriceValue: groupDigits(i.unit_price),
+      amountValue: groupDigits(i.amount),
     })),
     recipient: inv.recipient,
     recipientShort: shortAddress(inv.recipient),
