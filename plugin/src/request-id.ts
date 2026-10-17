@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import bs58 from "bs58";
 import { USDC_MINT, type Token } from "./money.js";
+import { BASE_CAIP2, BASE_USDC, type Chain } from "./evm.js"; // W3-B
 
 // A request id commits to where the money goes. It is derived from the payment terms
-// (recipient, asset, atomic amount, reference), so the server that stores a request can't
+// (recipient, asset, atomic amount, reference; for Base also the chain), so the server that stores a request can't
 // change who gets paid or how much without the id, and therefore the link, changing too.
 // web/lib/ids.ts computes the same value; contract/fixtures pin it on both sides.
 
@@ -17,13 +18,17 @@ export interface RequestTerms {
   token: Token;
   amountAtomic: bigint;
   reference: string;
+  /** W3-B: absent or "solana" hashes exactly as before, so every Solana id is unchanged. */
+  chain?: Chain;
 }
 
 export function requestIdFor(terms: RequestTerms): string {
   const asset = terms.token === "SOL" ? "SOL" : USDC_MINT;
-  const digest = createHash("sha256")
-    .update(`owed-request:v1\n${terms.recipient}\n${asset}\n${terms.amountAtomic}\n${terms.reference}`, "utf8")
-    .digest();
+  // W3-B: a Base request names its network and Base USDC, so it can never share an id with a Solana one.
+  const preimage = terms.chain === "base"
+    ? `owed-request:v1\n${BASE_CAIP2}\n${terms.recipient}\n${BASE_USDC}\n${terms.amountAtomic}\n${terms.reference}`
+    : `owed-request:v1\n${terms.recipient}\n${asset}\n${terms.amountAtomic}\n${terms.reference}`;
+  const digest = createHash("sha256").update(preimage, "utf8").digest();
   // The low-order base58 digits are uniform; the leading digit of a 32-byte value is not.
   return bs58.encode(digest).slice(-VERIFIED_ID_LENGTH);
 }

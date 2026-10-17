@@ -7,6 +7,7 @@ import { TOKENS, USDC_MINT, type Token } from "../money.js";
 import { atomicAmount } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { ago, explorerUrl, shortAddress } from "../text.js";
+import { basescanTx } from "../evm.js"; // W3-B
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
 export const CHECK_BUDGET_MS = 8500;
@@ -31,6 +32,7 @@ export const resultSchema = z.object({
   explorer_url: z.string().optional(),
   waited: z.string().optional().describe('How long an unpaid request has been open, e.g. "2h 14m".'),
   error: z.string().optional(),
+  chain: z.literal("base").optional().describe("Set for a request on Base: amounts are USDC on Base and explorer_url is Basescan."), // W3-B
 }).strict();
 
 export const outputSchema = z.object({
@@ -43,7 +45,7 @@ export type CheckResult = z.output<typeof resultSchema>;
 export type CheckOutput = z.output<typeof outputSchema>;
 
 const DESCRIPTION = [
-  "Check whether payment requests have been paid, by reading Solana mainnet.",
+  "Check whether payment requests have been paid, by reading Solana mainnet (and Base, for Owed requests made on Base).", // W3-B
   "Use it when the user asks \"did Priya pay?\", \"who still owes me?\" or wants a status on requests made with ask_for_money.",
   "Pass up to 20 items: Owed request ids, Owed links, or Solana Pay transfer URLs (they must include a reference).",
   "Returns each request's status (open, paid, underpaid, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
@@ -104,6 +106,8 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
 
 function parse(raw: string, ctx: CallContext, deps: Deps): Parsed {
   const input = raw.trim();
+  // W3-B: a bare Base payment link has no reference to find; Owed checks Base requests by their Owed id or link.
+  if (/^ethereum:/i.test(input)) return { kind: "invalid", input, error: "This is a Base payment link (ethereum:...). Owed checks Base requests by their Owed id or link, not the wallet link." };
   let link;
   try {
     link = deps.parseLink(input, ctx.hosts);
@@ -128,8 +132,9 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
   if (r.payer !== undefined) out.payer = r.payer;
   if (r.signature !== undefined) {
     out.signature = r.signature;
-    out.explorer_url = explorerUrl(r.signature);
+    out.explorer_url = r.chain === "base" ? basescanTx(r.signature) : explorerUrl(r.signature); // W3-B
   }
+  if (r.chain === "base") out.chain = "base"; // W3-B
   if (r.paid_at !== undefined) out.paid_at = r.paid_at;
   if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
     const waited = ago(r.created_at, now);
@@ -215,7 +220,7 @@ export function summarize(results: CheckResult[], deps: Deps): string {
 }
 
 function label(r: CheckResult): string {
-  return r.id ? `request ${r.id}` : "Solana Pay link";
+  return r.id ? `request ${r.id}${r.chain === "base" ? " (Base)" : ""}` : "Solana Pay link"; // W3-B: say which chain
 }
 
 function detailLine(r: CheckResult): string[] {

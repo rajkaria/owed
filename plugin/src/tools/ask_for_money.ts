@@ -2,6 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { ApiError } from "../api.js";
 import { addressSchema, decimalSchema, requestIdSchema, tokenSchema, type CreateRequestReq, type CreateRequestRes } from "../contract.js";
+// W3-B Base requests start
+import { chainSchema, evmAddressSchema } from "../contract.js";
+import { askForMoneyOnBase, BASE_DESCRIPTION } from "../base-request.js";
+// W3-B Base requests end
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
@@ -12,7 +16,7 @@ import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
 
 export const inputSchema = z.object({
-  recipient: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials). The money is paid to this address."),
+  recipient: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address."), // W3-B: 0x with chain base
   amount: decimalSchema.describe('Amount in whole token units as a decimal string, e.g. "15" or "2.5". Not atomic units.'),
   token: tokenSchema.default("USDC").describe('"USDC" (default) or "SOL".'),
   payer_name: z.string().min(1).max(40).optional().describe("First name of the person who owes the money, e.g. \"Priya\"."),
@@ -22,13 +26,16 @@ export const inputSchema = z.object({
   // W2-H verified payee start
   from_domain: fromDomainSchema.optional(),
   // W2-H verified payee end
+  // W3-B Base requests start
+  chain: chainSchema.default("solana").describe('"solana" (default) or "base": USDC on Base, paid from any Base wallet or over x402.'),
+  // W3-B Base requests end
 }).strict();
 
 export const outputSchema = z.object({
   id: requestIdSchema.nullable().describe("Owed request id; null when the link was built offline."),
   mode: z.enum(["hosted", "offline"]),
   link: z.string().describe("The link to send to the payer."),
-  solana_pay_url: z.string(),
+  solana_pay_url: z.string().nullable(), // W3-B: null on Base requests (see pay_url)
   qr_url: z.string().nullable().describe("QR image URL; null offline (the link's page shows the QR)."),
   reference: z.string().describe("Solana Pay reference key that identifies the payment on-chain."),
   recipient: z.string(),
@@ -41,6 +48,10 @@ export const outputSchema = z.object({
   // W2-H verified payee start
   from_domain: z.string().optional().describe("The verified domain payers see on the request (lower-case ASCII). Absent offline: offline links carry no domain."),
   // W2-H verified payee end
+  // W3-B Base requests start
+  chain: chainSchema.optional().describe('"base" for a Base request (absent means Solana).'),
+  pay_url: z.string().optional().describe("Base requests: the EIP-681 link a Base wallet opens (USDC transfer on chain 8453)."),
+  // W3-B Base requests end
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -59,9 +70,14 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the user has a domain that publishes their wallet in DNS (_owed.<domain> TXT owed-pay=<wallet>), pass it as from_domain: Owed checks it first and payers see the request as verified from that domain.",
   // W2-H verified payee end
+  BASE_DESCRIPTION, // W3-B
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
+  // W3-B Base requests start
+  if (args.chain === "base") return askForMoneyOnBase(args, deps);
+  if (args.recipient.startsWith("0x")) return refusal('That is a Base (0x) address. To ask for USDC on Base, pass chain: "base"; for Solana, use the user\'s Solana wallet address.');
+  // W3-B Base requests end
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
   let atomic: bigint;
@@ -115,7 +131,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
       return refusal(`Owed's server didn't attach ${fromDomain.domain} to the request, so the link wasn't used. Try again, or ask without from_domain.`);
     }
     // W2-H verified payee end
-    created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url, qr_url: res.qr_url, reference: res.reference };
+    created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url as string /* W3-B: checkHosted refuses null */, qr_url: res.qr_url, reference: res.reference };
   } catch (error) {
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the request."));
     if (error.code !== "upstream_unavailable") return refusal(apiRefusal(error));
@@ -162,6 +178,7 @@ function checkHosted(res: CreateRequestRes, recipient: string, token: "USDC" | "
   const bad = "Owed's server returned a payment link that doesn't match this request, so it wasn't used. Nothing was created on your side; try again.";
   try {
     if (new URL(res.link).protocol !== "https:") return bad;
+    if (res.solana_pay_url === null) return bad; // W3-B: a Base reply to a Solana ask
     const parsed = deps.parseLink(res.solana_pay_url, ctx.hosts);
     if (parsed.kind !== "transfer") return bad;
     const r = parsed.request;

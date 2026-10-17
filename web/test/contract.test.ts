@@ -21,6 +21,10 @@ import {
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
 const SCHEMAS: Record<string, ZodType> = {
+  "base.create-request.req.json": CreateRequestBody, // W3-B
+  "base.create-request.res.json": CreateRequestResponse,
+  "base.get-request.res.json": GetRequestResponse,
+  "base.status.res.json": StatusResponse,
   "create-request.req.json": CreateRequestBody,
   "create-request.res.json": CreateRequestResponse,
   "error.res.json": ErrorResponse,

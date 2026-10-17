@@ -11,10 +11,14 @@ import { idMatchesTerms, VERIFIED_ID_LENGTH } from "../request-id.js";
 import { PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
 // W2-H verified payee end
 import { brandFlags, cautionLine, quote, shortAddress } from "../text.js";
+// W3-B Base requests start
+import { evmAddressSchema } from "../contract.js";
+import { payBaseRequest } from "../base-request.js";
+// W3-B Base requests end
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), or the text of a payment QR code."),
-  sender: addressSchema.describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id."),
+  sender: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id. For a request on Base, the user's Base (0x) wallet address."), // W3-B: 0x for Base
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
   rail: z.enum(["solana_pay", "x402"]).optional().describe("How to pay. solana_pay (default): an unsigned Solana transaction from the user's wallet. x402: pay an Owed USDC request at its x402 URL; PayBox pays it over x402 and the facilitator covers the network fee, so no SOL is needed."),
@@ -46,6 +50,7 @@ const DESCRIPTION = [
   // W2-H verified payee start
   "If the request names a domain (from_domain), the tool checks that domain's DNS itself and refuses unless the domain publishes the recipient wallet; a verified domain leads the preview.",
   // W2-H verified payee end
+  "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
 ].join(" ");
 
 interface Resolved {
@@ -65,7 +70,8 @@ interface Resolved {
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   const started = deps.now();
-  if (!deps.isSolanaAddress(args.sender)) return refusal("sender must be a Solana wallet address (the user's own PayBox Solana wallet).");
+  // W3-B: a 0x sender is checked once the request turns out to be on Base.
+  if (!deps.isSolanaAddress(args.sender) && !args.sender.startsWith("0x")) return refusal("sender must be a Solana wallet address (the user's own PayBox Solana wallet).");
   let ctx: CallContext;
   try {
     ctx = callContext(deps);
@@ -87,6 +93,9 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   if (parsed.kind === "owed") {
     const result = await resolveOwed(parsed.id, ctx, deps);
     if (typeof result === "string") return refusal(result);
+    // W3-B Base requests start
+    if ("baseRequest" in result) return payBaseRequest(result.baseRequest, parsed.id, args, ctx, deps, PAY_BUDGET_MS - (deps.now() - started));
+    // W3-B Base requests end
     resolved = result;
   } else {
     const token = tokenOf(parsed.request);
@@ -98,6 +107,8 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   }
   const { request, token } = resolved;
   if (x402 && token !== "USDC") return refusal(REFUSE_X402_NOT_USDC);
+  // W3-B: from here on the request is on Solana, so the sender must be a Solana wallet.
+  if (!deps.isSolanaAddress(args.sender)) return refusal("This request is on Solana: sender must be the user's own PayBox Solana wallet address, not a 0x address.");
 
   if (request.recipient === args.sender) return refusal("This request pays your own wallet, so there is nothing to send.");
 
@@ -205,7 +216,7 @@ function tokenOf(r: TransferRequest): Token | null {
   return r.splToken === USDC_MINT ? "USDC" : null;
 }
 
-async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Resolved | string> {
+async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Resolved | { baseRequest: GetRequestRes } | string> {
   if (id.length !== VERIFIED_ID_LENGTH) return REFUSE_UNVERIFIABLE;
   let rq: GetRequestRes;
   try {
@@ -224,6 +235,9 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     return `This request already received a partial payment (${paid}). Ask the requester for a new link for the rest.`;
   }
   if (rq.status !== "open") return `This request can't be paid (status: ${rq.status}).`;
+  // W3-B Base requests: checked and paid in base-request.ts (x402 on eip155:8453, never a Solana transaction).
+  if (rq.chain === "base") return { baseRequest: rq };
+  if (rq.solana_pay_url === null) return "Owed's server returned a payment link it can't read. Nothing was sent."; // W3-B
 
   let parsed;
   try {

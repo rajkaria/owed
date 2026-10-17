@@ -11,6 +11,10 @@ import {
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
+  "base.create-request.req.json": createRequestReqSchema, // W3-B
+  "base.create-request.res.json": createRequestResSchema,
+  "base.get-request.res.json": getRequestResSchema,
+  "base.status.res.json": statusResSchema,
   "create-request.req.json": createRequestReqSchema,
   "create-request.res.json": createRequestResSchema,
   "error.res.json": errorResSchema,
