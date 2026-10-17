@@ -129,9 +129,11 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
           <h2 id="receipt-title" className="text-xl font-semibold tracking-tight text-paid">
             Paid
           </h2>
-          <p className="text-sm text-muted">
-            {state.rail === "moonpay_card" ? "Paid by card via MoonPay, confirmed on Solana" : `Confirmed on ${state.signature?.startsWith("0x") ? "Base" : "Solana"}`}
-          </p>
+          {state.rail === "moonpay_card" ? (
+            <p className="text-sm text-muted">Paid by card via MoonPay, confirmed on Solana</p>
+          ) : (
+            <p className="text-sm text-muted">Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</p>
+          )}
         </div>
       </div>
       {state.amount && (
