@@ -3,7 +3,7 @@ import { CreateGroupBody, type GroupResponse } from "@/lib/contract";
 import { createGroup, GROUP_TEXT_LIMITS, planShares, toPublicGroup } from "@/lib/groups";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
-import { requireVerifiedDomain } from "@/lib/payee";
+import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
 import { brandFlags, sanitizeText } from "@/lib/safety";
 
@@ -44,6 +44,9 @@ export async function POST(req: Request): Promise<Response> {
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // createGroup stores it on the group and on every share.
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
+    // W2-H (QA-02): a brand word in the verified domain flags the group and every share, like one in the text.
+    const domainFlags = domainBrandFlags(fromDomain);
+    for (const share of shares) share.flags = [...new Set([...share.flags, ...domainFlags])];
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
     for (let i = 0; i < shares.length; i++) {
@@ -64,7 +67,7 @@ export async function POST(req: Request): Promise<Response> {
       token: body.token,
       title,
       requesterName,
-      flags,
+      flags: [...new Set([...flags, ...domainFlags])],
       shares,
       source: body.source,
       fromDomain,
