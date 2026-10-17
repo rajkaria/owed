@@ -12,7 +12,8 @@ import { idMatchesTerms } from "../request-id.js";
 import { screenRecipient, type Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { checkFromDomain } from "../payee.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, shareText, shortAddress } from "../text.js";
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -164,6 +165,8 @@ export async function splitBill(
   const total = deps.fromAtomic(totalAtomic, token);
   const amounts = plan.amounts.map((a) => deps.fromAtomic(a, token));
 
+  // QA-18: every SOL share to a never-used wallet must reach Solana's minimum; read alongside screening and DNS.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
   const screening = await screen(args.recipient);
   if (!screening.ok) return refusal(screening.message);
 
@@ -176,6 +179,11 @@ export async function splitBill(
     if (!check.ok) return refusal(check.message);
     fromDomain = check.from_domain;
     domainLines = check.lines;
+  }
+  const minimum = await solMinimum;
+  const tooSmall = minimum === null ? -1 : plan.amounts.findIndex((a) => a < minimum);
+  if (minimum !== null && tooSmall !== -1) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `the ${amounts[tooSmall]} SOL share for ${quote(names[tooSmall], LIMITS.name)}`));
   }
 
   let ctx: CallContext;

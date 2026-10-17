@@ -4,6 +4,7 @@ import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { createInvoice, prepareInvoice, toPublicInvoice } from "@/lib/invoices";
 import { AmountError } from "@/lib/money";
 import { requireVerifiedDomain } from "@/lib/payee";
+import { requireSolMinimum } from "@/lib/sol-minimum";
 import { takeCreateSlot } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -30,12 +31,15 @@ export async function POST(req: Request): Promise<Response> {
       source: body.source,
     };
     const now = Date.now();
+    let totalAtomic: bigint;
     try {
-      prepareInvoice(input, now); // every amount, date and text check, before a rate-limit slot is spent
+      totalAtomic = prepareInvoice(input, now).totalAtomic; // every amount, date and text check, before a rate-limit slot is spent
     } catch (e) {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
       throw e;
     }
+    // QA-18: a SOL invoice to a never-used wallet must reach Solana's minimum, or it could never be paid.
+    if (body.token === "SOL") await requireSolMinimum(body.recipient, totalAtomic, "the invoice total");
 
     // Verified payee (W2-H): the domain must publish this recipient in DNS now; stored on the invoice and its request.
     const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);

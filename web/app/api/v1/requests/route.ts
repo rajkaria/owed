@@ -4,6 +4,7 @@ import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
+import { requireSolMinimum } from "@/lib/sol-minimum";
 import { createRequest, solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
 import { x402UrlFor } from "@/lib/x402/url";
@@ -28,6 +29,8 @@ export async function POST(req: Request): Promise<Response> {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
       throw e;
     }
+    // QA-18: a SOL request to a never-used wallet must reach Solana's minimum, or it could never be paid.
+    if (body.token === "SOL") await requireSolMinimum(body.recipient, amountAtomic, "amount");
 
     const flags = brandFlags([body.payer_name, body.for, body.note, body.requester_name]);
 

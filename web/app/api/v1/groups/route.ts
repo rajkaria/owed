@@ -5,6 +5,7 @@ import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
+import { requireSolMinimum } from "@/lib/sol-minimum";
 import { brandFlags, sanitizeText } from "@/lib/safety";
 
 export const runtime = "nodejs";
@@ -30,6 +31,8 @@ export async function POST(req: Request): Promise<Response> {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message);
       throw e;
     }
+    // QA-18: every SOL share to a never-used wallet must reach Solana's minimum, or that share could never be paid.
+    if (body.token === "SOL") await requireSolMinimum(body.recipient, amounts.reduce((a, b) => (b < a ? b : a)), "the smallest share");
 
     const title = sanitizeText(body.title, GROUP_TEXT_LIMITS.title);
     const requesterName = sanitizeText(body.requester_name, GROUP_TEXT_LIMITS.requester_name);

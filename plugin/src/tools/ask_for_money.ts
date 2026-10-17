@@ -6,7 +6,8 @@ import { callContext, defaultDeps, errorText, refusal, type CallContext, type De
 import { idMatchesTerms } from "../request-id.js";
 import { USDC_MINT } from "../money.js";
 import type { TransferRequest } from "../solana-pay.js";
-import { clean, quote, shareText } from "../text.js";
+import { clean, quote, shareText, shortAddress } from "../text.js";
+import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 // W2-H verified payee start
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
@@ -78,6 +79,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     requesterName: clean(args.requester_name, 40) || undefined,
   };
 
+  // QA-18: a SOL request to a never-used wallet must reach Solana's minimum; read alongside the DNS check.
+  const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
+
   // W2-H verified payee start
   let fromDomain: { domain: string; lines: string[] } | undefined;
   if (args.from_domain !== undefined) {
@@ -86,6 +90,11 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     fromDomain = { domain: check.from_domain, lines: check.lines };
   }
   // W2-H verified payee end
+
+  const minimum = await solMinimum;
+  if (minimum !== null && atomic < minimum) {
+    return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${amount} SOL request`));
+  }
 
   let ctx: CallContext;
   try {
