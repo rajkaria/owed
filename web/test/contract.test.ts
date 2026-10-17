@@ -18,6 +18,7 @@ import {
   StatusResponse,
 } from "@/lib/contract";
 import { LedgerBody, LedgerResponse } from "@/lib/contract";
+import { CreateScheduleBody, ScheduleResponse } from "@/lib/contract"; // W3-D
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -39,6 +40,11 @@ const SCHEMAS: Record<string, ZodType> = {
   "invoices.get.res.json": InvoiceResponse,
   "ledger.req.json": LedgerBody,
   "ledger.res.json": LedgerResponse,
+  // W3-D
+  "ledger.schedules.req.json": LedgerBody,
+  "ledger.schedules.res.json": LedgerResponse,
+  "schedules.create.req.json": CreateScheduleBody,
+  "schedules.create.res.json": ScheduleResponse,
 };
 
 test("every contract fixture has a schema", () => {

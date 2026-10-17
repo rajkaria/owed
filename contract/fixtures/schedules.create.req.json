@@ -1,0 +1,10 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "450",
+  "token": "USDC",
+  "payer_name": "Sam",
+  "for": "rent",
+  "requester_name": "Raj",
+  "day_of_month": 17,
+  "source": "plugin"
+}

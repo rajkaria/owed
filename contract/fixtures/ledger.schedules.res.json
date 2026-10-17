@@ -1,0 +1,140 @@
+{
+  "recipient": "GaymdfCkez1C2y7ZTRXg37xrXhwkegzJ4yYqHCR4e3NM",
+  "generated_at": "2026-10-17T14:05:02Z",
+  "chain_checked": true,
+  "open": [
+    {
+      "id": "USb4iXb3t9Dr",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/USb4iXb3t9Dr",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "amount": "450",
+      "token": "USDC",
+      "status": "open",
+      "payer_name": "Sam",
+      "for": "rent",
+      "created_at": "2026-10-01T00:07:12Z",
+      "amount_due": "450",
+      "schedule_id": "S7mKq2RtVx9P",
+      "period": "2026-10"
+    },
+    {
+      "id": "RX6nkj8wxyeH",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/RX6nkj8wxyeH",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "amount": "0.2",
+      "token": "SOL",
+      "status": "open",
+      "payer_name": "Alex",
+      "for": "gym",
+      "created_at": "2026-10-05T00:06:40Z",
+      "amount_due": "0.2",
+      "schedule_id": null,
+      "period": null
+    }
+  ],
+  "paid_recently": [
+    {
+      "id": "kH8EuRQeitnD",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/kH8EuRQeitnD",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "amount": "450",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": "Sam",
+      "for": "rent",
+      "created_at": "2026-09-01T00:06:58Z",
+      "amount_paid": "450",
+      "payer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+      "paid_at": "2026-09-29T18:20:31Z",
+      "schedule_id": "S7mKq2RtVx9P",
+      "period": "2026-09"
+    }
+  ],
+  "totals": [
+    {
+      "token": "USDC",
+      "outstanding": "450",
+      "received_30d": "450",
+      "open_count": 1,
+      "paid_count": 1
+    },
+    {
+      "token": "SOL",
+      "outstanding": "0.2",
+      "received_30d": "0",
+      "open_count": 1,
+      "paid_count": 0
+    }
+  ],
+  "truncated": false,
+  "schedules": [
+    {
+      "id": "S7mKq2RtVx9P",
+      "status": "active",
+      "amount": "450",
+      "token": "USDC",
+      "payer_name": "Sam",
+      "for": "rent",
+      "day_of_month": 1,
+      "months": null,
+      "requests_opened": 2,
+      "next_request_on": "2026-11-01",
+      "created_at": "2026-08-28T16:40:00Z",
+      "from_domain": null,
+      "last_error": null,
+      "requests": [
+        {
+          "period": "2026-10",
+          "id": "USb4iXb3t9Dr",
+          "link": "https://www.getowed.xyz/r/USb4iXb3t9Dr",
+          "status": "open"
+        },
+        {
+          "period": "2026-09",
+          "id": "kH8EuRQeitnD",
+          "link": "https://www.getowed.xyz/r/kH8EuRQeitnD",
+          "status": "paid"
+        }
+      ]
+    },
+    {
+      "id": "Gm4ZkP8wQe2N",
+      "status": "ended",
+      "amount": "25",
+      "token": "USDC",
+      "payer_name": "Priya",
+      "for": "phone plan",
+      "day_of_month": 28,
+      "months": 1,
+      "requests_opened": 1,
+      "next_request_on": null,
+      "created_at": "2026-07-20T10:00:00Z",
+      "from_domain": null,
+      "last_error": null,
+      "requests": []
+    }
+  ],
+  "csv": {
+    "url": "https://www.getowed.xyz/api/v1/ledger/csv?recipient=GaymdfCkez1C2y7ZTRXg37xrXhwkegzJ4yYqHCR4e3NM&expires=1792246502&sig=IQS0gq-052J7m1moScs51DSs2gjpD1jwR2OXFUdcS8k",
+    "expires_at": "2026-10-17T14:15:02Z"
+  }
+}

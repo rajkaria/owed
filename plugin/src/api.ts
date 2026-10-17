@@ -5,6 +5,7 @@ import {
   type StatusRawRes, type StatusRes,
   invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
   ledgerResSchema, type LedgerReq, type LedgerRes,
+  scheduleResSchema, type CreateScheduleReq, type ScheduleRes, // W3-D
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -50,6 +51,7 @@ export interface ApiClient {
   createGroup(body: CreateGroupReq): Promise<GroupRes>;
   createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
   ledger(body: LedgerReq): Promise<LedgerRes>;
+  createSchedule(body: CreateScheduleReq): Promise<ScheduleRes>; // W3-D
 }
 
 export interface ApiOptions {
@@ -106,5 +108,6 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     createGroup: (body) => call("POST", "/groups", groupResSchema, body),
     createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
     ledger: (body) => call("POST", "/ledger", ledgerResSchema, body),
+    createSchedule: (body) => call("POST", "/schedules", scheduleResSchema, body), // W3-D
   };
 }
