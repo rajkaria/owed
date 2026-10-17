@@ -65,6 +65,12 @@ test("SOL: a reference payment of the exact amount is paid, with payer, signatur
   });
 });
 
+test("amountAtomic 0n (a link without an amount): any credit is paid", async () => {
+  const r = await findPayment(replay(...SOL_PAY.calls), { reference: SOL_REF, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 0n });
+  assert.equal(r.status, "paid");
+  assert.equal(r.amountPaidAtomic, 3_027_000n);
+});
+
 test("SOL: one lamport short is underpaid and reports what arrived", async () => {
   const r = await findPayment(replay(...SOL_PAY.calls), { reference: SOL_REF, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 3_027_001n });
   assert.equal(r.status, "underpaid");

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { buildTransferTx, type BuildInput } from "../src/tx.ts";
+import { proposeSolana } from "../src/paybox.ts";
 
 // Real mainnet keys: the team wallet, plus the payer, payee (a program-derived, off-curve
 // address) and reference of SOL payment
@@ -182,4 +183,24 @@ test("refuses bad addresses with a plain sentence", () => {
 
 test("refuses a transaction over 1,232 bytes", () => {
   assert.throws(() => buildTransferTx(usdc({}, { memo: "x".repeat(1000) })), /1,232/);
+});
+
+test("the starter's proposeSolana accepts every built layout unchanged", () => {
+  for (const input of [usdc(), usdc({ createRecipientAta: false }), usdc({}, { memo: undefined }), sol()]) {
+    const { transactionBase64 } = buildTransferTx(input);
+    const out = proposeSolana({ transactionBase64 });
+    const proposal = (out.structuredContent as Record<string, unknown>)["io.paybox/transactionProposal"] as {
+      kind: string;
+      chain: string;
+      transaction: { transactionBase64: string };
+    };
+    assert.equal(proposal.kind, "solana");
+    assert.equal(proposal.chain, "solana:mainnet");
+    assert.equal(proposal.transaction.transactionBase64, transactionBase64);
+  }
+});
+
+test("variant A for the spike's 0.01 USDC self-transfer is 399 bytes, as measured in the portal", () => {
+  const out = buildTransferTx(usdc({ amountAtomic: 10_000n }, { recipient: SENDER, memo: "owed:spike", references: ["8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e"] }));
+  assert.equal(out.bytes, 399);
 });
