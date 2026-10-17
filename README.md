@@ -8,25 +8,28 @@ Owed never holds money and charges no fees. Every payment goes from the payer's 
 
 ## What's live
 
-Eight tools, uploaded to the PayBox developer portal (build of `main`, hosted checks passed, 8 tools; see [docs/FACTS.md](docs/FACTS.md)).
+Ten tools, uploaded to the PayBox developer portal (build of `main`, hosted checks passed, 10 tools; see [docs/FACTS.md](docs/FACTS.md)).
 
 | Tool | What it does |
 |---|---|
 | `ask_for_money` | Creates a request and returns a short link, a QR code and a ready-to-send message. Anyone can pay it by scanning the QR with a Solana wallet app or from their own PayBox agent. |
 | `check_payments` | Checks up to 20 requests on Solana mainnet: open, paid, underpaid, not found, with payer, amount and transaction once paid. |
-| `pay_link` | Pays an Owed link or any Solana Pay transfer link with one unsigned transaction for the user to approve in PayBox. It refuses checkout links (transaction requests), paid requests and amounts above `max_amount`. |
+| `pay_link` | Pays an Owed link or any Solana Pay transfer link with one unsigned transaction for the user to approve in PayBox. It refuses checkout links (transaction requests), paid requests and amounts above `max_amount`. With `rail: "x402"`, it pays an Owed USDC request over x402 instead: PayBox pays the request's x402 endpoint and the facilitator covers the network fee. |
 | `verify_payee` | Checks whether a domain publishes the wallet a request pays, reading DNS from the plugin itself. |
 | `split_bill` | Splits a bill into one request per person and a live board that shows who has paid. |
 | `create_invoice` | Creates a printable invoice with line items, due date and invoice number, payable by QR, link or the client's agent. |
 | `who_owes_me` | Lists your open and recently paid requests with totals, after you sign one message with your PayBox wallet (no money moves). Anyone can create a request that pays your wallet, so it marks requester text unverified. |
 | `write_reminder` | Drafts a polite, firm or formal reminder with the link and days outstanding; it reads the status first and drafts nothing for a paid request. |
+| `ask_every_month` | Asks someone for the same amount every month: stores a monthly schedule and opens a new Owed request on that day (UTC); each month's request works with every other tool. |
+| `cancel_request` | Cancels one of your own requests, shares or invoices after you sign one message with the wallet it pays: its page shows Cancelled and `pay_link` refuses it. A paid request can't be cancelled. |
 
-Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets, with their transactions.
+Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); an x402 endpoint per request (`/x/<id>`) that any x402 agent can pay; a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets, with their transactions.
 
 ## Why your agent can trust what it pays
 
 - **The link fingerprints the payment.** A request id is a hash of the recipient, token, amount and reference. Before proposing a payment, `pay_link` recomputes it from what the server returns and refuses on a mismatch, so Owed's server can't change who gets paid or how much behind a link someone already shared. This covers the Solana Pay rail.
 - **Verified payee.** A requester proves a domain by publishing a TXT record `_owed.<domain>` → `owed-pay=<wallet>`. When a request names a domain, `pay_link` reads that record itself over DNS-over-HTTPS (cloudflare-dns.com, then dns.google), not through Owed's server, and refuses a wallet the domain doesn't list. Verified means the domain lists the wallet. It says who controls the domain, not that the request is fair. Lookalike spellings, internationalized names, brand words and names placed in front of another domain come with a caution.
+- **The x402 rail.** With `rail: "x402"`, your agent checks the id and the request's live x402 challenge against the request before it proposes the payment. PayBox fetches the challenge again when it pays, so "the server can't change who gets paid" stays a Solana Pay guarantee. First mainnet settle: request `FeJG9SuofqWU` through PayBox `pay_x402` (see [docs/FACTS.md](docs/FACTS.md)).
 - **Requester text is quoted, never trusted.** Names and notes are stripped of links and invisible characters, capped, shown in quotes as "written by the requester", and flagged when they mention a brand.
 
 Example record (live): `_owed.getowed.xyz` TXT `owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs`.
