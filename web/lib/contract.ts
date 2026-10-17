@@ -104,3 +104,47 @@ export const ErrorCode = z.enum(["invalid_input", "rate_limited", "not_found", "
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
 export const ErrorResponse = z.object({ error: z.object({ code: ErrorCode, message: z.string() }) });
+
+// W2-D: POST /api/v1/ledger (who_owes_me). The signature unlocks one recipient's ledger once.
+export const LedgerBody = z.object({
+  recipient: base58Key,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type LedgerBody = z.infer<typeof LedgerBody>;
+
+const LedgerEntry = z.object({
+  id: requestId,
+  kind: z.enum(["single", "split_share", "invoice"]),
+  link: z.url(),
+  amount: decimal,
+  token,
+  status: z.enum(["open", "underpaid", "paid"]),
+  payer_name: z.string().nullable(),
+  for: z.string().nullable(),
+  created_at: isoTime,
+  amount_due: decimal.optional(),
+  amount_paid: decimal.optional(),
+  payer: base58Key.optional(),
+  signature: z.string().optional(),
+  paid_at: isoTime.optional(),
+  group_id: z.string().nullable(),
+  from_domain: z.string().nullable(),
+});
+
+export const LedgerResponse = z.object({
+  recipient: base58Key,
+  generated_at: isoTime,
+  chain_checked: z.boolean(),
+  open: z.array(LedgerEntry),
+  paid_recently: z.array(LedgerEntry),
+  totals: z.array(z.object({
+    token,
+    outstanding: decimal,
+    received_30d: decimal,
+    open_count: z.number().int().nonnegative(),
+    paid_count: z.number().int().nonnegative(),
+  })),
+  truncated: z.boolean(),
+});
+export type LedgerResponse = z.infer<typeof LedgerResponse>;

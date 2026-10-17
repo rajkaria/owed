@@ -13,6 +13,7 @@ import {
   StatusRawResponse,
   StatusResponse,
 } from "@/lib/contract";
+import { LedgerBody, LedgerResponse } from "@/lib/contract";
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -26,6 +27,8 @@ const SCHEMAS: Record<string, ZodType> = {
   "status-raw.res.json": StatusRawResponse,
   "status.req.json": StatusBody,
   "status.res.json": StatusResponse,
+  "ledger.req.json": LedgerBody,
+  "ledger.res.json": LedgerResponse,
 };
 
 test("every contract fixture has a schema", () => {

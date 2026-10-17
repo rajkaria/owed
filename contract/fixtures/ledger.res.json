@@ -1,0 +1,62 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "generated_at": "2026-10-17T10:30:02Z",
+  "chain_checked": true,
+  "open": [
+    {
+      "id": "Bq3wL8mNc2",
+      "kind": "single",
+      "link": "https://owed-omega.vercel.app/r/Bq3wL8mNc2",
+      "amount": "4.5",
+      "token": "USDC",
+      "status": "open",
+      "payer_name": "Sam",
+      "for": "taxi",
+      "created_at": "2026-10-15T09:12:00Z",
+      "amount_due": "4.5",
+      "group_id": null,
+      "from_domain": "example.com"
+    },
+    {
+      "id": "Dq3wL8mNc2",
+      "kind": "split_share",
+      "link": "https://owed-omega.vercel.app/r/Dq3wL8mNc2",
+      "amount": "0.5",
+      "token": "USDC",
+      "status": "underpaid",
+      "payer_name": "Alex",
+      "for": "Pizza night",
+      "created_at": "2026-10-17T10:14:00Z",
+      "amount_due": "0.2",
+      "amount_paid": "0.3",
+      "payer": "iksxPfWrHBzj7iZfD3Up3ft5Mz5DSGwm328v2349Zcc",
+      "signature": "2zsb1Wk1RP7npYZf9sPFUkPDuF4wGMaFVivDbxVDpaCgfkB4nfY19iuu4cHJjdw5MDcodBu8APEJHhsNbuRDpuMK",
+      "paid_at": "2026-10-17T10:20:41Z",
+      "group_id": "nmPSzN1D1KEn",
+      "from_domain": null
+    }
+  ],
+  "paid_recently": [
+    {
+      "id": "JArQ6g9JvoWr",
+      "kind": "single",
+      "link": "https://owed-omega.vercel.app/r/JArQ6g9JvoWr",
+      "amount": "15",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": "Priya",
+      "for": "dinner",
+      "created_at": "2026-10-17T05:00:00Z",
+      "amount_paid": "15",
+      "payer": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      "signature": "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokgpiKRLuS83KUxyZyv2sUYv",
+      "paid_at": "2026-10-17T05:00:09Z",
+      "group_id": null,
+      "from_domain": null
+    }
+  ],
+  "totals": [
+    { "token": "USDC", "outstanding": "4.7", "received_30d": "15.3", "open_count": 2, "paid_count": 1 }
+  ],
+  "truncated": false
+}
