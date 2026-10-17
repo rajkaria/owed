@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+  NEXT_TELEMETRY_DISABLED: "1"
+
+jobs:
+  plugin:
+    name: plugin · unit, typecheck, double build, conformance, e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          dir: plugin
+      - name: Unit tests
+        working-directory: plugin
+        run: pnpm unit
+      - name: Typecheck, deterministic double build, conformance (starter)
+        working-directory: plugin
+        run: pnpm test
+      - name: Quality tooling tests (shapes, tx decoder, smoke grading, e2e harness)
+        run: node --test "e2e/test/*.test.mjs"
+      - name: MCP end-to-end, sample call with network blocked
+        run: node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs --sample --hosts none
+      - name: Bundle digest
+        run: |
+          (cd plugin/dist && sha256sum plugin.mjs | tee plugin.mjs.sha256)
+          { echo '### plugin.mjs'; echo '```'; cat plugin/dist/plugin.mjs.sha256; wc -c < plugin/dist/plugin.mjs; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-mjs-${{ github.sha }}
+          path: |
+            plugin/dist/plugin.mjs
+            plugin/dist/plugin.mjs.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  web:
+    name: web · lint, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          dir: web
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-${{ hashFiles('web/**/*.ts', 'web/**/*.tsx', 'web/**/*.css', '!web/node_modules/**', '!web/.next/**') }}
+          restore-keys: next-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}-
+      - name: Lint
+        working-directory: web
+        run: pnpm lint
+      - name: Unit tests (when web defines a test script)
+        working-directory: web
+        run: pnpm run --if-present test
+      - name: Build
+        working-directory: web
+        run: pnpm build
+
+  contract:
+    name: contract · fixtures + both sides' contract tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          dir: plugin
+      - uses: ./.github/actions/setup
+        with:
+          dir: web
+      - name: Fixtures match contract/shapes.mjs
+        run: node contract/check.mjs
+      - name: plugin/src/contract.ts and web/lib/contract.ts parse every fixture
+        env:
+          CONTRACT_STRICT: ${{ vars.CONTRACT_STRICT }}
+        run: node contract/run-tests.mjs $([ "$CONTRACT_STRICT" = "1" ] && echo --strict)
