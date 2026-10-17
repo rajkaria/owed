@@ -1,11 +1,13 @@
+// Pay page view logic (W1-E). Runs under `pnpm test` with the API sprint's
+// test runner, or alone: node --test test/view.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { formatAmount, fromAtomic, groupDigits, remainingAmount, toAtomic } from "./money.ts";
-import { cleanText, truncate } from "./text.ts";
-import { formatUtc, shortAddress, solscanTx } from "./format.ts";
-import { parseTransferRequest } from "./pay-url.ts";
+import { formatAmount, fromAtomic, groupDigits, remainingAmount, toAtomic } from "../lib/view/money.ts";
+import { cleanText, truncate } from "../lib/view/text.ts";
+import { formatUtc, shortAddress, solscanTx } from "../lib/view/format.ts";
+import { parseTransferRequest } from "../lib/view/pay-url.ts";
 import {
   brandWordsFromFlags,
   detectBrandWords,
@@ -16,11 +18,11 @@ import {
   pageTitle,
   pickStatusResult,
   stateFromStatus,
-} from "./request-view.ts";
-import type { PublicRequest } from "../public-api";
+} from "../lib/view/request-view.ts";
+import type { PublicRequest } from "../lib/public-api";
 
 function fixture<T>(name: string): T {
-  return JSON.parse(readFileSync(new URL(`../../../contract/fixtures/${name}`, import.meta.url), "utf8")) as T;
+  return JSON.parse(readFileSync(new URL(`../../contract/fixtures/${name}`, import.meta.url), "utf8")) as T;
 }
 
 const getRequest = fixture<PublicRequest>("get-request.res.json");
