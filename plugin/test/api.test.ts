@@ -24,8 +24,9 @@ test("base url: default, env override, trailing slash, rejects non-https and pat
 });
 
 test("owed hosts include the configured host and the known ones, once each", () => {
-  assert.deepEqual(owedHosts("https://owed-omega.vercel.app"), ["owed-omega.vercel.app", "owed.link", "www.owed.link"]);
-  assert.deepEqual(owedHosts("https://pay.example.org"), ["pay.example.org", "owed.link", "www.owed.link", "owed-omega.vercel.app"]);
+  assert.deepEqual(owedHosts("https://owed-omega.vercel.app"), ["owed-omega.vercel.app", "owed.link", "www.owed.link", "getowed.xyz", "www.getowed.xyz"]);
+  assert.deepEqual(owedHosts("https://pay.example.org"), ["pay.example.org", "owed.link", "www.owed.link", "owed-omega.vercel.app", "getowed.xyz", "www.getowed.xyz"]);
+  assert.deepEqual(owedHosts("https://www.getowed.xyz"), ["www.getowed.xyz", "owed.link", "www.owed.link", "owed-omega.vercel.app", "getowed.xyz"]);
 });
 
 test("createRequest posts JSON to /api/v1/requests with a timeout and no redirects", async () => {
