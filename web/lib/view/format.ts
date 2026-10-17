@@ -8,6 +8,20 @@ export function solscanTx(signature: string): string {
   return `https://solscan.io/tx/${encodeURIComponent(signature)}`;
 }
 
+// W3-B Base requests: Base transactions and addresses go to Basescan (a 0x hash/address is never a Solana one).
+export function basescanTx(hash: string): string {
+  return `https://basescan.org/tx/${encodeURIComponent(hash)}`;
+}
+
+export function basescanAddress(address: string): string {
+  return `https://basescan.org/address/${encodeURIComponent(address)}`;
+}
+
+/** Explorer for a payment: Basescan for a 0x transaction hash, Solscan otherwise. */
+export function explorerTx(signature: string): { href: string; name: "Basescan" | "Solscan" } {
+  return signature.startsWith("0x") ? { href: basescanTx(signature), name: "Basescan" } : { href: solscanTx(signature), name: "Solscan" };
+}
+
 export function solscanAccount(address: string): string {
   return `https://solscan.io/account/${encodeURIComponent(address)}`;
 }

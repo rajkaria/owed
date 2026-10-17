@@ -25,7 +25,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
       <OgCard
         amount={formatAmount(request.amount, token)}
         line={forText ? `for “${forText}”` : null}
-        cta="Pay with any Solana wallet"
+        cta={request.chain === "base" ? "Pay from any Base wallet" : "Pay with any Solana wallet"} // W3-B
       />
     ),
     size,

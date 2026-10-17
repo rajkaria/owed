@@ -33,6 +33,8 @@ export type PollTarget =
 
 export interface PayModel {
   kind: "hosted" | "stateless";
+  /** W3-B: "base" for a USDC request on Base (EIP-681 link, Base wallets, Basescan). */
+  chain: "solana" | "base";
   amount: string | null;
   token: Token;
   /** Requester name, or the short recipient address when there is none or the request is flagged. */
@@ -103,8 +105,9 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
-const BASE58_SIG = /^[1-9A-HJ-NP-Za-km-z]{32,100}$/;
-const BASE58_KEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+// W3-B: Base payments carry a 0x transaction hash and a 0x payer.
+const BASE58_SIG = /^(?:[1-9A-HJ-NP-Za-km-z]{32,100}|0x[0-9a-f]{64})$/;
+const BASE58_KEY = /^(?:[1-9A-HJ-NP-Za-km-z]{32,44}|0x[0-9a-fA-F]{40})$/;
 const DECIMAL = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 
 function sig(value: unknown): string | null {
@@ -138,7 +141,7 @@ export function stateFromStatus(result: unknown, requested: string | null, token
         payer: key(r.payer),
         signature: sig(r.signature),
         at: iso(r.paid_at),
-        rail: r.rail === "x402" || r.rail === "solana_pay" ? r.rail : null,
+        rail: r.rail === "x402" || r.rail === "solana_pay" || r.rail === "base_transfer" ? r.rail : null,
       };
     case "underpaid": {
       const amountPaid = dec(r.amount_paid);
@@ -211,6 +214,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
   const flagged = brandWords.length > 0;
   return {
     kind: "hosted",
+    chain: req.chain === "base" ? "base" : "solana", // W3-B
     amount: dec(req.amount),
     token,
     asker: requester !== null && !flagged ? requester : shortAddress(req.recipient),
@@ -237,6 +241,7 @@ export function modelFromTransfer(t: TransferRequest, origin: string): PayModel 
   const flagged = brandWords.length > 0;
   return {
     kind: "stateless",
+    chain: "solana", // W3-B
     amount: t.amount,
     token: t.token,
     asker: requester !== null && !flagged ? requester : shortAddress(t.recipient),
@@ -287,8 +292,10 @@ export function pageTitle(model: Pick<PayModel, "asker" | "amount" | "token" | "
 }
 
 /** Preview text under the title: amount, quoted reason, how to pay. */
-export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords">): string {
-  const how = "Pay with any Solana wallet, or with your AI agent in PayBox.";
+export function pageDescription(model: Pick<PayModel, "amount" | "token" | "forText" | "brandWords"> & { chain?: PayModel["chain"] }): string {
+  const how = model.chain === "base" // W3-B
+    ? "Pay from any Base wallet, or with your AI agent in PayBox."
+    : "Pay with any Solana wallet, or with your AI agent in PayBox.";
   if (model.amount === null) return how;
   const amount = formatAmount(model.amount, model.token);
   if (model.forText && model.brandWords.length === 0) return `${amount} for \u201c${model.forText}\u201d. ${how}`;
