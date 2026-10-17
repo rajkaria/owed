@@ -14,8 +14,8 @@ function registerAll(): Map<string, Registered> {
   return seen;
 }
 
-test("index registers the three Owed tools", () => {
-  assert.deepEqual([...registerAll().keys()], ["ask_for_money", "check_payments", "pay_link"]);
+test("index registers the Owed tools", () => {
+  assert.deepEqual([...registerAll().keys()], ["ask_for_money", "check_payments", "pay_link", "create_invoice"]);
 });
 
 test("annotations are exactly the SPEC §5.1 hints", () => {
@@ -23,11 +23,12 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("ask_for_money")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
   assert.deepEqual(seen.get("check_payments")!.config.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   assert.deepEqual(seen.get("pay_link")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
+  assert.deepEqual(seen.get("create_invoice")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "create_invoice"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);

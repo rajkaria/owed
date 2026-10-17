@@ -2,6 +2,7 @@ import type * as z from "zod/v4";
 import {
   createRequestResSchema, errorResSchema, getRequestResSchema, statusRawResSchema, statusResSchema,
   type CreateRequestReq, type CreateRequestRes, type ErrorCode, type GetRequestRes, type StatusRawRes, type StatusRes,
+  invoiceResSchema, type CreateInvoiceReq, type InvoiceRes,
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -44,6 +45,7 @@ export interface ApiClient {
   getRequest(id: string): Promise<GetRequestRes>;
   status(ids: string[]): Promise<StatusRes>;
   statusRaw(solanaPayUrl: string): Promise<StatusRawRes>;
+  createInvoice(body: CreateInvoiceReq): Promise<InvoiceRes>;
 }
 
 export interface ApiOptions {
@@ -97,5 +99,6 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     getRequest: (id) => call("GET", `/requests/${encodeURIComponent(id)}`, getRequestResSchema),
     status: (ids) => call("POST", "/status", statusResSchema, { ids }),
     statusRaw: (solanaPayUrl) => call("POST", "/status-raw", statusRawResSchema, { solana_pay_url: solanaPayUrl }),
+    createInvoice: (body) => call("POST", "/invoices", invoiceResSchema, body),
   };
 }
