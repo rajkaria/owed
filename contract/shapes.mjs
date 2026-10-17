@@ -294,10 +294,13 @@ export const shapes = {
     recipient: pubkey, total: positiveAmount, token, title: string({ min: 1, max: 60 }),
     people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount) }), { min: 2, max: 20 }),
     requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"),
+    from_domain: optional(string({ min: 1, max: 253 })),
   }, peopleFitTotal),
   groupRes: object({
     id: groupId, link: httpsUrl, title: untrusted(60), recipient: pubkey, token, total: positiveAmount,
     requester_name: untrusted(40), created_at: iso, flags: array(flag),
+    from_domain: optional(nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" }))),
+    from_domain_verified_at: optional(nullable(iso)),
     share_count: integer({ min: 2 }), paid_count: integer(), amount_received: amount,
     shares: array(object({
       id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"),

@@ -7,7 +7,7 @@ import * as money from "../src/money.ts";
 import { requestIdFor } from "../src/request-id.ts";
 import type { Screening } from "../src/screen.ts";
 import * as solanaPay from "../src/solana-pay.ts";
-import { groupIdFor, inputSchema, outputSchema, planShares, splitBill, type SplitOutput } from "../src/tools/split_bill.ts";
+import { groupIdFor, inputSchema, outputSchema, planShares, splitBill, type CheckFromDomain, type SplitOutput } from "../src/tools/split_bill.ts";
 import { BASE, fixture, html, json, makeDeps, RECIPIENT, textOf, USDC_MINT, type Call, type Route } from "./helpers.ts";
 
 const createdFixture: GroupRes = fixture("groups.create.res.json");
@@ -244,6 +244,32 @@ test("from_domain is refused until verified payee is wired in (never silently ig
   const { deps, rec } = makeDeps({ routes: { "POST /api/v1/groups": server() } });
   assert.match(refused(await splitBill(input({ from_domain: "getowed.xyz" }), deps, clear)), /can't verify from_domain yet/);
   assert.equal(rec.calls.length, 0);
+});
+
+test("from_domain: verified → sent on the split and said in the text; unverified → refused before anything is created", async () => {
+  const seen: Array<{ domain: string; recipient: string; budget?: number }> = [];
+  const verified: CheckFromDomain = async (domain, recipient, _deps, budget) => {
+    seen.push({ domain, recipient, budget });
+    return { ok: true, from_domain: "getowed.xyz", lines: ["Payee verified: getowed.xyz publishes this wallet (DNSSEC)."] };
+  };
+  const { deps, rec } = makeDeps({ routes: { "POST /api/v1/groups": server() } });
+  const result = await splitBill(input({ from_domain: "GetOwed.xyz" }), deps, clear, verified);
+  const out = structured(result);
+  assert.deepEqual(seen.map((s) => [s.domain, s.recipient]), [["GetOwed.xyz", RECIPIENT]]);
+  assert.ok(seen[0]!.budget! <= 5500, "DNS, screening and the API call must fit in PayBox's 10 s");
+  assert.equal((rec.calls[0]!.body as CreateGroupReq).from_domain, "getowed.xyz");
+  assert.equal(out.from_domain, "getowed.xyz");
+  assert.match(textOf(result), /Payee verified: getowed\.xyz/);
+
+  const offline = makeDeps({ routes: { "POST /api/v1/groups": () => "network_error" } });
+  const off = await splitBill(input({ from_domain: "getowed.xyz" }), offline.deps, clear, verified);
+  assert.equal(structured(off).from_domain, undefined);
+  assert.match(textOf(off), /can't carry the verified domain getowed\.xyz/);
+
+  const unverified: CheckFromDomain = async () => ({ ok: false, message: "getowed.xyz does not publish this wallet. Add a TXT record at _owed.getowed.xyz." });
+  const other = makeDeps({ routes: { "POST /api/v1/groups": server() } });
+  assert.match(refused(await splitBill(input({ from_domain: "getowed.xyz" }), other.deps, clear, unverified)), /does not publish this wallet/);
+  assert.equal(other.rec.calls.length, 0);
 });
 
 test("planShares uses splitEvenly for everyone without a set amount", () => {

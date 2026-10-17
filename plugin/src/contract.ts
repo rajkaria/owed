@@ -119,6 +119,7 @@ export const createGroupReqSchema = z.object({
   people: z.array(z.object({ name: z.string().min(1).max(40), amount: decimalSchema.optional() }).strict()).min(2).max(20),
   requester_name: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
+  from_domain: z.string().min(1).max(253).optional(),
 }).strict();
 
 export const groupShareSchema = z.object({
@@ -143,6 +144,8 @@ export const groupResSchema = z.object({
   requester_name: z.string().max(160).nullable().optional(),
   created_at: isoTime,
   flags: z.array(z.string().max(80)).max(32),
+  from_domain: z.string().max(253).nullable().optional(),
+  from_domain_verified_at: isoTime.nullable().optional(),
   share_count: z.number().int().min(2).max(20),
   paid_count: z.number().int().nonnegative(),
   amount_received: decimalSchema,

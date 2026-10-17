@@ -40,6 +40,14 @@ export async function POST(req: Request): Promise<Response> {
     }));
     const flags = brandFlags([body.title, body.requester_name, ...body.people.map((p) => p.name)]);
 
+    // TODO(W2-H): replace this refusal with
+    //   fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
+    // (web/lib/payee.ts). createGroup already stores it on the group and on every share.
+    const fromDomain: string | null = null;
+    if (body.from_domain != null) {
+      throw new ApiError("invalid_input", "from_domain can't be verified by this server yet; split the bill without it");
+    }
+
     // Every share is a request, so every share counts against the recipient's hourly limit.
     for (let i = 0; i < shares.length; i++) {
       const slot = await takeCreateSlot(body.recipient);
@@ -54,7 +62,6 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
 
-    // TODO(W2-H): accept `from_domain`, re-check it with web/lib/payee.ts and store it on every share.
     const created = await createGroup({
       recipient: body.recipient,
       token: body.token,
@@ -63,6 +70,7 @@ export async function POST(req: Request): Promise<Response> {
       flags,
       shares,
       source: body.source,
+      fromDomain,
     });
     const res: GroupResponse = toPublicGroup(created, baseUrl(req));
     return json(res, { status: 201 });

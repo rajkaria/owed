@@ -12,7 +12,12 @@ create table groups (
   requester_name text,
   flags text[] not null default '{}',
   source text not null check (source in ('plugin', 'web')),
-  created_at timestamptz not null default now()
+  -- Verified payee (W2-H): the domain whose _owed TXT record publishes `recipient`, re-checked at creation.
+  -- Display only; the plugin always checks DNS itself.
+  from_domain text check (from_domain ~ '^[a-z0-9.-]{1,253}$'),
+  from_domain_verified_at timestamptz,
+  created_at timestamptz not null default now(),
+  check ((from_domain is null) = (from_domain_verified_at is null))
 );
 
 create index groups_recipient_created_idx on groups (recipient, created_at desc);

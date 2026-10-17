@@ -86,12 +86,16 @@ export interface GroupRow {
   requesterName: string | null;
   flags: string[];
   source: "plugin" | "web";
+  /** Verified payee domain (display only), with when the server last confirmed it. */
+  fromDomain: string | null;
+  fromDomainVerifiedAt: string | null;
   createdAt: string;
   shareIds: string[];
 }
 
 const GROUP_COLUMNS = `g.id, g.title, g.recipient, g.token, g.total_atomic::text as total_atomic, g.requester_name,
-  array_to_json(g.flags)::text as flags, g.source, ${isoUtc("g.created_at")} as created_at,
+  array_to_json(g.flags)::text as flags, g.source, g.from_domain, ${isoUtc("g.from_domain_verified_at")} as from_domain_verified_at,
+  ${isoUtc("g.created_at")} as created_at,
   coalesce((select array_to_json(array_agg(r.id order by r.group_position)) from requests r where r.group_id = g.id), '[]')::text as share_ids`;
 
 function groupFromRow(r: Row): GroupRow {
@@ -104,6 +108,8 @@ function groupFromRow(r: Row): GroupRow {
     requesterName: r.requester_name,
     flags: JSON.parse(r.flags ?? "[]") as string[],
     source: r.source as GroupRow["source"],
+    fromDomain: r.from_domain,
+    fromDomainVerifiedAt: r.from_domain_verified_at,
     createdAt: r.created_at!,
     shareIds: JSON.parse(r.share_ids ?? "[]") as string[],
   };
@@ -123,6 +129,8 @@ export interface CreateGroupInput {
   flags: string[];
   shares: readonly ShareInput[];
   source: "plugin" | "web";
+  /** A domain already verified by web/lib/payee.ts `requireVerifiedDomain` (W2-H), or null. */
+  fromDomain?: string | null;
 }
 
 export interface GroupWithShares {
@@ -135,6 +143,9 @@ export interface GroupWithShares {
 export async function createGroup(input: CreateGroupInput): Promise<GroupWithShares> {
   const { mint, decimals } = TOKENS[input.token];
   const totalAtomic = input.shares.reduce((sum, s) => sum + s.amountAtomic, 0n);
+  const fromDomain = input.fromDomain ?? null;
+  // Shares carry the domain too, so pay_link on a single share checks it (requests.from_domain is W2-H's 0009).
+  const shareDomain = fromDomain === null ? ["", ""] : [", from_domain, from_domain_verified_at", ", g.from_domain, g.from_domain_verified_at"];
   for (let attempt = 0; ; attempt++) {
     const shares = input.shares.map((s) => {
       const reference = newReference();
@@ -144,18 +155,18 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
     const id = groupIdFor({ recipient: input.recipient, token: input.token, totalAtomic, shareIds: shares.map((s) => s.id) });
     const queries: Query[] = [
       {
-        text: `insert into groups (id, title, recipient, token, total_atomic, requester_name, flags, source)
-               values ($1, $2, $3, $4, $5, $6, $7::text[], $8)
-               returning ${isoUtc("created_at")} as created_at`,
-        params: [id, input.title, input.recipient, input.token, totalAtomic, input.requesterName, input.flags, input.source],
+        text: `insert into groups (id, title, recipient, token, total_atomic, requester_name, flags, source, from_domain, from_domain_verified_at)
+               values ($1, $2, $3, $4, $5, $6, $7::text[], $8, $9::text, case when $9::text is null then null else now() end)
+               returning ${isoUtc("created_at")} as created_at, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at`,
+        params: [id, input.title, input.recipient, input.token, totalAtomic, input.requesterName, input.flags, input.source, fromDomain],
       },
       ...shares.map(
         (s, position): Query => ({
           // created_at is copied from the group so the board and its shares share one timestamp.
           text: `insert into requests (id, kind, group_id, group_position, recipient, token, mint, decimals, amount_atomic,
-                   reference, payer_name, for_text, requester_name, flags, source, created_at)
-                 select $1, 'split_share', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text[], $14, created_at
-                   from groups where id = $2`,
+                   reference, payer_name, for_text, requester_name, flags, source, created_at${shareDomain[0]})
+                 select $1, 'split_share', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::text[], $14, g.created_at${shareDomain[1]}
+                   from groups g where g.id = $2`,
           params: [
             s.id,
             id,
@@ -178,6 +189,7 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
     try {
       const results = await transaction(queries);
       const createdAt = results[0][0].created_at!;
+      const fromDomainVerifiedAt = results[0][0].from_domain_verified_at;
       const group: GroupRow = {
         id,
         title: input.title,
@@ -187,6 +199,8 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         requesterName: input.requesterName,
         flags: input.flags,
         source: input.source,
+        fromDomain,
+        fromDomainVerifiedAt,
         createdAt,
         shareIds: shares.map((s) => s.id),
       };
@@ -273,6 +287,9 @@ export interface PublicGroup {
   requester_name: string | null;
   created_at: string;
   flags: string[];
+  /** Verified payee domain (display only; W2-H's badge shows it), or null. */
+  from_domain: string | null;
+  from_domain_verified_at: string | null;
   share_count: number;
   paid_count: number;
   /** What has arrived on chain across all shares, including partial payments. */
@@ -308,6 +325,8 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
     requester_name: group.requesterName,
     created_at: group.createdAt,
     flags: group.flags,
+    from_domain: group.fromDomain,
+    from_domain_verified_at: group.fromDomainVerifiedAt,
     share_count: out.length,
     paid_count: paidCount,
     amount_received: fromAtomic(received, group.token),

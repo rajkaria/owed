@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/server";
 import bs58 from "bs58";
 import * as z from "zod/v4";
-import { ApiError } from "../api.js";
+import { API_TIMEOUT_MS, ApiError } from "../api.js";
 import {
   addressSchema, decimalSchema, groupIdSchema, requestIdSchema, tokenSchema, type CreateGroupReq, type GroupRes,
 } from "../contract.js";
@@ -15,6 +15,16 @@ import { clean, quote, shareText } from "../text.js";
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
+/** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
+const CALL_BUDGET_MS = 9500;
+
+/**
+ * W2-H's `checkFromDomain` (plugin/src/payee.ts): verifies over DNS that `fromDomain` publishes `recipient`.
+ * Injected until verified payee merges; with none, a claimed domain is refused rather than ignored.
+ */
+export type CheckFromDomain = (fromDomain: string, recipient: string, deps: Deps, budgetMs?: number) => Promise<
+  { ok: true; from_domain: string; lines: string[] } | { ok: false; message: string }
+>;
 
 export const inputSchema = z.object({
   recipient: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials). Every share is paid to this address."),
@@ -49,6 +59,7 @@ export const outputSchema = z.object({
   token: tokenSchema,
   shares: z.array(shareOutput).min(MIN_PEOPLE).max(MAX_SPLIT),
   remainder_note: z.string().optional().describe("Set when the total doesn't divide evenly: who pays the extra smallest unit."),
+  from_domain: z.string().optional().describe("The verified payee domain every share carries (checked over DNS by the plugin)."),
 }).strict();
 
 export type SplitInput = z.output<typeof inputSchema>;
@@ -109,7 +120,14 @@ function remainderNote(plan: Plan, names: string[], token: Token, fromAtomic: De
   return `${fromAtomic(rest, token)} ${token} doesn't split evenly ${plan.even.length} ways, so ${list} ${who.length === 1 ? "pays" : "each pay"} ${fromAtomic(1n, token)} ${token} more.`;
 }
 
-export async function splitBill(args: SplitInput, deps: Deps = defaultDeps, screen: (addr: string) => Promise<Screening> = screenRecipient) {
+export async function splitBill(
+  args: SplitInput,
+  deps: Deps = defaultDeps,
+  screen: (addr: string) => Promise<Screening> = screenRecipient,
+  // TODO(W2-H): default to `checkFromDomain` imported from ../payee.js once verified payee merges.
+  checkDomain: CheckFromDomain | null = null,
+) {
+  const started = deps.now();
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
 
@@ -149,10 +167,15 @@ export async function splitBill(args: SplitInput, deps: Deps = defaultDeps, scre
   const screening = await screen(args.recipient);
   if (!screening.ok) return refusal(screening.message);
 
-  // TODO(W2-H): verify with `checkFromDomain()` from ../payee.js, refuse when unverified, and send `from_domain`
-  // in the body (add it to createGroupReqSchema). Until then a claimed domain can't be checked, so it is refused.
+  let fromDomain: string | undefined;
+  let domainLines: string[] = [];
   if (args.from_domain !== undefined) {
-    return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
+    if (!checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
+    const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
+    const check = await checkDomain(args.from_domain, args.recipient, deps, budget);
+    if (!check.ok) return refusal(check.message);
+    fromDomain = check.from_domain;
+    domainLines = check.lines;
   }
 
   let ctx: CallContext;
@@ -167,6 +190,7 @@ export async function splitBill(args: SplitInput, deps: Deps = defaultDeps, scre
     people: names.map((name, i) => ({ name, amount: amounts[i]! })),
     ...(requesterName && { requester_name: requesterName }),
     source: "plugin",
+    ...(fromDomain && { from_domain: fromDomain }),
   };
 
   let created: { groupId: string | null; groupLink: string | null; mode: "hosted" | "offline"; shares: Array<{ id: string | null; link: string; solana_pay_url: string; reference: string }> };
@@ -197,6 +221,7 @@ export async function splitBill(args: SplitInput, deps: Deps = defaultDeps, scre
     group_id: created.groupId, group_link: created.groupLink, mode: created.mode,
     title, recipient: args.recipient, total, token, shares,
     ...(note && { remainder_note: note }),
+    ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain }),
   };
 
   const lines = [
@@ -206,9 +231,11 @@ export async function splitBill(args: SplitInput, deps: Deps = defaultDeps, scre
     ...shares.map((s) => `- ${s.name}: ${s.amount} ${token} ${s.link}`),
   ];
   if (note) lines.push(note);
+  lines.push(...domainLines);
   lines.push("Send each person their own link (each share has a ready share_text). check_payments takes the share ids or links to see who has paid.");
   if (created.mode === "offline") {
     lines.push("Owed's server didn't answer, so these are self-contained links with no short ids and no board. Each works with any Solana wallet, and check_payments can verify them with the same links.");
+    if (fromDomain) lines.push(`These offline links can't carry the verified domain ${fromDomain}, so a payer's agent will see them as unverified.`);
   }
   if (screening.screening === "unavailable") lines.push("Recipient screening was unavailable, so this address wasn't screened.");
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };

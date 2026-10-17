@@ -65,7 +65,7 @@ function rowsFromFixture(g: ReturnType<typeof fixture>): GroupWithShares {
   return {
     group: {
       id: g.id, title: g.title, recipient: g.recipient, token: g.token, totalAtomic: 1_500_000n, requesterName: g.requester_name,
-      flags: [], source: "plugin", createdAt: g.created_at, shareIds: shares.map((s) => s.id),
+      flags: [], source: "plugin", fromDomain: null, fromDomainVerifiedAt: null, createdAt: g.created_at, shareIds: shares.map((s) => s.id),
     },
     shares,
   };
@@ -96,9 +96,13 @@ function runQuery(text: string, params: Array<string | null>) {
     return result(["allowed", "recipient_ok", "retry_recipient", "retry_global", "recorded"], [["t", "t", "1", "1", "2"]]);
   }
   if (text.startsWith("insert into groups")) {
-    const [id, title, recipient, token, total, requester, flags, source] = params;
-    db.groups.set(id!, { id, title, recipient, token, total_atomic: total, requester_name: requester, flags, source, created_at: "2026-10-17T07:30:00Z" });
-    return result(["created_at"], [["2026-10-17T07:30:00Z"]]);
+    const [id, title, recipient, token, total, requester, flags, source, fromDomain] = params;
+    const verifiedAt = fromDomain === null ? null : "2026-10-17T07:30:00Z";
+    db.groups.set(id!, {
+      id, title, recipient, token, total_atomic: total, requester_name: requester, flags, source,
+      from_domain: fromDomain, from_domain_verified_at: verifiedAt, created_at: "2026-10-17T07:30:00Z",
+    });
+    return result(["created_at", "from_domain_verified_at"], [["2026-10-17T07:30:00Z", verifiedAt]]);
   }
   if (text.includes("insert into requests")) {
     const [id, groupId, position, recipient, token, mint, decimals, amount, reference, name, title, requester, flags, source] = params;
@@ -211,6 +215,8 @@ test("POST /groups: bad input is a contract 400", async () => {
     [{ ...fixture("groups.create.req.json"), total: "2" }, /add up to the total/],
     [{ ...fixture("groups.create.req.json"), recipient: tokenAccount }, /wallet address, not a token account/],
     [{ ...fixture("groups.create.req.json"), recipient: "nope" }, /base58/],
+    // Until W2-H's requireVerifiedDomain merges, a claimed domain is refused, never stored unverified.
+    [{ ...fixture("groups.create.req.json"), from_domain: "getowed.xyz" }, /from_domain can't be verified/],
   ];
   for (const [body, message] of cases) {
     const res = await post(body);

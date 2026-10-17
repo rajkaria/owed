@@ -115,6 +115,7 @@ export const CreateGroupBody = z.object({
     .max(20, "a split takes at most 20 people"),
   requester_name: untrusted(TEXT_LIMITS.requester_name),
   source: z.enum(["plugin", "web"]).default("web"),
+  from_domain: z.string().min(1).max(253).nullish(),
 });
 export type CreateGroupBody = z.infer<typeof CreateGroupBody>;
 
@@ -139,6 +140,8 @@ export const GroupResponse = z.object({
   requester_name: z.string().nullable(),
   created_at: isoTime,
   flags: z.array(z.string()),
+  from_domain: z.string().nullable(),
+  from_domain_verified_at: isoTime.nullable(),
   share_count: z.number().int().min(2).max(20),
   paid_count: z.number().int().nonnegative(),
   amount_received: decimal,
