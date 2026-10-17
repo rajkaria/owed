@@ -1,0 +1,15 @@
+{
+ "name": "readiness-sol-existing-recipient",
+ "note": "Payer of the SOL reference payment paying the same (existing, program-owned) payee again.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-17T04:49:51.649Z",
+ "query": {
+  "accounts": [
+   "ASTW3RMbeKoHaU5GUt8E1gXuRnE1gwJky1bLYQiZ4rEg",
+   "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"
+  ]
+ },
+ "calls": [
+{"method":"getMultipleAccounts","params":[["ASTW3RMbeKoHaU5GUt8E1gXuRnE1gwJky1bLYQiZ4rEg","96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5"],{"encoding":"jsonParsed","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.0","slot":457909656},"value":[{"data":["","base64"],"executable":false,"lamports":29286626676,"owner":"11111111111111111111111111111111","rentEpoch":18446744073709552000,"space":0},{"data":["ySH0dOBEYSg=","base64"],"executable":false,"lamports":690880,"owner":"T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt","rentEpoch":18446744073709552000,"space":8}]}}
+ ]
+}
