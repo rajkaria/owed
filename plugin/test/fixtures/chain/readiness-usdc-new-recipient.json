@@ -1,0 +1,17 @@
+{
+ "name": "readiness-usdc-new-recipient",
+ "note": "Active wallet holding SOL and USDC paying a fresh address that has no USDC account.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-17T04:49:51.375Z",
+ "query": {
+  "fresh": "BPt9BzyK6RtU3sC4d68oCcAQTCoyvpixozBySxXWDYFw",
+  "accounts": [
+   "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+   "7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3",
+   "BqU8bXGTt3ercTDc1pMVbjbXFkoAwcuxGWSb7rfL2HRx"
+  ]
+ },
+ "calls": [
+{"method":"getMultipleAccounts","params":[["FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT","7xrjio4HMDaBCXCHdFoqBUvP3epvh7DKnECpmVBZ5ZW3","BqU8bXGTt3ercTDc1pMVbjbXFkoAwcuxGWSb7rfL2HRx"],{"encoding":"jsonParsed","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.0","slot":457909655},"value":[{"data":["","base64"],"executable":false,"lamports":35992412910,"owner":"11111111111111111111111111111111","rentEpoch":18446744073709552000,"space":0},{"data":{"parsed":{"info":{"isNative":false,"mint":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v","owner":"FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT","state":"initialized","tokenAmount":{"amount":"69063710","decimals":6,"uiAmount":69.06371,"uiAmountString":"69.06371"}},"type":"account"},"program":"spl-token","space":165},"executable":false,"lamports":2039280,"owner":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","rentEpoch":18446744073709552000,"space":165},null]}}
+ ]
+}
