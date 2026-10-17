@@ -10,6 +10,7 @@ import { teamWallets } from "@/lib/team";
 import { formatUtc, shortAddress, solscanAccount, solscanTx } from "@/lib/view/format";
 import { groupDigits } from "@/lib/view/money";
 import { loadProof, PROOF_LIMIT, type ProofPayment, type ProofSummary } from "./data";
+import { PAID_ON, REFUSALS, type Evidence, type Observed, type Refusal } from "./refusals";
 
 // Real mainnet payments made from the team's own wallets (requests.is_team, lib/team.ts).
 // Served from the cache and re-read in the background at most every 30 s. A failed re-read keeps the
@@ -116,6 +117,101 @@ function Summary({ proof }: { proof: ProofSummary }) {
   );
 }
 
+const OBSERVED: Record<Observed, string> = {
+  production: "Production",
+  mainnet: "Mainnet",
+  "unit test": "Unit test",
+  "PayBox portal": "PayBox portal test console",
+};
+
+function EvidenceLink({ e }: { e: Evidence }) {
+  const external = e.href.startsWith("https://");
+  const className = "inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline";
+  return external ? (
+    <a href={e.href} className={className}>
+      {e.label}
+      <ExternalIcon width={14} height={14} />
+    </a>
+  ) : (
+    <Link href={e.href} prefetch={false} className={className}>
+      {e.label}
+    </Link>
+  );
+}
+
+// Every line comes from docs/FACTS.md (app/proof/refusals.ts cites each one). The list below only shows payments
+// from the team's own wallets, so these three are named here whoever paid them.
+function PaidOn() {
+  return (
+    <section aria-labelledby="paid-on-title" className="mt-8">
+      <h2 id="paid-on-title" className="font-semibold">
+        Paid on all three rails
+      </h2>
+      <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {PAID_ON.map((r) => (
+          <li key={r.requestId} className="min-w-0 rounded-2xl border border-line bg-surface p-4">
+            <p className="font-semibold">{r.rail}</p>
+            <p className="text-sm text-muted">
+              {r.via} · <span className="tabular-nums">{r.amount}</span>
+            </p>
+            <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <a href={r.tx.href} className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline">
+                {r.tx.label}
+                <ExternalIcon width={14} height={14} />
+              </a>
+              <Link href={`/r/${r.requestId}`} prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
+                Receipt
+              </Link>
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RefusalRow({ r }: { r: Refusal }) {
+  return (
+    <li className="grid min-w-0 gap-3 border-t border-line py-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,15rem)] sm:gap-6">
+      <div className="min-w-0">
+        <h3 className="font-semibold">{r.scenario}</h3>
+        <p className="mt-1 leading-relaxed text-muted">{r.outcome}</p>
+      </div>
+      <div className="flex min-w-0 flex-col gap-2 text-sm sm:items-end sm:text-right">
+        <div className="flex flex-wrap gap-1.5 sm:justify-end">
+          {r.observed.map((o) => (
+            <Chip key={o}>{OBSERVED[o]}</Chip>
+          ))}
+        </div>
+        <p className="flex flex-wrap gap-x-4 gap-y-1 sm:justify-end">
+          {r.evidence.map((e) => (
+            <EvidenceLink key={e.href} e={e} />
+          ))}
+        </p>
+      </div>
+    </li>
+  );
+}
+
+function Refusals() {
+  return (
+    <section aria-labelledby="refusals-title" className="mt-14">
+      <h2 id="refusals-title" className="text-2xl font-semibold tracking-tight sm:text-3xl">
+        What Owed refuses
+      </h2>
+      <p className="mt-3 max-w-3xl leading-relaxed text-muted">
+        Getting paid is half of it. These are the cases where Owed says no, each with where it was seen: on production,
+        on Solana mainnet, in the PayBox portal&apos;s test console, or only in a unit test.
+      </p>
+      <ul aria-label="Refusals" className="mt-6 border-b border-line">
+        {REFUSALS.map((r) => (
+          <RefusalRow key={r.scenario} r={r} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 async function readProof(): Promise<ProofSummary | null> {
   try {
     return await cachedProof();
@@ -139,8 +235,9 @@ export default async function ProofPage() {
         <p className="mt-5 max-w-3xl text-lg leading-relaxed text-muted">
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. This page lists
           every payment the Owed team has made with it from its own wallets on Solana mainnet, newest first, each with its
-          transaction on Solscan. Nothing here is staged.
+          transaction on Solscan, then what Owed refuses. Nothing here is staged.
         </p>
+        <PaidOn />
 
         {proof ? (
           <>
@@ -166,6 +263,8 @@ export default async function ProofPage() {
             The payments couldn&apos;t be read just now. Try again in a minute.
           </p>
         )}
+
+        <Refusals />
 
         <section aria-labelledby="rule-title" className="mt-12 rounded-2xl bg-sunken px-5 py-5 leading-relaxed text-muted">
           <h2 id="rule-title" className="font-semibold text-fg">
