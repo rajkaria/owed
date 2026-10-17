@@ -26,7 +26,7 @@ export interface PublicRequest {
   x402_url: string | null;
   created_at: string;
   /** rail "matched": the recipient matched a payment that carried no reference (0012); `matched` has the proof. */
-  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" | "matched" };
+  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" };
   flags: string[];
   // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
   from_domain: string | null;

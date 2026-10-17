@@ -17,7 +17,7 @@ export type LiveState =
       payer: string | null;
       signature: string | null;
       at: string | null;
-      rail: "solana_pay" | "x402" | "base_transfer" | "matched" | null;
+      rail: "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" | null;
       /** 0012: a payment without the reference that the recipient matched (all of it, or the rest after a partial one). */
       matched?: MatchedView | null;
     }
@@ -202,7 +202,7 @@ const REQUEST_ID = /^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/;
 function requestId(value: unknown): string | null {
   return typeof value === "string" && REQUEST_ID.test(value) ? value : null;
 }
-const RAILS = ["solana_pay", "x402", "base_transfer", "matched"] as const;
+const RAILS = ["solana_pay", "x402", "base_transfer", "matched", "moonpay_card"] as const;
 function rail(value: unknown): (typeof RAILS)[number] | null {
   return RAILS.find((r) => r === value) ?? null;
 }

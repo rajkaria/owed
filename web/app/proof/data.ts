@@ -10,7 +10,8 @@ export const PROOF_LIMIT = 200;
 
 export type ProofKind = "single" | "split_share" | "invoice";
 // 0012: "matched" = the payment carried no reference and the recipient matched it with a signed message.
-export type ProofRail = "solana_pay" | "x402" | "matched";
+export type ProofRail = "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card";
+const RAILS: readonly ProofRail[] = ["solana_pay", "x402", "base_transfer", "matched", "moonpay_card"];
 
 export interface ProofPayment {
   id: string;
@@ -56,7 +57,9 @@ export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
               coalesce(sum(paid_amount_atomic) filter (where token = 'USDC'), 0)::text as usdc_atomic,
               coalesce(sum(paid_amount_atomic) filter (where token = 'SOL'), 0)::text as sol_atomic,
               count(*) filter (where paid_rail = 'x402')::text as x402,
-              count(*) filter (where paid_rail = 'matched')::text as matched
+              count(*) filter (where paid_rail = 'matched')::text as matched,
+              count(*) filter (where paid_rail = 'base_transfer')::text as base_transfer,
+              count(*) filter (where paid_rail = 'moonpay_card')::text as moonpay_card
          from requests
         where status = 'paid' and is_team and paid_signature is not null and paid_at is not null`,
     ),
@@ -70,7 +73,7 @@ export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
       groupId: r.group_id,
       token,
       amount: fromAtomic(BigInt(r.paid_amount_atomic ?? "0"), token),
-      rail: r.paid_rail === "x402" ? "x402" : r.paid_rail === "matched" ? "matched" : "solana_pay",
+      rail: (RAILS as readonly string[]).includes(r.paid_rail!) ? (r.paid_rail as ProofRail) : "solana_pay",
       matchedRest: r.matched_rest === "t" || r.matched_rest === "true",
       signature: r.paid_signature!,
       paidAt: r.paid_at!,
@@ -82,11 +85,13 @@ export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
   const count = Number(totals.count);
   const x402 = Number(totals.x402);
   const matched = Number(totals.matched);
+  const baseTransfer = Number(totals.base_transfer);
+  const moonpayCard = Number(totals.moonpay_card);
   return {
     payments,
     count,
     usdc: formatUnits(BigInt(totals.usdc_atomic!), TOKENS.USDC.decimals),
     sol: formatUnits(BigInt(totals.sol_atomic!), TOKENS.SOL.decimals),
-    rails: { solana_pay: count - x402 - matched, x402, matched },
+    rails: { solana_pay: count - x402 - matched - baseTransfer - moonpayCard, x402, base_transfer: baseTransfer, matched, moonpay_card: moonpayCard },
   };
 }

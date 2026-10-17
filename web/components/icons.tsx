@@ -222,3 +222,12 @@ export function TerminalIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function CardIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20M6 15h4" />
+    </Icon>
+  );
+}

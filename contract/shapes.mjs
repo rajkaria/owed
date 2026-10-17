@@ -233,7 +233,7 @@ const statusFields = {
   cancelled_at: optional(iso), // W3-C
   chain: optional(oneOf("base")), // W3-B: set on Base requests
   // 0012: the paid rail, the recipient's match (no reference on the payment) and the ask_for_rest links.
-  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched")),
+  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched", "moonpay_card")),
   matched: optional((value, path, ctx) => matchedLite(value, path, ctx)),
   rest_of: optional(id), rest_request: optional(id),
 };
@@ -262,7 +262,7 @@ export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
 }
 
 const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
-const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }); // 0012: + matched
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }); // 0012: + matched, moonpay_card
 
 /** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
 function peopleFitTotal(value, path, ctx) {
@@ -429,7 +429,7 @@ const getRequestFields = {
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
   status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
   solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
-  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }))), // 0012: + matched
+  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }))), // 0012: + matched, moonpay_card
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
@@ -548,7 +548,7 @@ const invoiceQuantity = string({
   max: 20, label: "a positive quantity with at most 4 decimal places",
   test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
 });
-const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }); // 0012: + matched
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }); // 0012: + matched, moonpay_card
 
 /** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
 export function invoiceLineAtomic(quantity, unitPrice, decimals) {

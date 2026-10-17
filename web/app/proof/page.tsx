@@ -7,7 +7,7 @@ import { SiteFooter, SiteHeader } from "@/components/marketing/chrome";
 import { canonical } from "@/components/marketing/site";
 import { payeeDisplay } from "@/lib/payee";
 import { teamWallets } from "@/lib/team";
-import { formatUtc, shortAddress, solscanAccount, solscanTx } from "@/lib/view/format";
+import { explorerTx, formatUtc, shortAddress, solscanAccount } from "@/lib/view/format";
 import { groupDigits } from "@/lib/view/money";
 import { loadProof, PROOF_LIMIT, type ProofPayment, type ProofSummary } from "./data";
 import { PAID_ON, REFUSALS, type Evidence, type Observed, type Refusal } from "./refusals";
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 
 const KIND: Record<ProofPayment["kind"], string> = { single: "Request", split_share: "Split share", invoice: "Invoice" };
 // 0012: a matched payment is never shown with the Solana Pay chip: it carried no reference.
-const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402", matched: "Matched by the recipient (no reference)" };
+const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402", base_transfer: "USDC on Base", matched: "Matched by the recipient (no reference)", moonpay_card: "Card, via MoonPay" };
 
 function receiptHref(p: ProofPayment): string {
   if (p.kind === "split_share" && p.groupId) return `/g/${p.groupId}`;
@@ -81,10 +81,10 @@ function Payment({ p }: { p: ProofPayment }) {
         </p>
         <p className="flex flex-wrap gap-x-4 gap-y-1 sm:justify-end">
           <a
-            href={solscanTx(p.signature)}
+            href={explorerTx(p.signature).href}
             className="inline-flex items-center gap-1 font-medium text-accent underline-offset-4 hover:underline"
           >
-            Solscan <span className="font-mono text-xs">{shortAddress(p.signature)}</span>
+            {explorerTx(p.signature).name} <span className="font-mono text-xs">{shortAddress(p.signature)}</span>
             <ExternalIcon width={14} height={14} />
           </a>
           <Link href={receiptHref(p)} prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
@@ -100,7 +100,9 @@ function Summary({ proof }: { proof: ProofSummary }) {
   const rails: Array<[string, number]> = [
     ["Solana Pay", proof.rails.solana_pay],
     ...(proof.rails.x402 > 0 ? [["x402", proof.rails.x402] as [string, number]] : []),
+    ...(proof.rails.base_transfer > 0 ? [["Base", proof.rails.base_transfer] as [string, number]] : []),
     ...(proof.rails.matched > 0 ? [["matched by recipient", proof.rails.matched] as [string, number]] : []),
+    ...(proof.rails.moonpay_card > 0 ? [["card via MoonPay", proof.rails.moonpay_card] as [string, number]] : []),
   ];
   const totals = [proof.usdc !== "0" && `${groupDigits(proof.usdc)} USDC`, proof.sol !== "0" && `${groupDigits(proof.sol)} SOL`].filter(Boolean);
   return (

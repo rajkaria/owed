@@ -138,7 +138,7 @@ it("a Solana Pay payment from a team wallet is recorded with is_team, and /proof
 
   const proof = await loadProof();
   assert.equal(proof.count, 1);
-  assert.deepEqual(proof.rails, { solana_pay: 1, x402: 0, matched: 0 });
+  assert.deepEqual(proof.rails, { solana_pay: 1, x402: 0, base_transfer: 0, matched: 0, moonpay_card: 0 });
   assert.equal(proof.sol, "0.003027");
   assert.equal(proof.usdc, "0");
   assert.equal(proof.payments.length, 1);
@@ -196,7 +196,7 @@ it("an x402 settlement from a team wallet is recorded with is_team and listed wi
   assert.equal(await store.verified({ id: begun.receiptId, requestId: row.id }, { signature: SOL_SIG, payer: OTHER, amountAtomic: 10_000n, at: "2026-10-17T13:00:00Z", slot: 1 }), true);
   assert.equal(await isTeam(row.id), true);
   const proof = await loadProof();
-  assert.deepEqual(proof.rails, { solana_pay: 0, x402: 1, matched: 0 });
+  assert.deepEqual(proof.rails, { solana_pay: 0, x402: 1, base_transfer: 0, matched: 0, moonpay_card: 0 });
   assert.equal(proof.usdc, "0.01");
   assert.deepEqual([proof.payments[0]!.rail, proof.payments[0]!.amount, proof.payments[0]!.token], ["x402", "0.01", "USDC"]);
 });

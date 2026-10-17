@@ -119,7 +119,7 @@ function SolscanLink({ signature }: { signature: string }) {
   );
 }
 
-const RAIL_NAMES = { x402: "x402", base_transfer: "USDC transfer on Base", solana_pay: "Solana Pay", matched: MATCHED_LABEL } as const;
+const RAIL_NAMES = { x402: "x402", base_transfer: "USDC transfer on Base", solana_pay: "Solana Pay", matched: MATCHED_LABEL, moonpay_card: "Card, via MoonPay" } as const;
 
 /**
  * 0012: a payment that arrived without this request's reference and that the recipient matched by hand, with a
@@ -164,7 +164,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
             Paid
           </h2>
           <p className="text-sm text-muted">
-            {matched ? "Matched by the recipient · confirmed on Solana" : <>Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</>}
+            {matched ? "Matched by the recipient · confirmed on Solana" : state.rail === "moonpay_card" ? "Paid by card via MoonPay, confirmed on Solana" : <>Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</>}
           </p>
         </div>
       </div>
@@ -173,7 +173,7 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
       )}
       <dl className="mt-4 divide-y divide-line border-y border-line">
         {state.payer && (
-          <Row label="From">
+          <Row label={state.rail === "moonpay_card" ? "Sent by MoonPay from" : "From"}>
             <span className="font-mono" title={state.payer}>
               {shortAddress(state.payer)}
             </span>

@@ -96,7 +96,7 @@ export const PaidInfo = z.object({
   payer: anyAddress, // W3-B
   amount: decimal,
   at: isoTime,
-  rail: z.enum(["solana_pay", "x402", "base_transfer", "matched"]), // W3-B: base_transfer; 0012: matched (no reference, see `matched`)
+  rail: z.enum(["solana_pay", "x402", "base_transfer", "matched", "moonpay_card"]), // W3-B: base_transfer; 0012: matched (no reference, see `matched`); moonpay_card: paid by card
 });
 
 // 0012: a payment without the request's reference, attributed by the recipient's own signed message. Display

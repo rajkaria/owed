@@ -10,6 +10,7 @@ import { x402UrlFor } from "./x402/url";
 import { settlePendingX402 } from "./x402/settle";
 import { isTeamSql, teamWallets } from "./team"; // W2-F is_team
 import { watchSoon } from "./notify/helius"; // W3-A
+import { settlePendingMoonpay } from "./moonpay/settle"; // pay by card (MoonPay)
 // W3-B Base requests start
 import { BASE_USDC, BASE_USDC_DECIMALS, eip681Transfer, type Chain } from "./evm/base";
 import { settleBaseRequests } from "./evm/settle";
@@ -39,7 +40,7 @@ export interface RequestRow {
   paidPayer: string | null;
   paidAmountAtomic: bigint | null;
   paidAt: string | null;
-  paidRail: "solana_pay" | "x402" | "base_transfer" | "matched" | null; // 0012: + matched
+  paidRail: "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" | null; // 0012: + matched, moonpay_card
   source: "plugin" | "web";
   createdAt: string;
   // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
@@ -415,6 +416,16 @@ export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptio
     const fresh = await getRequests([...viaX402]);
     rows = rows.map((r) => fresh.get(r.id) ?? r);
     due = due.filter((r) => !viaX402.has(r.id));
+    if (due.length === 0) return [...rows];
+  }
+
+  // MoonPay card purchases carry no reference either: MoonPay names the transaction, the chain confirms it
+  // (lib/moonpay/settle.ts). Does nothing, and queries nothing, unless MoonPay is configured.
+  const viaCard = await settlePendingMoonpay(due, rpc);
+  if (viaCard.size > 0) {
+    const fresh = await getRequests([...viaCard]);
+    rows = rows.map((r) => fresh.get(r.id) ?? r);
+    due = due.filter((r) => !viaCard.has(r.id));
     if (due.length === 0) return [...rows];
   }
 

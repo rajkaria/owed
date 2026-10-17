@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { CardPay } from "@/components/card-pay";
 import { PayView } from "@/components/pay-view";
 import { VerifiedBadge } from "@/components/verified-badge";
+import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
 import { loadPublicRequest } from "@/lib/request-source";
 import { requestOrigin } from "@/lib/site";
 import { modelFromRequest, pageDescription, pageTitle } from "@/lib/view/request-view";
@@ -22,12 +24,15 @@ export async function generateMetadata({ params }: PageProps<"/r/[id]">): Promis
   };
 }
 
-export default async function RequestPage({ params }: PageProps<"/r/[id]">) {
+export default async function RequestPage({ params, searchParams }: PageProps<"/r/[id]">) {
   const { id } = await params;
   const request = await loadPublicRequest(id);
   if (!request) notFound();
   const model = modelFromRequest(request, await requestOrigin());
   // W2-H verified payee: "From <domain> · verified <time ago>" when the request names a domain.
   const badge = <VerifiedBadge domain={request.from_domain} verifiedAt={request.from_domain_verified_at} />;
-  return <PayView model={model} badge={badge} />;
+  // Pay by card (MoonPay): nothing unless MoonPay is configured; a note when the amount can't be bought by card.
+  const offer = await cardOffer(request, "r");
+  const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
+  return <PayView model={model} badge={badge} card={card} />;
 }

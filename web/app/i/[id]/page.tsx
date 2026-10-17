@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CardPay } from "@/components/card-pay";
 import { CopyButton } from "@/components/copy-button";
 import { AgentIcon, AlertIcon, ExternalIcon, LinkIcon, WalletIcon } from "@/components/icons";
 import { QrCode } from "@/components/qr-code";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { Wordmark } from "@/components/wordmark";
+import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
 import { solscanAccount } from "@/lib/view/format";
 import { InvoiceLive } from "./invoice-live";
 import { invoiceDescription, invoiceModel, invoiceTitle, type InvoiceModel } from "./model";
@@ -233,7 +236,7 @@ function Notes({ model }: { model: InvoiceModel }) {
   );
 }
 
-async function PayPanel({ model }: { model: InvoiceModel }) {
+async function PayPanel({ model, card }: { model: InvoiceModel; card?: ReactNode }) {
   return (
     <section aria-labelledby="pay-title" className="rounded-xl border border-line px-4 py-5 sm:px-5 print:rounded-none print:border-x-0 print:border-b-0 print:px-0 print:pb-0 print:pt-3">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start print:flex-row print:gap-4">
@@ -257,6 +260,7 @@ async function PayPanel({ model }: { model: InvoiceModel }) {
               <WalletIcon />
               Open in wallet
             </a>
+            {card /* pay by card (MoonPay), when configured */}
             <div className="grid grid-cols-2 gap-3">
               <CopyButton
                 text={model.invoiceLink}
@@ -306,11 +310,14 @@ async function PayPanel({ model }: { model: InvoiceModel }) {
   );
 }
 
-export default async function InvoicePage({ params }: PageProps<"/i/[id]">) {
+export default async function InvoicePage({ params, searchParams }: PageProps<"/i/[id]">) {
   const { id } = await params;
   const loaded = await loadPublicInvoice(id);
   if (!loaded) notFound();
   const model = invoiceModel(loaded.invoice, loaded.now);
+  // Pay by card (MoonPay): nothing unless MoonPay is configured.
+  const offer = await cardOffer({ id: model.id, token: model.token, amount: model.total, status: loaded.invoice.status }, "i");
+  const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-10 pt-5 sm:px-6 md:pt-8 print:min-h-0 print:max-w-none print:p-0">
@@ -336,7 +343,7 @@ export default async function InvoicePage({ params }: PageProps<"/i/[id]">) {
           overdue={model.overdue}
           sender={`“${model.businessName}”`}
           head={<Head model={model} />}
-          pay={<PayPanel model={model} />}
+          pay={<PayPanel model={model} card={card} />}
           expiresAt={model.expiresAt}
         >
           <Parties model={model} />
