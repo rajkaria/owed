@@ -192,6 +192,8 @@ export function makeDeps(overrides: Partial<Deps> & { routes?: Record<string, Ro
       rec.readiness.push(q);
       return { ok: true, recipientAtaExists: true };
     },
+    // No sanctions lookup unless a test asks for one (pass screenRecipient from src/screen.ts plus routes).
+    screenRecipient: async () => ({ ok: true, screening: "clear" }),
     ...rest,
   };
   // Keep recording when a test overrides a chain double.

@@ -46,7 +46,11 @@ export function boardFromGroup(g: PublicGroup, origin: string): BoardModel {
   const token: Token = isToken(g.token) ? g.token : "USDC";
   const names = g.shares.map((s) => cleanText(s.name, LIMITS.name));
   const brandWords = Array.from(
-    new Set([...brandWordsFromFlags(g.flags), ...detectBrandWords([g.title, g.requester_name, ...g.shares.map((s) => s.name)])]),
+    // W2-E: a brand word the server-verified from_domain owns isn't a caution.
+    new Set([
+      ...brandWordsFromFlags(g.flags, g.from_domain_verified_at ? g.from_domain : null),
+      ...detectBrandWords([g.title, g.requester_name, ...g.shares.map((s) => s.name)], g.from_domain_verified_at ? g.from_domain : null),
+    ]),
   );
   return {
     id: g.id,

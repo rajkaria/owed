@@ -1,12 +1,16 @@
 import { z } from "zod";
 import { TEXT_LIMITS } from "./safety";
+import { isSolanaAddress } from "./solana-pay";
 
 // Zod mirror of the /api/v1 contract. contract/fixtures/*.json must all parse
 // (test/contract.test.ts), and plugin/src/contract.ts mirrors the same shapes.
 
 export const DECIMAL = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
 const decimal = z.string().regex(DECIMAL, "must be a decimal string");
-const base58Key = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "must be a base58 Solana address");
+// W2-E: the regex alone let 32–44 character strings that don't decode to 32 bytes through, and
+// `new PublicKey()` in the create routes then threw a plain Error (HTTP 500 instead of 400).
+const base58Key = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "must be a base58 Solana address")
+  .refine(isSolanaAddress, "must be a base58 Solana address (32 bytes)");
 const requestId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/, "must be a 12-character Owed id");
 const isoTime = z.iso.datetime();
 const token = z.enum(["USDC", "SOL"]);

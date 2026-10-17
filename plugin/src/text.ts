@@ -17,11 +17,15 @@ const INVISIBLE = new RegExp(charClass([
   [0x202a, 0x202e], [0x2060, 0x206f], [0x2800], [0x3164], [0xfe00, 0xfe0f], [0xfeff], [0xffa0], [0xfff9, 0xfffb],
   [0xe0000, 0xe007f], [0xe0100, 0xe01ef],
 ], "\\p{Cf}"), "gu");
-const TLDS = "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|wallet|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|support|help|claims|bet|page|click|today|world|network|exchange";
+// One list with web/lib/safety.ts and web/lib/view/text.ts (W2-E, QA-09: newer TLDs common in phishing,
+// .zip and .mov included); web/test/safety-links.test.ts checks the three stay equal.
+export const TLDS = "com|net|org|io|xyz|app|link|co|me|info|biz|finance|money|cash|pay|wallet|exchange|gg|so|sh|dev|ai|us|uk|ru|cn|top|site|online|website|club|vip|pro|live|tech|store|shop|fun|cc|tk|ml|ga|cf|gq|ly|to|in|eu|de|fr|ws|pw|is|tv|fm|am|gl|im|ca|au|jp|br|ch|nl|be|es|it|pt|pl|tr|ua|id|ph|ng|za|asia|mobi|name|support|help|claims|claim|fi|services|global|world|network|today|click|page|bet|win|ink|lol|space|cloud|digital|news|blog|email|zip|mov|icu|bond|cyou|sbs|country|xin|work|rest|cam|quest|buzz|monster|cfd|uno|best|fit|ltd|art|one|run|life|guru|host|press|fyi|wiki|zone|center|company|group|loan|date|review|download|stream|party|science|trade|bid|racing|men|kim|red|ooo|now|chat|social|game|games|bot";
 const URL_PATTERNS = [
-  /\b[a-z][a-z0-9+.-]*:\/\/\S*/gi,
+  // A scheme glued to the end of a word ("INV-42https://…") takes only the URL, not the word (QA-13).
+  /(?:https?|ftp|wss?|ipfs|ipns|file):\/\/\S*|(?<![a-z0-9+.-])[a-z][a-z+.]*:\/\/\S*/gi,
   /\b(?:solana|mailto|tel|sms|ethereum|bitcoin|javascript|data|ipfs):\S+/gi,
   /\bwww\.\S+/gi,
+  /\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?:\/\S*)?/g, // a bare IPv4 address (QA-09)
   new RegExp(`\\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\\.(?:${TLDS})\\b(?:[/?#:]\\S*)?`, "gi"),
 ];
 export const LINK_REMOVED = "[link removed]";
@@ -35,6 +39,15 @@ export function clean(untrusted: string | null | undefined, max: number): string
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   return `${chars.slice(0, Math.max(0, max - 1)).join("").trimEnd()}…`;
+}
+
+/**
+ * A create refused with rate_limited: the server says which limit (this recipient, this client, or
+ * everyone), so say that instead of guessing (W2-E, QA-07).
+ */
+export function rateLimitedText(serverMessage: string, extra = ""): string {
+  const reason = clean(serverMessage, 160).replace(/[.\s]+$/, "");
+  return `Owed is limiting new requests${reason ? `: ${reason}` : " right now"}.${extra ? ` ${extra}` : ""} Nothing was created.`;
 }
 
 /** Cleaned text in double quotes, ready to show as someone else's words. Empty input gives "". */
@@ -70,6 +83,30 @@ const BRAND_PATTERNS = BRAND_WORDS.map((word) => {
 export function brandFlags(...texts: Array<string | null | undefined>): string[] {
   const haystack = texts.filter(Boolean).join(" | ").normalize("NFKC").replace(INVISIBLE, "").replace(/\s+/g, " ");
   return BRAND_PATTERNS.filter(({ pattern }) => pattern.test(haystack)).map(({ word }) => `brand_word:${word}`);
+}
+
+const OWED_DOMAINS = ["getowed.xyz", "owed-omega.vercel.app"] as const;
+
+/**
+ * Each brand's own domains (W2-E, QA-06 follow-up; the same as W2-H's list in payee.ts). A brand word is
+ * not a caution when the request's from_domain, verified over DNS by this plugin, is that brand's own
+ * domain or under it: "Owed Support" from a verified getowed.xyz is Owed. A name alone never clears it.
+ */
+export const BRAND_OWN_DOMAINS: Readonly<Partial<Record<BrandWord, readonly string[]>>> = {
+  paybox: ["paybox.sh"], moonpay: ["moonpay.com"], coinbase: ["coinbase.com"], binance: ["binance.com", "binance.us"],
+  phantom: ["phantom.app", "phantom.com"], solflare: ["solflare.com"], "solana foundation": ["solana.org", "solana.com"],
+  circle: ["circle.com"], irs: ["irs.gov"], "owed support": OWED_DOMAINS, "owed team": OWED_DOMAINS, "owed security": OWED_DOMAINS,
+  "owed admin": OWED_DOMAINS, "owed billing": OWED_DOMAINS, getowed: OWED_DOMAINS, anthropic: ["anthropic.com"],
+};
+
+/** Drops `brand_word:<w>` flags that a DNS-verified domain owns. Pass only a domain this plugin verified. */
+export function withoutOwnBrandFlags(flags: readonly string[], verifiedDomain: string | null | undefined): string[] {
+  const d = verifiedDomain?.trim().toLowerCase().replace(/\.$/, "");
+  if (!d) return [...flags];
+  return flags.filter((f) => {
+    const own = f.startsWith("brand_word:") ? BRAND_OWN_DOMAINS[f.slice("brand_word:".length) as BrandWord] : undefined;
+    return !own?.some((o) => d === o || d.endsWith(`.${o}`));
+  });
 }
 
 /** Display names for the brand words in flags like `brand_word:moonpay`; unknown flags are ignored. */

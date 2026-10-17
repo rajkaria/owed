@@ -128,9 +128,11 @@ const pick = (row: Stored, columns: string[]) => columns.map((c) => (c === "flag
 
 function runQuery(text: string, params: Array<string | null>) {
   if (text.startsWith("delete from rate_events")) return result([], []);
-  if (text.includes("from rate_events")) {
+  if (text.includes("pg_advisory_xact_lock")) return result(["pg_advisory_xact_lock"], []); // W2-E: ratelimit.ts serializes each key
+  if (text.includes("rate_events")) {
     db.rateEvents += 1;
-    return result(["allowed", "recipient_ok", "retry_recipient", "retry_global", "recorded"], [["t", "t", "1", "1", "2"]]);
+    // W2-E: one row per rule (scope, ok, allowed, retry_after, recorded), after an advisory-lock statement.
+    return result(["scope", "ok", "allowed", "retry_after", "recorded"], [["recipient", "t", "t", "1", "2"], ["global", "t", "t", "1", "2"]]);
   }
   if (text.startsWith("insert into requests")) {
     assert.match(text, /values \(\$1, 'invoice', \$1,/);
@@ -178,7 +180,8 @@ beforeEach(() => {
     const body = JSON.parse(String(init?.body ?? "null"));
     if (url.host === "api.us-east-1.aws.neon.tech") {
       if (body.queries) {
-        db.batches += 1;
+        // W2-E: rate limits run in their own transaction; count only the batches that write rows.
+        if (!body.queries.some((q: { query: string }) => q.query.includes("rate_events"))) db.batches += 1;
         return Response.json({ results: body.queries.map((q: { query: string; params: Array<string | null> }) => runQuery(q.query.trim(), q.params)) });
       }
       return Response.json(runQuery(body.query.trim(), body.params));
