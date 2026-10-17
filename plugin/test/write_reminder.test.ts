@@ -57,7 +57,7 @@ test("WhatsApp puts the link on its own line", async () => {
     'Hi Priya, just a friendly reminder about the 15 USDC for "dinner" from 3 days ago.',
     `Pay here: ${LINK}`,
     "Any Solana wallet works, or your AI agent can pay it with PayBox.",
-    "Thanks! Raj",
+    "Thanks! – Raj",
   ].join("\n"));
 });
 
@@ -94,6 +94,8 @@ test("the same day and the next day read naturally; no names falls back politely
   const sameDay = out((await remind({}, deps(bare, Date.parse("2026-10-17T09:00:00Z")))).result);
   assert.equal(sameDay.text, `Hi, just a friendly reminder about the 15 USDC from today. Pay here: ${LINK} Thanks!`);
   assert.equal(sameDay.days_outstanding, 0);
+  assert.match(textOf((await remind({}, deps(bare, Date.parse("2026-10-17T09:00:00Z")))).result), /^Still open since today: 15 USDC\./);
+  assert.match(out((await remind({ channel: "whatsapp", tone: "formal" })).result).text!, /\nKind regards, Raj$/);
   const nextDay = out((await remind({ tone: "firm" }, deps(bare, Date.parse("2026-10-18T06:00:00Z")))).result);
   assert.equal(nextDay.text, `Hello, the 15 USDC is still unpaid. It has been outstanding for 1 day. Please pay it today. Pay here: ${LINK} Thank you.`);
   const email = out((await remind({ channel: "email", tone: "formal" }, deps(bare))).result);

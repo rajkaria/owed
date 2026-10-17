@@ -113,7 +113,7 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
   const lines = [
     facts.status === "underpaid"
       ? `Underpaid: ${facts.amountPaid} of ${facts.amount} ${facts.token} arrived, ${facts.amountDue} ${facts.token} still due. A payment link can't take a top-up, so this reminder carries no link: create a new request for ${facts.amountDue} ${facts.token} with ask_for_money and send its link with it.`
-      : `Still open${days !== undefined ? ` after ${dayCount(days)}` : ""}: ${facts.amount} ${facts.token}. Reminder (${args.tone}, ${args.channel}) for the user to send:`,
+      : `Still open${days === undefined ? "" : days === 0 ? " since today" : ` after ${dayCount(days)}`}: ${facts.amount} ${facts.token}. Reminder (${args.tone}, ${args.channel}) for the user to send:`,
     ...(draft.subject ? [`Subject: ${draft.subject}`] : []),
     draft.body,
   ];
@@ -278,7 +278,7 @@ export function compose(f: Facts, tone: ReminderInput["tone"], channel: Reminder
   if (channel === "whatsapp") {
     const lines = [`${hi}, ${ask}`];
     if (link) lines.push(`Pay here: ${link}`, "Any Solana wallet works, or your AI agent can pay it with PayBox.");
-    lines.push(`${thanks}${from ? ` ${from}` : ""}`.replace(/,$/, ""));
+    lines.push(from ? (tone === "formal" ? `${thanks} ${from}` : `${thanks} – ${from}`) : thanks.replace(/,$/, ""));
     return { body: lines.join("\n"), link };
   }
   // SMS: one short paragraph.
