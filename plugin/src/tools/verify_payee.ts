@@ -2,6 +2,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { ApiError } from "../api.js";
 import { addressSchema, tokenSchema, type GetRequestRes } from "../contract.js";
+// W3-B Base requests start
+import { evmAddressSchema } from "../contract.js";
+import { checkBaseTerms } from "../base-request.js";
+import { parseEvmAddress } from "../evm.js";
+// W3-B Base requests end
 import { callContext, defaultDeps, errorText, refusal, type CallContext, type Deps } from "../deps.js";
 import { USDC_MINT, type Token } from "../money.js";
 import {
@@ -13,7 +18,7 @@ import { clean, shortAddress } from "../text.js";
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).optional().describe("An Owed link or id, or a Solana Pay transfer link (solana:...): checks the domain the request claims against the wallet it pays."),
-  address: addressSchema.optional().describe("A Solana wallet address to check, together with domain (instead of link)."),
+  address: z.union([addressSchema, evmAddressSchema]).optional().describe("A Solana (or Base 0x) wallet address to check, together with domain (instead of link)."), // W3-B: 0x
   domain: z.string().min(1).max(253).optional().describe("The domain to check, e.g. \"example.com\". Required with address. With link, checks the link's wallet against this domain instead of the one the request claims (use it when the user expects a particular sender)."),
 }).strict();
 
@@ -78,8 +83,12 @@ export async function verifyPayeeTool(args: VerifyInput, deps: Deps = defaultDep
     if (typeof resolved === "string") return refusal(resolved);
     target = resolved;
   } else {
-    if (!deps.isSolanaAddress(args.address!)) return refusal("address must be a Solana wallet address.");
-    target = { address: args.address!, claimed: null, requestId: null, amount: null };
+    // W3-B Base requests start: a Base (0x) wallet is checked in its EIP-55 form.
+    const evm = args.address!.startsWith("0x") ? parseEvmAddress(args.address!) : null;
+    if (args.address!.startsWith("0x") && !evm) return refusal("That Base address has a wrong checksum (mixed case); copy it again.");
+    // W3-B Base requests end
+    if (!evm && !deps.isSolanaAddress(args.address!)) return refusal("address must be a Solana wallet address.");
+    target = { address: evm ?? args.address!, claimed: null, requestId: null, amount: null };
   }
 
   const domain = args.domain ?? target.claimed;
@@ -187,6 +196,14 @@ async function resolveLink(link: string, ctx: CallContext, deps: Deps): Promise<
     }
     return `Owed couldn't load this request: ${errorText(error, "unknown error")}`;
   }
+  // W3-B Base requests start: a Base request's terms are checked against its id the same way.
+  if (rq.chain === "base") {
+    const terms = checkBaseTerms(rq, id, deps);
+    if (typeof terms === "string") return terms;
+    return { address: terms.recipient, claimed: rq.from_domain ?? null, requestId: rq.id, amount: deps.fromAtomic(terms.amountAtomic, "USDC"), token: "USDC", requestStatus: rq.status };
+  }
+  if (rq.solana_pay_url === null) return "Owed's server returned a payment link it can't read.";
+  // W3-B Base requests end
   // Same rule as pay_link: the id is a hash of the terms, so the server can't swap the wallet behind it.
   let inner;
   try {

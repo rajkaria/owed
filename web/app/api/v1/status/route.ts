@@ -16,6 +16,7 @@ function result(row: RequestRow): StatusResult {
     amount_requested: fromAtomic(row.amountAtomic, row.token),
     token: row.token,
     created_at: row.createdAt,
+    ...(row.chain === "base" && { chain: "base" as const }), // W3-B: Base payments carry 0x payers and transaction hashes
   };
   // W3-C: when an expiring request ends, and when a cancelled one was cancelled.
   if (row.expiresAt) out.expires_at = row.expiresAt;

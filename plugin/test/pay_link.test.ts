@@ -233,7 +233,9 @@ test("input schema is strict and bounded", () => {
   assert.equal(ok({ ...base, max_amount: "1e3" }), false);
   assert.equal(ok({ ...base, amount: "-2" }), false);
   assert.equal(ok({ link: "JArQ6g9JvoWr" }), false);
-  assert.equal(ok({ ...base, sender: "0x3806c85df527e5336f05277ab8cc3932b9abe42a" }), false);
+  // W3-B: a 0x sender parses (a Base request's payer); payLink refuses it for Solana requests (base_tools.test.ts).
+  assert.equal(ok({ ...base, sender: "0x3806c85df527e5336f05277ab8cc3932b9abe42a" }), true);
+  assert.equal(ok({ ...base, sender: "0x3806c85df527e5336f05277ab8cc3932b9abe42" }), false);
 });
 
 test("uses the real transaction builder when it has merged", { skip: !usingReal.buildTransferTx && "tx.ts is still a stub" }, async () => {

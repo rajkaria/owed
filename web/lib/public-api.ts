@@ -19,11 +19,12 @@ export interface PublicRequest {
   note: string | null;
   requester_name: string | null;
   status: RequestStatus;
-  solana_pay_url: string;
+  /** W3-B: null on Base requests (they pay through pay_url, an EIP-681 link). */
+  solana_pay_url: string | null;
   reference: string;
   x402_url: string | null;
   created_at: string;
-  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" };
+  paid: null | { signature: string; payer: string; amount: string; at: string; rail: "solana_pay" | "x402" | "base_transfer" };
   flags: string[];
   // W2-H verified payee: the domain that published the recipient in DNS when the request was created.
   from_domain: string | null;
@@ -31,6 +32,11 @@ export interface PublicRequest {
   // W3-C: when it stops taking payments (null = never), and the recipient's signed cancellation, if any.
   expires_at: string | null;
   cancelled: null | { at: string; signed_message: string; signature: string };
+  // W3-B Base requests: the chain the request is paid on, and the link a wallet opens to pay it
+  // (the solana: URL, or ethereum:<USDC>@8453/transfer?address=…&uint256=… on Base).
+  // Optional in the type so rows built by hand elsewhere (tests, other sprints) still compile; toPublic always sets both.
+  chain?: "solana" | "base";
+  pay_url?: string;
 }
 
 /** Chain check budget for a page render: a slow RPC never holds the page; client polling takes over. */

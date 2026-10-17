@@ -193,6 +193,11 @@ export function requestIdFor({ recipient, token, amountAtomic, reference }) {
   return base58Encode(digest).slice(-12);
 }
 
+/** W3-B: on a Solana request, pay_url (when present) is the solana_pay_url itself. */
+function payUrlIsSolanaPayUrl(value, path, ctx) {
+  if ("pay_url" in value && value.pay_url !== value.solana_pay_url) ctx.errors.push(`${path}.pay_url: differs from .solana_pay_url`);
+}
+
 /** solana_pay_url must carry the same recipient/amount/token/reference as the JSON next to it. */
 function urlMatchesFields(value, path, ctx) {
   const parsed = parseSolanaPayUrl(value.solana_pay_url);
@@ -211,17 +216,22 @@ function urlMatchesFields(value, path, ctx) {
   }
 }
 
+// W3-B Base requests: 0x addresses and transaction hashes (EIP-55 case is checked by the zod contracts).
+export const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+export const TX_HASH_RE = /^0x[0-9a-f]{64}$/;
+
 const statusFields = {
   status: oneOf("open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"), // W3-C: + expired
   amount_requested: optional(positiveAmount),
   token: optional(token),
   amount_paid: optional(amount),
-  payer: optional(pubkey),
-  signature: optional(signature),
+  payer: optional(string({ test: (t) => isPubkey(t) || EVM_ADDRESS_RE.test(t), label: "a base58 32-byte key or a 0x address (Base)" })), // W3-B
+  signature: optional(string({ test: (t) => isSignature(t) || TX_HASH_RE.test(t), label: "a base58 64-byte signature or a 0x transaction hash (Base)" })), // W3-B
   paid_at: optional(iso),
   created_at: optional(iso), // W1-C asked for it; the plugin turns it into "waited"
   expires_at: optional(iso), // W3-C: when an expiring request ends
   cancelled_at: optional(iso), // W3-C
+  chain: optional(oneOf("base")), // W3-B: set on Base requests
 };
 function statusConsistent(value, path, ctx) {
   if (["open", "paid", "underpaid", "cancelled", "expired"].includes(value.status)) {
@@ -411,8 +421,10 @@ const getRequestFields = {
   paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
+  chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
 };
 function getRequestConsistent(value, path, ctx) {
+  payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
   decimalsFit("amount")(value, path, ctx);
   if (value.from_domain && !value.from_domain_verified_at) ctx.errors.push(`${path}.from_domain_verified_at: from_domain is set but its verified time is ${show(value.from_domain_verified_at)}`);
   urlMatchesFields(value, path, ctx);
@@ -455,7 +467,9 @@ export const shapes = {
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
     x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
     expires_at: optional(nullable(iso)), // W3-C
+    chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
   }, (value, path, ctx) => {
+    payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
     urlMatchesFields(value, path, ctx);
     if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
   }),
@@ -698,4 +712,80 @@ Object.assign(fixtureShapes, {
   "schedules.create.res.json": "scheduleRes",
   "ledger.schedules.req.json": "ledgerReq",
   "ledger.schedules.res.json": "ledgerRes",
+});
+
+// ---------------------------------------------------------------------------------------------- Base requests (W3-B)
+// A request on Base: USDC at 0x8335…2913 on chain 8453, recipient a 0x address, no Solana Pay URL. pay_url is the
+// EIP-681 transfer link, and the id hashes the terms with the chain (owed-request:v1, eip155:8453, recipient,
+// Base USDC, atomic amount, reference). Appended with Object.assign like the invoices block.
+
+export const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
+export function baseRequestIdFor({ recipient, amountAtomic, reference }) {
+  const digest = createHash("sha256").update(`owed-request:v1\neip155:8453\n${recipient}\n${BASE_USDC}\n${amountAtomic}\n${reference}`, "utf8").digest();
+  return base58Encode(digest).slice(-12);
+}
+
+export function eip681Transfer(recipient, amountAtomic) {
+  return `ethereum:${BASE_USDC}@8453/transfer?address=${recipient}&uint256=${amountAtomic}`;
+}
+
+const evmAddress = string({ pattern: EVM_ADDRESS_RE, label: "a 0x address" });
+const txHash = string({ pattern: TX_HASH_RE, label: "a lower-case 0x transaction hash" });
+const eip681 = string({ max: 2048, pattern: /^ethereum:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913@8453\/transfer\?address=0x[0-9a-fA-F]{40}&uint256=[1-9][0-9]*$/, label: "an EIP-681 Base USDC transfer link" });
+
+/** pay_url pays exactly .recipient .amount, and the 12-char id hashes those terms on Base. */
+function baseTermsMatch(value, path, ctx) {
+  if (value.token !== "USDC") return void ctx.errors.push(`${path}.token: Base requests are USDC only`);
+  let atomic = null;
+  try { atomic = toAtomic(value.amount, 6); } catch (error) { return void ctx.errors.push(`${path}.amount: ${error.message}`); }
+  if ("recipient" in value && value.pay_url !== eip681Transfer(value.recipient, atomic)) ctx.errors.push(`${path}.pay_url: does not pay .recipient .amount`);
+  if (typeof value.id === "string" && "recipient" in value) {
+    const expected = baseRequestIdFor({ recipient: value.recipient, amountAtomic: atomic, reference: value.reference });
+    if (expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of its Base payment terms (expected ${expected})`);
+  }
+}
+
+Object.assign(shapes, {
+  baseCreateRequestReq: object({
+    recipient: evmAddress, amount: positiveAmount, token: oneOf("USDC"), chain: oneOf("base"),
+    payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
+    requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
+    expires_in_days: optional(integer({ min: 1 })), // W3-C
+  }, decimalsFit("amount")),
+  baseCreateRequestRes: object({
+    id, link: httpsUrl, solana_pay_url: (value, path, ctx) => { if (value !== null) ctx.errors.push(`${path}: must be null on a Base request`); },
+    qr_url: httpsUrl, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag),
+    from_domain: optional(nullable(domain)), chain: oneOf("base"), pay_url: eip681,
+    expires_at: optional(nullable(iso)), // W3-C
+  }, (value, path, ctx) => {
+    if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
+    const m = /address=(0x[0-9a-fA-F]{40})&uint256=([0-9]+)$/.exec(value.pay_url);
+    if (m && typeof value.id === "string") {
+      const expected = baseRequestIdFor({ recipient: m[1], amountAtomic: BigInt(m[2]), reference: value.reference });
+      if (expected !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of the terms in pay_url (expected ${expected})`);
+    }
+  }),
+  baseGetRequestRes: object({
+    id, kind: oneOf("single"), recipient: evmAddress, amount: positiveAmount, token: oneOf("USDC"),
+    payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
+    status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
+    solana_pay_url: (value, path, ctx) => { if (value !== null) ctx.errors.push(`${path}: must be null on a Base request`); },
+    reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
+    paid: optional(nullable(object({ signature: txHash, payer: evmAddress, amount, at: iso, rail: oneOf("base_transfer", "x402") }))),
+    flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
+    chain: oneOf("base"), pay_url: eip681,
+    expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
+  }, (value, path, ctx) => {
+    baseTermsMatch(value, path, ctx);
+    if (value.status === "paid" && !value.paid) ctx.errors.push(`${path}.paid: status is paid but paid is ${show(value.paid)}`);
+    if (value.status === "open" && value.paid) ctx.errors.push(`${path}.paid: status is open but paid is set`);
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "base.create-request.req.json": "baseCreateRequestReq",
+  "base.create-request.res.json": "baseCreateRequestRes",
+  "base.get-request.res.json": "baseGetRequestRes",
+  "base.status.res.json": "statusRes",
 });

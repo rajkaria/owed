@@ -16,6 +16,13 @@ export const signatureSchema = z.string().min(64).max(90).regex(BASE58);
 const isoTime = z.string().max(40).regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/);
 const httpsUrl = z.string().max(2048).regex(/^https:\/\//);
 const solanaPayUrl = z.string().max(2048).regex(/^solana:/);
+// W3-B Base requests: a Base request's recipient and payer are 0x addresses, its payment a 0x transaction hash.
+export const chainSchema = z.enum(["solana", "base"]);
+export const evmAddressSchema = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
+export const txHashSchema = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+const anyAddress = z.union([addressSchema, evmAddressSchema]);
+const anySignature = z.union([signatureSchema, txHashSchema]);
+const payUrl = z.string().max(2048).regex(/^(solana|ethereum):/);
 
 // W3-C: + "expired" (an open request past its expires_at; the server computes it).
 export const requestStatusSchema = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid"]);
@@ -24,7 +31,7 @@ export const expiresInDaysSchema = z.number().int().min(1).max(90);
 export const errorCodeSchema = z.enum(["invalid_input", "rate_limited", "not_found", "upstream_unavailable", "blocked"]);
 
 export const createRequestReqSchema = z.object({
-  recipient: addressSchema,
+  recipient: anyAddress, // W3-B: a 0x address with chain "base"
   amount: decimalSchema,
   token: tokenSchema,
   payer_name: z.string().max(40).optional(),
@@ -36,12 +43,13 @@ export const createRequestReqSchema = z.object({
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(), // W2-H verified payee: the plugin checked it over DNS first
   expires_in_days: expiresInDaysSchema.optional(), // W3-C
+  chain: chainSchema.optional(), // W3-B: absent = solana
 }).strict();
 
 export const createRequestResSchema = z.object({
   id: requestIdSchema,
   link: httpsUrl,
-  solana_pay_url: solanaPayUrl,
+  solana_pay_url: solanaPayUrl.nullable(), // W3-B: null on Base requests
   qr_url: httpsUrl,
   reference: addressSchema,
   x402_url: httpsUrl.nullable().optional(),
@@ -49,11 +57,13 @@ export const createRequestResSchema = z.object({
   flags: z.array(z.string().max(80)).max(32),
   from_domain: z.string().max(253).nullable().optional(), // W2-H verified payee
   expires_at: isoTime.nullable().optional(), // W3-C
+  chain: chainSchema.optional(), // W3-B: absent = solana
+  pay_url: payUrl.optional(), // W3-B: what a wallet opens (solana:, or ethereum: EIP-681 on Base)
 });
 
 export const paidInfoSchema = z.object({
-  signature: signatureSchema,
-  payer: addressSchema,
+  signature: anySignature, // W3-B
+  payer: anyAddress, // W3-B
   amount: decimalSchema,
   at: isoTime,
   rail: z.string().max(20).optional(),
@@ -62,7 +72,7 @@ export const paidInfoSchema = z.object({
 export const getRequestResSchema = z.object({
   id: requestIdSchema,
   kind: z.string().max(20).optional(),
-  recipient: addressSchema,
+  recipient: anyAddress, // W3-B
   amount: decimalSchema,
   token: tokenSchema,
   payer_name: z.string().max(40).nullable().optional(),
@@ -70,7 +80,7 @@ export const getRequestResSchema = z.object({
   note: z.string().max(140).nullable().optional(),
   requester_name: z.string().max(40).nullable().optional(),
   status: requestStatusSchema,
-  solana_pay_url: solanaPayUrl,
+  solana_pay_url: solanaPayUrl.nullable(), // W3-B: null on Base requests
   reference: addressSchema,
   x402_url: httpsUrl.nullable().optional(),
   created_at: isoTime,
@@ -82,14 +92,16 @@ export const getRequestResSchema = z.object({
   // W3-C: when it stops taking payments, and the recipient's signed cancellation (display; never trusted for paying).
   expires_at: isoTime.nullable().optional(),
   cancelled: z.object({ at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable().optional(),
+  chain: chainSchema.optional(), // W3-B: absent = solana
+  pay_url: payUrl.optional(), // W3-B
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
 
 const paymentFields = {
   amount_paid: decimalSchema.optional(),
-  payer: addressSchema.optional(),
-  signature: signatureSchema.optional(),
+  payer: anyAddress.optional(), // W3-B
+  signature: anySignature.optional(), // W3-B
   paid_at: isoTime.optional(),
 };
 
@@ -105,6 +117,7 @@ export const statusResultSchema = z.object({
   created_at: isoTime.optional(),
   expires_at: isoTime.optional(), // W3-C
   cancelled_at: isoTime.optional(),
+  chain: chainSchema.optional(), // W3-B: "base" on Base requests (their payment links go to Basescan)
 }).superRefine((r, ctx) => {
   if (r.status === "not_found" || r.status === "invalid") return;
   for (const key of ["amount_requested", "token"] as const) {
@@ -241,6 +254,7 @@ export const invoiceResSchema = z.object({
 });
 
 export type Token = z.infer<typeof tokenSchema>;
+export type Chain = z.infer<typeof chainSchema>; // W3-B
 export type RequestStatus = z.infer<typeof requestStatusSchema>;
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 export type CreateRequestReq = z.infer<typeof createRequestReqSchema>;

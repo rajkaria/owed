@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { requireNotSanctioned } from "@/lib/sanctions";
 import { CreateGroupBody, type GroupResponse } from "@/lib/contract";
 import { createGroup, GROUP_TEXT_LIMITS, planShares, toPublicGroup } from "@/lib/groups";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
@@ -16,6 +17,8 @@ export async function POST(req: Request): Promise<Response> {
     const body = CreateGroupBody.parse(await readJson(req));
 
     // Same rule as single requests: a token account or program address would strand the money.
+    requireNotSanctioned(body.recipient); // W2-E: OFAC SDN list, 403 blocked
+
     if (!PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {
       throw new ApiError("invalid_input", "recipient must be a wallet address, not a token account or program address");
     }

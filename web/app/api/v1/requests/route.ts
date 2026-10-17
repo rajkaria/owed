@@ -1,11 +1,13 @@
 import { PublicKey } from "@solana/web3.js";
+import { requireNotSanctioned } from "@/lib/sanctions";
 import { CreateRequestBody, type CreateRequestResponse } from "@/lib/contract";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
 import { domainBrandFlags, requireVerifiedDomain } from "@/lib/payee";
 import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { requireSolMinimum } from "@/lib/sol-minimum";
-import { createRequest, solanaPayUrl } from "@/lib/requests";
+import { createRequest, payUrl, solanaPayUrl } from "@/lib/requests";
+import { parseEvmAddress } from "@/lib/evm/address"; // W3-B
 import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "@/lib/safety";
 import { x402UrlFor } from "@/lib/x402/url";
 
@@ -16,9 +18,20 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const body = CreateRequestBody.parse(await readJson(req));
 
+    // W3-B Base requests start: USDC on Base, to the EIP-55 form of a 0x address.
+    if (body.chain === "base") {
+      const checksummed = parseEvmAddress(body.recipient);
+      if (!checksummed) throw new ApiError("invalid_input", "recipient: the 0x address has a wrong EIP-55 checksum (mixed case); check it, or send it all lower-case");
+      if (body.token !== "USDC") throw new ApiError("invalid_input", "token: Base requests are USDC only");
+      body.recipient = checksummed;
+    }
+    // W3-B Base requests end
+
+    requireNotSanctioned(body.recipient); // W2-E: OFAC SDN list (Solana and EVM), 403 blocked
+
     // An off-curve recipient is usually a token account pasted by mistake; wallets would
     // derive a second token account from it and the money would be stuck.
-    if (!PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {
+    if (body.chain === "solana" && !PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {
       throw new ApiError("invalid_input", "recipient must be a wallet address, not a token account or program address");
     }
 
@@ -56,13 +69,14 @@ export async function POST(req: Request): Promise<Response> {
       source: body.source,
       fromDomain,
       expiresInDays: body.expires_in_days ?? null, // W3-C: the database computes expires_at from its own clock
+      chain: body.chain, // W3-B
     });
 
     const base = baseUrl(req);
     const res: CreateRequestResponse = {
       id: row.id,
       link: `${base}/r/${row.id}`,
-      solana_pay_url: solanaPayUrl(row),
+      solana_pay_url: row.chain === "base" ? null : solanaPayUrl(row), // W3-B
       qr_url: `${base}/api/qr/${row.id}.png`,
       reference: row.reference,
       x402_url: x402UrlFor(base, row),
@@ -70,6 +84,9 @@ export async function POST(req: Request): Promise<Response> {
       flags: row.flags,
       from_domain: row.fromDomain,
       expires_at: row.expiresAt ?? null, // W3-C
+      // W3-B Base requests: the chain, and the link a wallet opens (the solana: URL, or EIP-681 on Base).
+      chain: row.chain ?? "solana",
+      pay_url: payUrl(row),
     };
     return json(res, { status: 201 });
   } catch (e) {
