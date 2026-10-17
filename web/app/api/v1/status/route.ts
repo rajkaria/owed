@@ -16,6 +16,7 @@ function result(row: RequestRow): StatusResult {
     amount_requested: fromAtomic(row.amountAtomic, row.token),
     token: row.token,
     created_at: row.createdAt,
+    ...(row.chain === "base" && { chain: "base" as const }), // W3-B: Base payments carry 0x payers and transaction hashes
   };
   if ((row.status === "paid" || row.status === "underpaid") && row.paidAmountAtomic != null) {
     out.amount_paid = fromAtomic(row.paidAmountAtomic, row.token);

@@ -15,7 +15,7 @@ export type LiveState =
       payer: string | null;
       signature: string | null;
       at: string | null;
-      rail: "solana_pay" | "x402" | null;
+      rail: "solana_pay" | "x402" | "base_transfer" | null;
     }
   | {
       status: "underpaid";
@@ -220,7 +220,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     forText,
     note,
     recipient: req.recipient,
-    solanaPayUrl: req.solana_pay_url,
+    solanaPayUrl: req.solana_pay_url ?? req.pay_url, // W3-B: Base requests open their EIP-681 link
     shareLink,
     agentPrompt: `Use the Owed plugin in PayBox to pay ${shareLink}`,
     x402Url: token === "USDC" && req.id.length === 12 ? `${origin}/x/${encodeURIComponent(req.id)}` : null,

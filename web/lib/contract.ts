@@ -10,13 +10,18 @@ const base58Key = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/, "must be a b
 const requestId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/, "must be a 12-character Owed id");
 const isoTime = z.iso.datetime();
 const token = z.enum(["USDC", "SOL"]);
+// W3-B Base requests: a Base request's recipient and payer are 0x addresses, its payment a 0x transaction hash.
+const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x Base address");
+const anyAddress = z.union([base58Key, evmAddress]);
+const chain = z.enum(["solana", "base"]);
 
 // Raw text may be longer than its cap: links and invisible characters are stripped
 // first, then the clean text is cut to the cap. 4x the cap bounds the work.
 const untrusted = (cap: number) => z.string().max(cap * 4).nullish();
 
 export const CreateRequestBody = z.object({
-  recipient: base58Key,
+  recipient: z.string().max(64), // W3-B: checked per chain below
+
   amount: z.string().max(40),
   token: token.default("USDC"),
   payer_name: untrusted(TEXT_LIMITS.payer_name),
@@ -27,34 +32,42 @@ export const CreateRequestBody = z.object({
   source: z.enum(["plugin", "web"]).default("web"),
   // W2-H verified payee: re-checked over DNS before the request is created (lib/payee.ts).
   from_domain: z.string().min(1).max(253).nullish(),
+  chain: chain.default("solana"), // W3-B
+}).superRefine((b, ctx) => {
+  // W3-B: a Solana request keeps its base58 rule and message; a Base request takes a 0x address.
+  const schema = b.chain === "base" ? evmAddress : base58Key;
+  const r = schema.safeParse(b.recipient);
+  if (!r.success) ctx.addIssue({ code: "custom", path: ["recipient"], message: r.error.issues[0]?.message ?? "invalid recipient" });
 });
 export type CreateRequestBody = z.infer<typeof CreateRequestBody>;
 
 export const CreateRequestResponse = z.object({
   id: requestId,
   link: z.url(),
-  solana_pay_url: z.string().startsWith("solana:"),
+  solana_pay_url: z.string().startsWith("solana:").nullable(), // W3-B: null on Base
   qr_url: z.url(),
   reference: base58Key,
   x402_url: z.url().nullable(),
   created_at: isoTime,
   flags: z.array(z.string()),
   from_domain: z.string().nullable().optional(), // W2-H verified payee
+  chain: chain.optional(), // W3-B (absent = solana)
+  pay_url: z.string().optional(), // W3-B: the link a wallet opens (solana: or ethereum:)
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
 export const PaidInfo = z.object({
   signature: z.string(),
-  payer: base58Key,
+  payer: anyAddress, // W3-B
   amount: decimal,
   at: isoTime,
-  rail: z.enum(["solana_pay", "x402"]),
+  rail: z.enum(["solana_pay", "x402", "base_transfer"]), // W3-B: base_transfer
 });
 
 export const GetRequestResponse = z.object({
   id: requestId,
   kind: z.enum(["single", "split_share", "invoice"]),
-  recipient: base58Key,
+  recipient: anyAddress, // W3-B
   amount: decimal,
   token,
   payer_name: z.string().nullable(),
@@ -62,7 +75,7 @@ export const GetRequestResponse = z.object({
   note: z.string().nullable(),
   requester_name: z.string().nullable(),
   status: z.enum(["open", "paid", "underpaid", "cancelled"]),
-  solana_pay_url: z.string().startsWith("solana:"),
+  solana_pay_url: z.string().startsWith("solana:").nullable(), // W3-B: null on Base
   reference: base58Key,
   x402_url: z.url().nullable(),
   created_at: isoTime,
@@ -71,6 +84,8 @@ export const GetRequestResponse = z.object({
   // W2-H verified payee: display only; the plugin re-reads DNS before paying.
   from_domain: z.string().nullable().optional(),
   from_domain_verified_at: isoTime.nullable().optional(),
+  chain: chain.optional(), // W3-B (absent = solana)
+  pay_url: z.string().optional(), // W3-B
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -85,12 +100,12 @@ const PaymentFields = {
   amount_requested: decimal.optional(),
   token: token.optional(),
   amount_paid: decimal.optional(),
-  payer: base58Key.optional(),
+  payer: anyAddress.optional(), // W3-B
   signature: z.string().optional(),
   paid_at: isoTime.optional(),
 };
 
-export const StatusResult = z.object({ id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional() });
+export const StatusResult = z.object({ id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional(), chain: chain.optional() /* W3-B */ });
 export type StatusResult = z.infer<typeof StatusResult>;
 
 export const StatusResponse = z.object({ results: z.array(StatusResult) });
