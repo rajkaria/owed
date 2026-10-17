@@ -195,3 +195,12 @@ test("migration 0009's domain check accepts every normalized vector and nothing 
   for (const v of vectors.domains) assert.ok(re.test(v.ascii), v.ascii);
   for (const bad of ["Example.com", "example", "-a.com", "a..b", "_owed.example.com", "münchen.de"]) assert.equal(re.test(bad), false, bad);
 });
+
+test("the live demo record (captured): getowed.xyz publishes the team wallet and nothing else", async () => {
+  const live = doh("published-record");
+  assert.deepEqual(await verifyDomain("getowed.xyz", RECIPIENT, { fetch: replay(live).fetch }), {
+    status: "verified", domain: "getowed.xyz", display_domain: "getowed.xyz", dnssec: false, records: 1,
+  });
+  assert.equal(await requireVerifiedDomain("GetOwed.xyz", RECIPIENT, { fetch: replay(live).fetch }), "getowed.xyz");
+  assert.equal((await verifyDomain("getowed.xyz", OTHER, { fetch: replay(live).fetch })).status, "unverified");
+});

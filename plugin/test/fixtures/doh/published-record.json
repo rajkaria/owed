@@ -1,0 +1,26 @@
+{
+ "name": "published-record",
+ "note": "A domain whose _owed TXT record publishes an Owed wallet, captured from the live record.",
+ "captured_at": "2026-10-17T10:53:14.260Z",
+ "query": {
+  "domain": "getowed.xyz",
+  "qname": "_owed.getowed.xyz",
+  "type": "TXT"
+ },
+ "responses": [
+  {
+   "resolver": "cloudflare-dns.com",
+   "url": "https://cloudflare-dns.com/dns-query?name=_owed.getowed.xyz&type=TXT",
+   "status": 200,
+   "content_type": "application/dns-json",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.getowed.xyz\",\"type\":16}],\"Answer\":[{\"name\":\"_owed.getowed.xyz\",\"type\":16,\"TTL\":600,\"data\":\"\\\"owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs\\\"\"}]}"
+  },
+  {
+   "resolver": "dns.google",
+   "url": "https://dns.google/resolve?name=_owed.getowed.xyz&type=TXT",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "{\"Status\":0,\"TC\":false,\"RD\":true,\"RA\":true,\"AD\":false,\"CD\":false,\"Question\":[{\"name\":\"_owed.getowed.xyz.\",\"type\":16}],\"Answer\":[{\"name\":\"_owed.getowed.xyz.\",\"type\":16,\"TTL\":600,\"data\":\"owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs\"}],\"Comment\":\"Response from 162.159.10.150.\"}"
+  }
+ ]
+}

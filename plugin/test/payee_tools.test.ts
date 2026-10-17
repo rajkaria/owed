@@ -267,3 +267,24 @@ test("verify_payee: argument combinations, checkout links and old ids are refuse
   assert.match(refusalText(await verifyPayeeTool(verifyInput.parse({ link: "https://owed.link/r/1RRer81ufk" }), deps)), /older Owed link/);
   assert.equal(verifyInput.safeParse({ address: RECIPIENT, domain: "example.com", extra: 1 }).success, false);
 });
+
+// ---------------------------------------------------------------- the live demo record (captured, not constructed)
+
+test("real record: _owed.getowed.xyz publishes the team wallet → verify_payee verified, pay_link leads with it", async () => {
+  const live = dohRoutes(dohFixture("published-record"));
+  const v = makeDeps({ routes: live });
+  const result = await verifyPayeeTool(verifyInput.parse({ address: RECIPIENT, domain: "getowed.xyz" }), v.deps);
+  const out = verified(result);
+  assert.equal(out.status, "verified");
+  assert.equal(out.dnssec, false);
+  assert.equal(out.records, 1);
+  assert.equal(lines(result)[0], "Verified: getowed.xyz publishes this wallet (FN6G…cbvs) in its DNS (not DNSSEC-signed).");
+
+  const p = makeDeps({ routes: { ...owed({ ...openRequest, from_domain: "getowed.xyz", from_domain_verified_at: "2026-10-17T10:53:00Z" }), ...dohRoutes(dohFixture("published-record")) } });
+  const paid = await payLink(pay(), p.deps);
+  assert.match(lines(paid)[0]!, /^Pay 15 USDC to getowed\.xyz \(verified by DNS\)\. /);
+  assert.equal(p.rec.built.length, 1);
+
+  const other = makeDeps({ routes: dohRoutes(dohFixture("published-record")) });
+  assert.equal(verified(await verifyPayeeTool(verifyInput.parse({ address: SENDER, domain: "getowed.xyz" }), other.deps)).status, "unverified");
+});
