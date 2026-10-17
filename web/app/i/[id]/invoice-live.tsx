@@ -5,7 +5,7 @@ import { CheckIcon, AlertIcon, ExternalIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
 import { formatUtc, shortAddress, solscanTx } from "@/lib/view/format";
 import { formatAmount, type Token } from "@/lib/view/money";
-import { pickStatusResult, stateFromStatus, type LiveState } from "@/lib/view/request-view";
+import { MATCHED_LABEL, pickStatusResult, stateFromStatus, type LiveState } from "@/lib/view/request-view";
 
 const POLL_MS = 4000;
 const MAX_BACKOFF_MS = 30000;
@@ -186,6 +186,13 @@ function Receipt({ state, token }: { state: Extract<LiveState, { status: "paid" 
             <ExternalIcon width={16} height={16} />
           </a>
           <span className="hidden break-all font-mono text-xs print:inline">Transaction {state.signature}</span>
+        </p>
+      )}
+      {state.matched && (
+        <p data-matched className="mt-2 text-sm text-muted">
+          {/* 0012: the payment (or its rest) carried no reference; the recipient's wallet signed that it pays this invoice. */}
+          <span className="font-medium text-fg">{MATCHED_LABEL}</span>
+          {state.matched.covers === "rest" && state.matched.amount ? <>: the rest, {formatAmount(state.matched.amount, token)}, arrived separately</> : null}.
         </p>
       )}
     </section>

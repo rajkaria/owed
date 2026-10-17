@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { formatAmount, type Token } from "@/lib/view/money";
 import { explorerTx, formatUtc, shortAddress } from "@/lib/view/format";
 import {
+  MATCHED_LABEL,
   pickStatusResult,
   stateFromStatus,
   type Headline,
@@ -117,8 +118,40 @@ function SolscanLink({ signature }: { signature: string }) {
   );
 }
 
+const RAIL_NAMES = { x402: "x402", base_transfer: "USDC transfer on Base", solana_pay: "Solana Pay", matched: MATCHED_LABEL } as const;
+
+/**
+ * 0012: a payment that arrived without this request's reference and that the recipient matched by hand, with a
+ * signed message. Shown apart from referenced payments: Owed counts it because the recipient said so, and the
+ * chain shows it credited them exactly what was owed.
+ */
+function MatchedNote({ state, token }: { state: Extract<LiveState, { status: "paid" }>; token: Token }) {
+  const m = state.matched;
+  if (!m) return null;
+  const confirmed = m.confirmedAt ? formatUtc(m.confirmedAt) : null;
+  return (
+    <div role="note" data-matched className="mt-4 rounded-xl border border-line bg-sunken px-4 py-3 text-sm leading-relaxed">
+      <p className="font-medium">{MATCHED_LABEL}</p>
+      <p className="mt-1 text-muted">
+        {m.covers === "rest" && m.amount ? (
+          <>The rest, <span className="whitespace-nowrap tabular-nums text-fg">{formatAmount(m.amount, token)}</span>, arrived in a separate payment without this request&apos;s reference. </>
+        ) : (
+          <>This payment arrived without this request&apos;s reference. </>
+        )}
+        The wallet it pays signed that it belongs to this request{m.confirmedAt && confirmed ? <> (<LocalTime iso={m.confirmedAt} fallback={confirmed} />)</> : null}, and Owed checked on chain that it credited exactly the amount owed.
+      </p>
+      {m.covers === "rest" && m.signature ? (
+        <p className="mt-2">
+          <SolscanLink signature={m.signature} />
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid" }>; token: Token }) {
   const when = state.at ? formatUtc(state.at) : null;
+  const matched = state.rail === "matched";
   return (
     <section aria-labelledby="receipt-title" className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
       <div className="flex items-center gap-3">
@@ -129,7 +162,9 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
           <h2 id="receipt-title" className="text-xl font-semibold tracking-tight text-paid">
             Paid
           </h2>
-          <p className="text-sm text-muted">Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</p>
+          <p className="text-sm text-muted">
+            {matched ? "Matched by the recipient · confirmed on Solana" : <>Confirmed on {state.signature?.startsWith("0x") ? "Base" : "Solana"}</>}
+          </p>
         </div>
       </div>
       {state.amount && (
@@ -148,8 +183,9 @@ function PaidCard({ state, token }: { state: Extract<LiveState, { status: "paid"
             <LocalTime iso={state.at} fallback={when} />
           </Row>
         )}
-        {state.rail && <Row label="Paid with">{state.rail === "x402" ? "x402" : state.rail === "base_transfer" ? "USDC transfer on Base" : "Solana Pay"}</Row>}
+        {state.rail && <Row label="Paid with">{RAIL_NAMES[state.rail]}</Row>}
       </dl>
+      <MatchedNote state={state} token={token} />
       {state.signature && (
         <p className="mt-4">
           <SolscanLink signature={state.signature} />
@@ -197,9 +233,20 @@ function UnderpaidCard({
           </>
         )}
       </p>
-      <p className="mt-3 text-sm text-muted">
-        Ask <bdi>{asker}</bdi> for a new link for the rest. Paying this link again would send the full amount.
-      </p>
+      {state.restRequestId ? (
+        <p className="mt-3 text-sm text-muted">
+          {/* 0012: ask_for_rest made a follow-up request for exactly the remainder. */}
+          <bdi>{asker}</bdi> asked for the rest in a new request:{" "}
+          <a href={`/r/${encodeURIComponent(state.restRequestId)}`} className="font-medium text-accent underline-offset-4 hover:underline">
+            pay the rest here
+          </a>
+          . Paying this link again would send the full amount.
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-muted">
+          Ask <bdi>{asker}</bdi> for a new link for the rest. Paying this link again would send the full amount.
+        </p>
+      )}
       {state.signature && (
         <p className="mt-4">
           <SolscanLink signature={state.signature} />

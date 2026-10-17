@@ -16,7 +16,9 @@ export type LiveState =
       payer: string | null;
       signature: string | null;
       at: string | null;
-      rail: "solana_pay" | "x402" | "base_transfer" | null;
+      rail: "solana_pay" | "x402" | "base_transfer" | "matched" | null;
+      /** 0012: a payment without the reference that the recipient matched (all of it, or the rest after a partial one). */
+      matched?: MatchedView | null;
     }
   | {
       status: "underpaid";
@@ -25,10 +27,23 @@ export type LiveState =
       payer: string | null;
       signature: string | null;
       at: string | null;
+      /** 0012: the follow-up request that asks for the rest, when one was made. */
+      restRequestId?: string | null;
     }
   // W3-C: `at` is when it was cancelled or when it expired, when known.
   | { status: "cancelled"; at?: string | null }
   | { status: "expired"; at?: string | null };
+
+/** 0012: what the page says about a matched payment. Never shown like a referenced payment. */
+export interface MatchedView {
+  covers: "full" | "rest";
+  amount: string | null;
+  signature: string | null;
+  confirmedAt: string | null;
+}
+
+/** The label every surface uses for a matched payment (plugin text uses the same words). */
+export const MATCHED_LABEL = "Matched by the recipient (no reference on the payment)";
 
 export type PollTarget =
   | { endpoint: "/api/v1/status"; id: string }
@@ -59,6 +74,8 @@ export interface PayModel {
   poll: PollTarget | null;
   /** W3-C: when an open request stops taking payments (ISO), or null. */
   expiresAt?: string | null;
+  /** 0012: this request asks for the rest of that underpaid request. */
+  restOf?: string | null;
 }
 
 // SPEC §6 brand-word list. A hit never blocks; it shows a caution banner.
@@ -138,6 +155,26 @@ function dec(value: unknown): string | null {
 function iso(value: unknown): string | null {
   return typeof value === "string" && value.length <= 40 && !Number.isNaN(Date.parse(value)) ? value : null;
 }
+const REQUEST_ID = /^[1-9A-HJ-NP-Za-km-z]{10}(?:[1-9A-HJ-NP-Za-km-z]{2})?$/;
+function requestId(value: unknown): string | null {
+  return typeof value === "string" && REQUEST_ID.test(value) ? value : null;
+}
+const RAILS = ["solana_pay", "x402", "base_transfer", "matched"] as const;
+function rail(value: unknown): (typeof RAILS)[number] | null {
+  return RAILS.find((r) => r === value) ?? null;
+}
+
+// 0012: the keys appear only when there is something to say, so a plain payment's state is unchanged.
+const withMatched = (matched: MatchedView | null) => (matched ? { matched } : {});
+const withRest = (restRequestId: string | null) => (restRequestId ? { restRequestId } : {});
+
+/** 0012: the matched part of a status result or public request, read defensively. */
+function matchedView(value: unknown): MatchedView | null {
+  if (!value || typeof value !== "object") return null;
+  const m = value as Record<string, unknown>;
+  if (m.covers !== "full" && m.covers !== "rest") return null;
+  return { covers: m.covers, amount: dec(m.amount), signature: sig(m.signature), confirmedAt: iso(m.confirmed_at) };
+}
 
 /**
  * Map one status result (from POST /api/v1/status or /status-raw) to a live
@@ -157,7 +194,8 @@ export function stateFromStatus(result: unknown, requested: string | null, token
         payer: key(r.payer),
         signature: sig(r.signature),
         at: iso(r.paid_at),
-        rail: r.rail === "x402" || r.rail === "solana_pay" || r.rail === "base_transfer" ? r.rail : null,
+        rail: rail(r.rail),
+        ...withMatched(matchedView(r.matched)), // 0012
       };
     case "underpaid": {
       const amountPaid = dec(r.amount_paid);
@@ -168,6 +206,7 @@ export function stateFromStatus(result: unknown, requested: string | null, token
         payer: key(r.payer),
         signature: sig(r.signature),
         at: iso(r.paid_at),
+        ...withRest(requestId(r.rest_request)), // 0012
       };
     }
     case "cancelled":
@@ -202,7 +241,8 @@ export function stateFromRequest(req: PublicRequest): LiveState {
         payer: key(paid?.payer),
         signature: sig(paid?.signature),
         at: iso(paid?.at),
-        rail: paid?.rail ?? null,
+        rail: rail(paid?.rail),
+        ...withMatched(matchedView(req.matched)), // 0012
       };
     case "underpaid": {
       const amountPaid = dec(paid?.amount);
@@ -213,6 +253,7 @@ export function stateFromRequest(req: PublicRequest): LiveState {
         payer: key(paid?.payer),
         signature: sig(paid?.signature),
         at: iso(paid?.at),
+        ...withRest(requestId(req.rest_request?.id)), // 0012
       };
     }
     case "cancelled":
@@ -269,6 +310,7 @@ export function modelFromRequest(req: PublicRequest, origin: string): PayModel {
     initial: stateFromRequest(req),
     poll: { endpoint: "/api/v1/status", id: req.id },
     expiresAt: iso(req.expires_at), // W3-C
+    ...(requestId(req.rest_of) && { restOf: requestId(req.rest_of) }), // 0012
   };
 }
 
