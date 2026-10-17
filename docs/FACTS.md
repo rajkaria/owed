@@ -70,6 +70,11 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Validate transaction on that proposal with sol-default: "Simulation passed" (simulation only; nothing signed or broadcast).
 - `pay_link` on a request that pays the sender's own wallet is refused: "This request pays your own wallet, so there is nothing to send."
 
+## SNS name payees (W3-S, branch `claude/sol-names-d10c59`; not merged, not on production)
+- Name service facts, 2026-10-18, from the official SDK source (github.com/SolanaNameService/sns-sdk, JS v4.0.1) and mainnet: SNS's namespace is now the `.sns` suffix (root `58PwtjSDuFHuUkYjH9BYnnQKHfwo9reZhC2zMJv9JPkx`, the former `.sol` root). The SDK refuses `.sol` from finalized slot 452,825,395 (`SOL_TLD_CUTOFF_SLOT`). Mainnet's finalized slot was 458,173,325 at 2026-10-18 02:20 IST. No Solana Record Service (`.sol`) records existed for `bonfida`, `toly` or `mert`. So Owed resolves `.sns` and refuses `.sol`.
+- Resolver agreement: 19 real mainnet names (SNS's own `sns-ip-5-wallet-*` and `wallet-guide-*` vectors among them) replayed in `plugin/test/fixtures/sns/`. Owed returns the SDK's expected wallet, or refuses, for every one. It is stricter only for tokenized names (both public RPC hosts refuse `getTokenLargestAccounts`: api.mainnet-beta 429, publicnode 403 "Indexed requests require a personal token") and for off-curve wallets.
+- Local run, 2026-10-18 02:45 IST (bundle sha256 `a884f6736a8fe3c1…`, web build of the branch on PGlite, real mainnet RPC): `ask_for_money {recipient: "Bonfida.sns", amount: "5"}` → hosted `8uf6CaA2Gadv` paying `Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v`, `sns_source: owner`, 927 ms. `pay_link` on it → "Pay 5 USDC to bonfida.sns (verified on-chain: bonfida.sns points to Fw1E…Lb1v)" and a proposal to that wallet's USDC account (`G2Ts…yQWEd`). `pay_link {link: "bonfida.sns", amount: "2"}` → a proposal for 2 USDC to the same account. Proposals only: nothing was signed or sent. Pay page: "To bonfida.sns · verified on-chain", checked at 1440 and 375.
+
 ## Build notes
 - The plugin bundle uses `--main-fields=module,main` and a `createRequire` banner so CommonJS parts of @solana/web3.js and @solana/spl-token can load Node builtins inside the ESM bundle. Without it the bundle crashes at startup ("Dynamic require of buffer is not supported").
 
