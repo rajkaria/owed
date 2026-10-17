@@ -6,6 +6,8 @@ import { buildTransferUrl } from "./solana-pay";
 import { findPayments, type PaymentCheck } from "./validate";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
+import { x402UrlFor } from "./x402/url";
+import { settlePendingX402 } from "./x402/settle";
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -77,7 +79,8 @@ export function solanaPayUrl(row: RequestRow): string {
   });
 }
 
-export function toPublic(row: RequestRow): PublicRequest {
+/** `base` is the public origin for links; without it the x402 URL is left out. */
+export function toPublic(row: RequestRow, base?: string): PublicRequest {
   const settled = (row.status === "paid" || row.status === "underpaid") && row.paidSignature && row.paidAmountAtomic != null;
   return {
     id: row.id,
@@ -92,7 +95,7 @@ export function toPublic(row: RequestRow): PublicRequest {
     status: row.status,
     solana_pay_url: solanaPayUrl(row),
     reference: row.reference,
-    x402_url: null,
+    x402_url: base ? x402UrlFor(base, row) : null,
     created_at: row.createdAt,
     paid: settled
       ? {
@@ -202,10 +205,19 @@ const lastChecked = new Map<string, number>();
  */
 export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptions = {}): Promise<RequestRow[]> {
   const now = Date.now();
-  const due = rows.filter(
+  let due = rows.filter(
     (r) => (r.status === "open" || r.status === "underpaid") && now - (lastChecked.get(r.id) ?? 0) >= RECHECK_MS,
   );
   if (due.length === 0) return [...rows];
+
+  // x402 payments carry no reference: confirm any settled ones the chain now shows (lib/x402/settle.ts).
+  const viaX402 = await settlePendingX402(due, rpc);
+  if (viaX402.size > 0) {
+    const fresh = await getRequests([...viaX402]);
+    rows = rows.map((r) => fresh.get(r.id) ?? r);
+    due = due.filter((r) => !viaX402.has(r.id));
+    if (due.length === 0) return [...rows];
+  }
 
   const checks = await findPayments(
     due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic })),

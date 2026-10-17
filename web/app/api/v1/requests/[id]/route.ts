@@ -1,4 +1,4 @@
-import { ApiError, json, toErrorResponse } from "@/lib/http";
+import { ApiError, baseUrl, json, toErrorResponse } from "@/lib/http";
 import { isRequestId } from "@/lib/ids";
 import { getRequest, settleFromChain, toPublic } from "@/lib/requests";
 
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 const CHAIN_BUDGET_MS = 2500;
 
 /** GET /api/v1/requests/:id — one request, checked against the chain if still open. */
-export async function GET(_req: Request, ctx: RouteContext<"/api/v1/requests/[id]">): Promise<Response> {
+export async function GET(req: Request, ctx: RouteContext<"/api/v1/requests/[id]">): Promise<Response> {
   try {
     const { id } = await ctx.params;
     if (!isRequestId(id)) throw new ApiError("invalid_input", "id must be a 12-character Owed id");
@@ -21,7 +21,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/v1/requests/[id
         // Serve the stored state; POST /status reports chain outages explicitly.
       }
     }
-    return json(toPublic(row));
+    return json(toPublic(row, baseUrl(req)));
   } catch (e) {
     return toErrorResponse(e);
   }

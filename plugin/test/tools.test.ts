@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
-import { solanaOutputSchema } from "../src/paybox.ts";
+import { proposeSolana, proposeX402, solanaOutputSchema, x402OutputSchema } from "../src/paybox.ts";
 import { tools } from "../src/tools/index.ts";
 
 interface Registered { name: string; config: any; handler: unknown }
@@ -25,7 +25,7 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("pay_link")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
 });
 
-test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana proposal", () => {
+test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
   for (const name of ["ask_for_money", "check_payments", "pay_link"]) {
     const { config } = seen.get(name)!;
@@ -36,7 +36,13 @@ test("schemas convert to strict JSON Schema; pay_link outputs the starter's Sola
     assert.ok(config.title && config.description.length > 80, `${name} needs a description that speaks to the agent`);
     assert.match(config.description, /list_credentials|check_payments|ask_for_money/);
   }
-  assert.equal(seen.get("pay_link")!.config.outputSchema, solanaOutputSchema);
+  // rail solana_pay proposes a Solana transaction, rail x402 an x402 payment (SPEC §5.2): exactly the starter's two shapes.
+  const payOutput = seen.get("pay_link")!.config.outputSchema;
+  const solana = proposeSolana({ transactionBase64: Buffer.alloc(200, 1).toString("base64") }).structuredContent;
+  const x402 = proposeX402({ chain: "solana:mainnet", url: "https://owed-omega.vercel.app/x/JArQ6g9JvoWr", maxAmount: "10000" }).structuredContent;
+  assert.deepEqual(payOutput.parse(solana), solanaOutputSchema.parse(solana));
+  assert.deepEqual(payOutput.parse(x402), x402OutputSchema.parse(x402));
+  assert.equal(payOutput.safeParse({ ...solana, extra: 1 }).success, false);
   const askInput = z.toJSONSchema(seen.get("ask_for_money")!.config.inputSchema, { io: "input" }) as { required?: string[] };
   assert.deepEqual(askInput.required?.sort(), ["amount", "recipient"]);
 });
