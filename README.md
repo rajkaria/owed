@@ -8,7 +8,7 @@ Owed never holds money and charges no fees. Every payment goes from the payer's 
 
 ## What's live
 
-Six tools, uploaded to the PayBox developer portal (build of `main`, hosted checks passed, 6 tools; see [docs/FACTS.md](docs/FACTS.md)).
+Eight tools, uploaded to the PayBox developer portal (build of `main`, hosted checks passed, 8 tools; see [docs/FACTS.md](docs/FACTS.md)).
 
 | Tool | What it does |
 |---|---|
@@ -18,6 +18,8 @@ Six tools, uploaded to the PayBox developer portal (build of `main`, hosted chec
 | `verify_payee` | Checks whether a domain publishes the wallet a request pays, reading DNS from the plugin itself. |
 | `split_bill` | Splits a bill into one request per person and a live board that shows who has paid. |
 | `create_invoice` | Creates a printable invoice with line items, due date and invoice number, payable by QR, link or the client's agent. |
+| `who_owes_me` | Lists your open and recently paid requests with totals, after you sign one message with your PayBox wallet (no money moves). Anyone can create a request that pays your wallet, so it marks requester text unverified. |
+| `write_reminder` | Drafts a polite, firm or formal reminder with the link and days outstanding; it reads the status first and drafts nothing for a paid request. |
 
 Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets, with their transactions.
 
