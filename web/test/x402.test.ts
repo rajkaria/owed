@@ -41,13 +41,14 @@ const SIG = "5h6xBEauJ3PK6SWCZ1PGjBvj8vDdWG3KpwATGy1ARAXFSDwt8GFXM7W5Ncn16wmqokg
 const txOf = (header: string) => JSON.parse(Buffer.from(header, "base64").toString()).payload.transaction as string;
 const fromB64 = (v: string | null) => JSON.parse(Buffer.from(v!, "base64").toString());
 
+// Cast: later sprints add columns (e.g. W2-H's fromDomain) that these tests don't read.
 function row(over: Partial<RequestRow> = {}): RequestRow {
   return {
     id: ID, kind: "single", recipient: RECIPIENT, token: "USDC", mint: USDC_MINT, decimals: 6, amountAtomic: 10_000n, reference: REFERENCE,
     payerName: null, forText: "x402 rail check", note: null, requesterName: "Owed x402 check", flags: [], status: "open",
     paidSignature: null, paidPayer: null, paidAmountAtomic: null, paidAt: null, paidRail: null, source: "web", createdAt: "2026-10-17T07:26:32Z",
     ...over,
-  };
+  } as RequestRow;
 }
 
 test("fixture request id is the hash of its terms", () => {
