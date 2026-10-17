@@ -280,6 +280,10 @@ function groupConsistent(value, path, ctx) {
     if ((share.status === "paid" || share.status === "underpaid") && !share.paid) ctx.errors.push(`${at}.paid: status is ${share.status} but paid is ${show(share.paid)}`);
     if (share.status === "open" && share.paid) ctx.errors.push(`${at}.paid: status is open but paid is set`);
     if (share.paid) try { received += toAtomic(share.paid.amount, decimals); } catch { /* reported by the amount shape */ }
+    // pay_link checks a share on its own, so each share must carry the same verified domain as its board.
+    if ("from_domain" in share && (share.from_domain ?? null) !== (value.from_domain ?? null)) {
+      ctx.errors.push(`${at}.from_domain: ${show(share.from_domain)} but the group's is ${show(value.from_domain ?? null)}`);
+    }
   });
   try {
     if (toAtomic(value.total, decimals) !== total) ctx.errors.push(`${path}.total: ${value.total} but the shares add up to ${fromAtomic(total, decimals)}`);
@@ -307,6 +311,7 @@ export const shapes = {
     shares: array(object({
       id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled"),
       link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, paid: nullable(paidInfo),
+      from_domain: optional(nullable(domain)),
     }), { min: 2, max: 20 }),
   }, groupConsistent),
   createRequestReq: object({

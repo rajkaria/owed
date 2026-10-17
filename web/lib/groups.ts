@@ -278,6 +278,8 @@ export interface PublicShare {
   solana_pay_url: string;
   reference: string;
   paid: PublicRequest["paid"];
+  /** Verified payee domain this share carries (W2-H), or null; equals the group's. */
+  from_domain: string | null;
 }
 
 export interface PublicGroup {
@@ -317,6 +319,7 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
       solana_pay_url: solanaPayUrl(row),
       reference: row.reference,
       paid: pub.paid,
+      from_domain: row.fromDomain ?? null,
     };
   });
   return {
