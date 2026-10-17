@@ -15,6 +15,8 @@
 //      opened by the API, so a ledger signed by that wallet can be read: it lists the schedule and its request,
 //      csv: true returns a link, the CSV downloads with the right rows, and (--wait-expiry) the same link is refused
 //      once its 10 minutes are up.
+// --no-cron leaves out step 2's schedule and the authorized cron calls (for a target whose CRON_SECRET can't be
+// read, like Production's sensitive env); the unauthorized calls are still checked.
 // --skip-ledger leaves out step 3 (on production, read the team wallet's own ledger with who_owes_me in PayBox instead).
 // Refuses production hosts unless --allow-production.
 import assert from "node:assert/strict";
@@ -36,8 +38,9 @@ if (PRODUCTION_HOSTS.includes(new URL(base).hostname) && !args.includes("--allow
   console.error(`${base} is production; pass --allow-production (it writes real schedules and requests)`);
   process.exit(2);
 }
-const cronSecret = process.env.CRON_SECRET?.trim();
-if (!cronSecret) {
+const noCron = args.includes("--no-cron");
+const cronSecret = noCron ? "" : process.env.CRON_SECRET?.trim();
+if (!cronSecret && !noCron) {
   console.error("CRON_SECRET is not set: source the target's env file first (its value is never printed)");
   process.exit(2);
 }
@@ -110,6 +113,14 @@ await step("POST /api/v1/schedules for today opens this month's request at once 
 
 // 2. The cron path: a due schedule with no request yet; the cron opens it exactly once.
 let cronSchedule = "";
+if (noCron) {
+  await step("GET /api/cron/schedules without the secret, or with a wrong one: 401", async () => {
+    for (const auth of [undefined, "Bearer wrong", "wrong"]) {
+      const r = await call("GET", "/api/cron/schedules", undefined, auth === undefined ? {} : { authorization: auth });
+      assert.equal(r.status, 401, `${auth ?? "no header"}: ${r.status}`);
+    }
+  });
+} else {
 await step("a due schedule stored without its first request (team wallet, 0.01 USDC, months 1)", async () => {
   const { schedule, first } = await createSchedule({
     recipient: TEAM_WALLET, token: "USDC", amountAtomic: 10_000n, payerName: "Owed check", forText: "W3-D cron check", requesterName: null,
@@ -145,6 +156,7 @@ await step("a second call opens none", async () => {
   assert.deepEqual(s.opened, []);
   assert.equal(s.due, 0);
 });
+}
 
 // 3. The ledger: a throwaway wallet signs, so its ledger (and CSV) can be read.
 if (args.includes("--skip-ledger")) {

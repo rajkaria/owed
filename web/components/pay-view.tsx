@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { headline, type PayModel } from "@/lib/view/request-view";
-import { solscanAccount } from "@/lib/view/format";
+import { basescanAddress, solscanAccount } from "@/lib/view/format";
 import { CopyButton } from "./copy-button";
 import { AgentIcon, AlertIcon, CopyIcon, ExternalIcon, LinkIcon, WalletIcon } from "./icons";
 import { LiveRequest } from "./live-request";
@@ -84,8 +84,13 @@ function Actions({ model }: { model: PayModel }) {
         />
       </div>
       <p className="text-sm leading-relaxed text-muted">
-        Opens Phantom, Solflare, Backpack or any Solana wallet on this device. <em className="not-italic text-fg">Pay with
-        your AI agent</em> copies a message to paste into Claude or ChatGPT with PayBox connected.
+        {model.chain === "base" ? (
+          <>Opens MetaMask, Coinbase Wallet, Phantom or any Base wallet on this device, to send USDC on Base (chain 8453). </>
+        ) : (
+          <>Opens Phantom, Solflare, Backpack or any Solana wallet on this device. </>
+        )}
+        <em className="not-italic text-fg">Pay with your AI agent</em> copies a message to paste into Claude or ChatGPT with
+        PayBox connected.
       </p>
       {model.x402Url ? <p className="text-sm leading-relaxed text-muted">AI agents can pay this at <span className="break-all font-mono text-fg">{model.x402Url}</span></p> : null}
     </div>
@@ -96,9 +101,9 @@ async function QrPanel({ model }: { model: PayModel }) {
   return (
     <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5 md:sticky md:top-8">
       <div className="mx-auto w-full max-w-[19rem] rounded-xl bg-white p-3.5">
-        <QrCode value={model.solanaPayUrl} label="QR code for this payment. Scan it with a Solana wallet." />
+        <QrCode value={model.solanaPayUrl} label={`QR code for this payment. Scan it with a ${model.chain === "base" ? "Base" : "Solana"} wallet.`} />
       </div>
-      <p className="mt-3 text-center text-sm text-muted">Scan with any Solana wallet app</p>
+      <p className="mt-3 text-center text-sm text-muted">Scan with any {model.chain === "base" ? "Base" : "Solana"} wallet app</p>
     </div>
   );
 }
@@ -119,12 +124,12 @@ function Recipient({ model }: { model: PayModel }) {
           className="inline-flex items-center gap-1.5 font-medium text-accent"
         />
         <a
-          href={solscanAccount(model.recipient)}
+          href={model.chain === "base" ? basescanAddress(model.recipient) : solscanAccount(model.recipient)}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 font-medium text-accent underline-offset-4 hover:underline"
         >
-          View on Solscan
+          View on {model.chain === "base" ? "Basescan" : "Solscan"}
           <ExternalIcon width={16} height={16} />
         </a>
       </div>
@@ -142,7 +147,7 @@ export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }
           prefetch={false}
           className="rounded-full border border-line px-2.5 py-1 text-xs font-medium text-muted hover:text-fg"
         >
-          PayBox plugin · Solana mainnet
+          PayBox plugin · {model.chain === "base" ? "Base mainnet" : "Solana mainnet"}
         </Link>
       </header>
 
@@ -170,7 +175,7 @@ export function PayView({ model, badge }: { model: PayModel; badge?: ReactNode }
       <footer className="mt-12 border-t border-line pt-5 text-sm leading-relaxed text-muted">
         <p>
           Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Owed never holds
-          money: you pay the recipient directly, in one Solana transaction.{" "}
+          money: you pay the recipient directly, in one {model.chain === "base" ? "transaction on Base" : "Solana transaction"}.{" "}
           <Link href="/" prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
             How Owed works
           </Link>

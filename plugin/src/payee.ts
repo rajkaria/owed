@@ -328,6 +328,14 @@ export function parseTxtAnswer(body: unknown, qname: string): TxtAnswer | null {
 }
 
 /** The wallet named by each owed-pay= record (prefix case-insensitive, value exact). */
+// W3-B Base requests: a record may name a 0x (Base) address; EVM addresses compare case-insensitively
+// (EIP-55 case is only a checksum), Solana addresses exactly.
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+export function sameWallet(published: string, address: string): boolean {
+  if (EVM_ADDRESS.test(published) && EVM_ADDRESS.test(address)) return published.toLowerCase() === address.toLowerCase();
+  return published === address;
+}
+
 export function owedPayValues(txt: string[]): string[] {
   return txt.map((t) => t.trim()).filter((t) => t.toLowerCase().startsWith(RECORD_PREFIX)).map((t) => t.slice(RECORD_PREFIX.length).trim());
 }
@@ -383,7 +391,7 @@ export async function verifyPayee(
     const answer = await queryTxt(resolver.url, qname, Math.min(DOH_TIMEOUT_MS, remaining), deps.fetch);
     if (!answer) continue;
     const wallets = owedPayValues(answer.txt);
-    return { ...base, status: wallets.includes(address) ? "verified" : "unverified", dnssec: answer.ad, records: wallets.length };
+    return { ...base, status: wallets.some((w) => sameWallet(w, address)) ? "verified" : "unverified", dnssec: answer.ad, records: wallets.length };
   }
   return { ...base, status: "dns_unavailable", dnssec: false, records: 0 };
 }
