@@ -7,6 +7,7 @@ Owed is a PayBox plugin that lets your agent ask anyone for money, then tells yo
 - `web/` Next.js 16 app on Vercel: pay pages + `/api/v1` JSON API + Postgres.
 - `contract/fixtures/` canonical API examples. `plugin/src/contract.ts` and `web/lib/contract.ts` must both parse every file.
 - `docs/FACTS.md` the only source for numbers and claims.
+- `docs/TESTING.md` every test layer, the MCP end-to-end harness (`e2e/plugin-e2e.mjs`) and the smoke script, with exact commands.
 
 ## Toolchain
 ```
