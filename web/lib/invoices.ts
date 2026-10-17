@@ -3,7 +3,7 @@ import { isoUtc, isUniqueViolation, sql, transaction, type Query, type Row } fro
 import { newReference, requestIdFor } from "./ids";
 import { AmountError, formatUnits, fromAtomic, toAtomic, TOKENS, type Token } from "./money";
 import { domainBrandFlags } from "./payee";
-import { getRequest, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
+import { chainCheckable, getRequest, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "./safety";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
@@ -225,6 +225,19 @@ export interface CreateInvoiceInput {
   source: "plugin" | "web";
   /** A domain already verified by web/lib/payee.ts `requireVerifiedDomain` (W2-H), or null. */
   fromDomain?: string | null;
+  /** W3-C: whole days (1-90, checked by the route); the request gets expires_at = now() + this. Must reach the due date. */
+  expiresInDays?: number | null;
+}
+
+/** W3-C: an invoice that stops taking payments before it is due is a mistake; say how many days it needs. */
+export function checkExpiryReachesDue(dueDate: string, expiresInDays: number | null | undefined, now: number = Date.now()): void {
+  if (!expiresInDays) return;
+  const due = parseIsoDate(dueDate);
+  if (due === null) return;
+  if (utcDay(now + expiresInDays * 86_400_000) < due) {
+    const needed = Math.round((due - utcDay(now)) / 86_400_000);
+    throw new AmountError(`expires_in_days ${expiresInDays} ends before the due date ${dueDate}; use at least ${needed}, or leave it out`);
+  }
 }
 
 /** The sanitized, priced invoice, before anything is written. Throws AmountError (user-facing). */
@@ -234,6 +247,7 @@ export function prepareInvoice(input: CreateInvoiceInput, now: number = Date.now
   if (businessName === null) throw new AmountError("business_name is empty once links and control characters are removed");
   if (clientName === null) throw new AmountError("client_name is empty once links and control characters are removed");
   const dueDate = checkDueDate(input.dueDate, now);
+  checkExpiryReachesDue(dueDate, input.expiresInDays, now); // W3-C
   const { lines, totalAtomic } = priceItems(input.items, input.token);
   // Brand flags read the raw text, so a brand hidden in a stripped link still flags.
   const flags = [...new Set([
@@ -296,6 +310,14 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
           p.dueDate, JSON.stringify(storeLines(p.lines)), p.flags, input.source, fromDomain,
         ],
       },
+      // W3-C: expires_at at the transaction's now() + N days (the same instant as created_at).
+      ...(input.expiresInDays
+        ? [{
+            text: `update requests set expires_at = now() + make_interval(days => $2::int) where id = $1
+                   returning ${isoUtc("expires_at")} as expires_at`,
+            params: [id, input.expiresInDays],
+          }]
+        : []),
     ];
     try {
       const results = await transaction(queries);
@@ -326,6 +348,7 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
         createdAt: results[0][0].created_at!,
         fromDomain,
         fromDomainVerifiedAt: invoice.fromDomainVerifiedAt,
+        expiresAt: input.expiresInDays ? (results[2]?.[0]?.expires_at ?? null) : null, // W3-C
       };
       return { invoice, request };
     } catch (e) {
@@ -361,7 +384,7 @@ export async function loadInvoice(id: string, rpc: RpcOptions | null = null): Pr
     return null;
   }
   let request = stored;
-  if (rpc && (request.status === "open" || request.status === "underpaid")) {
+  if (rpc && chainCheckable(request.status)) { // W3-C: an expired or cancelled invoice may still have been paid
     try {
       [request] = await settleFromChain([request], rpc);
     } catch {
@@ -410,6 +433,9 @@ export interface PublicInvoice {
   /** Verified payee domain (display only; W2-H's badge shows it), or null. */
   from_domain: string | null;
   from_domain_verified_at: string | null;
+  // W3-C: when the invoice stops taking payments, and when it was cancelled; each absent when not set.
+  expires_at?: string;
+  cancelled_at?: string;
 }
 
 export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: string): PublicInvoice {
@@ -443,6 +469,8 @@ export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: 
     flags: invoice.flags,
     from_domain: invoice.fromDomain,
     from_domain_verified_at: invoice.fromDomainVerifiedAt,
+    ...(request.expiresAt && { expires_at: request.expiresAt }), // W3-C
+    ...(request.cancelledAt && { cancelled_at: request.cancelledAt }),
   };
 }
 

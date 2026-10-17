@@ -38,15 +38,25 @@ export interface RequestRow {
   // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.
   fromDomain?: string | null;
   fromDomainVerifiedAt?: string | null;
+  // W3-C expiry + cancel (0007). Optional for the same reason. `status` is "expired" once expires_at has passed.
+  expiresAt?: string | null;
+  cancelledAt?: string | null;
+  /** The recipient's signed "Owed cancel <id> for <recipient> at <ISO>" and its signature: the proof. */
+  cancelMessage?: string | null;
+  cancelSignature?: string | null;
 }
 
-const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomic::text as amount_atomic, reference,
-  payer_name, for_text, note, requester_name, array_to_json(flags)::text as flags, status,
+// W3-C: an open request past expires_at reads as 'expired' (computed by the database clock on every read).
+export const EFFECTIVE_STATUS = `case when status = 'open' and expires_at <= now() then 'expired' else status end`;
+
+export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomic::text as amount_atomic, reference,
+  payer_name, for_text, note, requester_name, array_to_json(flags)::text as flags, ${EFFECTIVE_STATUS} as status,
   paid_signature, paid_payer, paid_amount_atomic::text as paid_amount_atomic, ${isoUtc("paid_at")} as paid_at,
   paid_rail, source, ${isoUtc("created_at")} as created_at,
-  from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at`;
+  from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
+  ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature`;
 
-function fromRow(r: Row): RequestRow {
+export function fromRow(r: Row): RequestRow {
   return {
     id: r.id!,
     kind: r.kind as RequestRow["kind"],
@@ -71,7 +81,20 @@ function fromRow(r: Row): RequestRow {
     createdAt: r.created_at!,
     fromDomain: r.from_domain ?? null,
     fromDomainVerifiedAt: r.from_domain_verified_at ?? null,
+    expiresAt: r.expires_at ?? null,
+    cancelledAt: r.cancelled_at ?? null,
+    cancelMessage: r.cancel_message ?? null,
+    cancelSignature: r.cancel_signature ?? null,
   };
+}
+
+/**
+ * W3-C: statuses whose request can still turn out paid on chain, so reads check the chain first. Expired and
+ * cancelled requests are included: a payment that lands after expiry or cancellation (from a solana: link
+ * someone kept) moved real money, and it shows as paid rather than hiding behind "expired".
+ */
+export function chainCheckable(status: RequestStatus): boolean {
+  return status === "open" || status === "underpaid" || status === "expired" || status === "cancelled";
 }
 
 /** Deterministic from the row, so the URL handed out at creation is always reproduced exactly. */
@@ -117,6 +140,11 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     flags: row.flags,
     from_domain: row.fromDomain ?? null,
     from_domain_verified_at: row.fromDomainVerifiedAt ?? null,
+    // W3-C expiry + cancel
+    expires_at: row.expiresAt ?? null,
+    cancelled: row.cancelledAt && row.cancelMessage && row.cancelSignature
+      ? { at: row.cancelledAt, signed_message: row.cancelMessage, signature: row.cancelSignature }
+      : null,
   };
 }
 
@@ -143,6 +171,8 @@ export interface CreateInput {
   source: "plugin" | "web";
   /** W2-H: only a value returned by requireVerifiedDomain (lib/payee.ts); stamps from_domain_verified_at. */
   fromDomain?: string | null;
+  /** W3-C: whole days (1-90, checked by the route); the database sets expires_at = now() + this. */
+  expiresInDays?: number | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
@@ -154,9 +184,10 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
     try {
       const rows = await sql(
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
-           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at)
+           payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
-           $14, case when $14::text is null then null else now() end)
+           $14, case when $14::text is null then null else now() end,
+           case when $15::int is null then null else now() + make_interval(days => $15::int) end)
          returning ${COLUMNS}`,
         [
           id,
@@ -173,6 +204,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           input.flags,
           input.source,
           input.fromDomain ?? null,
+          input.expiresInDays ?? null,
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key
@@ -196,7 +228,7 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
           set status = $2, paid_signature = $3, paid_payer = $4, paid_amount_atomic = $5,
               paid_at = $6::timestamptz, paid_rail = 'solana_pay',
               is_team = ${isTeamSql("$7", "$4::text")} -- W2-F is_team (lib/team.ts)
-        where id = $1 and status in ('open', 'underpaid')
+        where id = $1 and status in ('open', 'underpaid', 'cancelled') -- W3-C: a late payment to a cancelled request is recorded
         returning ${COLUMNS}`,
       [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets()],
     );
@@ -232,7 +264,7 @@ const lastChecked = new Map<string, number>();
 export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptions = {}): Promise<RequestRow[]> {
   const now = Date.now();
   let due = rows.filter(
-    (r) => (r.status === "open" || r.status === "underpaid") && now - (lastChecked.get(r.id) ?? 0) >= RECHECK_MS,
+    (r) => chainCheckable(r.status) && now - (lastChecked.get(r.id) ?? 0) >= RECHECK_MS,
   );
   if (due.length === 0) return [...rows];
 

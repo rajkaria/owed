@@ -68,6 +68,8 @@ export interface InvoiceModel {
   fromDomain: string | null;
   fromDomainVerifiedAt: string | null;
   initial: LiveState;
+  /** W3-C: when an open invoice stops taking payments (ISO), or null. */
+  expiresAt: string | null;
 }
 
 export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
@@ -79,7 +81,11 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     ]),
   ];
   // stateFromRequest reads only status, amount, token and paid.
-  const asRequest = { status: inv.status, amount: inv.total, token, paid: inv.paid } as unknown as PublicRequest;
+  const asRequest = {
+    status: inv.status, amount: inv.total, token, paid: inv.paid,
+    // W3-C: when it expired or was cancelled
+    expires_at: inv.expires_at ?? null, cancelled: inv.cancelled_at ? { at: inv.cancelled_at } : null,
+  } as unknown as PublicRequest;
   const open = inv.status === "open";
   return {
     id: inv.id,
@@ -113,6 +119,7 @@ export function invoiceModel(inv: PublicInvoice, now: number): InvoiceModel {
     fromDomain: inv.from_domain,
     fromDomainVerifiedAt: inv.from_domain_verified_at,
     initial: stateFromRequest(asRequest),
+    expiresAt: inv.expires_at ?? null, // W3-C
   };
 }
 
@@ -123,5 +130,8 @@ export function invoiceTitle(m: Pick<InvoiceModel, "totalLabel">): string {
 
 export function invoiceDescription(m: Pick<InvoiceModel, "totalLabel" | "due" | "initial">): string {
   if (m.initial.status === "paid") return `Invoice for ${m.totalLabel}: paid on Solana.`;
+  // W3-C: a cancelled or expired invoice's preview never invites a payment.
+  if (m.initial.status === "cancelled") return `Invoice for ${m.totalLabel}: cancelled. Don't send money for it.`;
+  if (m.initial.status === "expired") return `Invoice for ${m.totalLabel}: expired, no longer payable.`;
   return `Invoice for ${m.totalLabel}, due ${m.due}. Pay with any Solana wallet or your AI agent.`;
 }
