@@ -196,6 +196,8 @@ export interface Target {
   payerName?: string;
   forText?: string;
   restRequest?: string;
+  /** This request asks for the rest of that one; payments count from when that one was made. */
+  restOf?: string;
 }
 
 /** A payment Owed already counts: never a candidate; its payer has "paid you before". */
@@ -223,6 +225,7 @@ function targetFromRequest(rq: GetRequestRes, base: string, deps: Deps): Target 
   const forText = clean(rq.for, 80);
   if (forText) t.forText = forText;
   if (rq.rest_request?.id) t.restRequest = rq.rest_request.id;
+  if (rq.rest_of) t.restOf = rq.rest_of;
   return t;
 }
 
@@ -243,6 +246,7 @@ function targetFromEntry(e: LedgerEntry, deps: Deps): Target {
   const forText = clean(e.for, 80);
   if (forText) t.forText = forText;
   if (e.rest_request) t.restRequest = e.rest_request;
+  if (e.rest_of) t.restOf = e.rest_of;
   return t;
 }
 
@@ -369,6 +373,9 @@ async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: num
       if (rq.paid?.signature) known.push({ id: rq.id, signature: rq.paid.signature, payer: rq.paid.payer });
       if (rq.matched?.signature) known.push({ id: rq.id, signature: rq.matched.signature, payer: rq.matched.payer });
       const t = targetFromRequest(rq, ctx.base, deps);
+      if (t?.restRequest) {
+        notes.push(`Request ${rq.id} is underpaid and its rest is asked in request ${t.restRequest}; pass that link to look for the rest's payment.`);
+      }
       if (!t) {
         notes.push(rq.status === "paid"
           ? `Request ${rq.id} is already paid${rq.matched ? ` (${MATCHED_LABEL})` : ""}.`
@@ -423,6 +430,14 @@ async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: num
   }));
   // An underpaid request whose rest is already asked in a follow-up: the follow-up is what gets paid now.
   targets = targets.filter((t) => !(t.covers === "rest" && t.restRequest));
+  // A follow-up asks for money owed since its first request was made: look from then (the server allows the same).
+  await Promise.all(targets.filter((t) => t.restOf).map(async (t) => {
+    const parent = await within(
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: Math.max(300, Math.min(LOOKUP_TIMEOUT_MS, remaining() - 4000)) }).getRequest(t.restOf!).catch(() => null),
+      Math.max(0, remaining() - 4000), () => null,
+    );
+    if (parent && parent.id === t.restOf && Date.parse(parent.created_at) < Date.parse(t.createdAt)) t.createdAt = parent.created_at;
+  }));
 
   // Read each token's incoming transfers since its oldest request.
   const scans: Array<{ token: Token; since: string; scan: IncomingScan | null; error?: string }> = [];
@@ -608,6 +623,9 @@ async function confirm(args: MatchInput, ctx: CallContext, deps: Deps, started: 
   if (!target && rq.status !== "cancelled") return refusal(`Request ${id} is ${rq.status}; a payment can't be matched to it.`);
   // A cancelled request that money reached anyway can still be matched in full (the server allows it too).
   const t = target ?? targetFromRequest({ ...rq, status: "open" }, ctx.base, deps)!;
+  if (t.covers === "rest" && t.restRequest && rq.rest_request?.status !== "cancelled" && rq.rest_request?.status !== "expired") {
+    return refusal(`The rest of request ${id} is asked in request ${t.restRequest}; match the payment to that request instead (link ${ctx.base}/r/${t.restRequest}).`);
+  }
   const due = deps.fromAtomic(t.dueAtomic, t.token);
 
   let check;

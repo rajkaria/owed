@@ -276,6 +276,31 @@ test("find: Solana down is reported, not shown as 'nothing found'", async () => 
   assert.ok(o.notes!.some((n) => /^USDC transfers couldn't be read \(unreachable\); try again shortly\.$/.test(n)));
 });
 
+test("find and confirm: an underpaid request whose rest is asked elsewhere points at the follow-up", async () => {
+  const under = rq("reqUUUUUUUUU", { amount: "1.01", status: "underpaid", created_at: "2026-10-17T15:00:00Z",
+    paid: { signature: TX.one, payer: GSWH, amount: "1", at: "2026-10-17T15:32:04Z", rail: "solana_pay" },
+    rest_request: { id: "reqRRRRRRRRR", status: "open" } });
+  const { deps: d } = deps({ ...getRoutes(under), "POST /api/v1/attributed": ATTRIBUTED_NONE });
+  const o = out(await matchPayments(input({ requests: ["reqUUUUUUUUU"] }), d));
+  assert.deepEqual(o.candidates, []);
+  assert.ok(o.notes!.includes("Request reqUUUUUUUUU is underpaid and its rest is asked in request reqRRRRRRRRR; pass that link to look for the rest's payment."));
+  assert.deepEqual(o.underpaid![0]!.rest_request, "reqRRRRRRRRR");
+  const { deps: d2 } = deps(getRoutes(under));
+  assert.match(refused(await matchPayments(input({ action: "confirm", link: "reqUUUUUUUUU", transaction: TX.a }), d2)),
+    /^The rest of request reqUUUUUUUUU is asked in request reqRRRRRRRRR; match the payment to that request instead/);
+});
+
+test("find: a rest request looks back to when its first request was made", async () => {
+  const rest = rq("reqRRRRRRRRR", { created_at: "2026-10-17T20:00:00Z" });
+  const parent = rq("reqUUUUUUUUU", { amount: "1.01", status: "underpaid", created_at: "2026-10-17T15:00:00Z",
+    paid: { signature: TX.one, payer: GSWH, amount: "1", at: "2026-10-17T15:32:04Z", rail: "solana_pay" }, rest_request: { id: "reqRRRRRRRRR", status: "open" } });
+  const { deps: d } = deps({ ...getRoutes({ ...rest, rest_of: "reqUUUUUUUUU" } as never, parent), "POST /api/v1/attributed": ATTRIBUTED_QNAOS });
+  const o = out(await matchPayments(input({ requests: ["reqRRRRRRRRR"] }), d));
+  // Made at 20:00, but the debt dates from 15:00: the three 0.01 sends between count.
+  assert.deepEqual(o.candidates!.map((c) => c.transaction), [TX.a, TX.b, TX.c]);
+  assert.equal(o.scanned![0]!.since, "2026-10-17T14:59:00Z");
+});
+
 // ---------------------------------------------------------------------------------------------------- confirm
 
 test("confirm, first call: checks the transaction on chain, then hands back the exact message to sign", async () => {

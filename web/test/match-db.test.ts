@@ -366,6 +366,24 @@ it("ask_for_rest: one linked request for exactly the remainder; asking again ret
   assert.deepEqual(contractErrors("ledgerRes", ledger), []);
 });
 
+it("once the rest is asked in a follow-up, the remainder is matched to the follow-up, not the parent", async () => {
+  const parent = await insert({ amountAtomic: 20_000n, status: "underpaid",
+    paid: { signature: TX.one, payer: GSWH, amountAtomic: 10_000n, at: "2026-10-17T15:32:04Z" }, createdAt: "2026-10-17T15:00:00Z" });
+  const rest = RestResponse.parse((await askRest(parent)).json);
+  const onParent = await match(parent, matchBody(TX.a, parent));
+  assert.equal(onParent.json.error!.message, `the rest of this request is asked in request ${rest.id}; match the payment to that request instead`);
+  // The follow-up was made just now, after TX.a landed; it asks for money owed since the parent was made, so it takes TX.a.
+  const onRest = await match(rest.id, matchBody(TX.a, rest.id));
+  assert.equal(onRest.status, 200, JSON.stringify(onRest.json));
+  assert.equal(MatchResponse.parse(onRest.json).matched?.covers, "full");
+  // ...but never a payment from before the debt existed (TX.five-style: here 5LPH… at 15:32 already pays the parent).
+  const early = await insert({ amountAtomic: 30_000n, status: "underpaid", createdAt: "2026-10-17T17:20:00Z",
+    paid: { signature: TX.b, payer: GSWH, amountAtomic: 20_000n, at: "2026-10-17T17:22:33Z" } });
+  const earlyRest = RestResponse.parse((await askRest(early)).json);
+  assert.match((await match(earlyRest.id, matchBody(TX.a, earlyRest.id))).json.error!.message,
+    /landed at 2026-10-17T17:14:15Z, before the request it asks the rest of was made \(2026-10-17T17:20:00Z\)/);
+});
+
 it("ask_for_rest refuses an open, paid or unknown request", async () => {
   const open = await insert();
   assert.match((await askRest(open)).json.error!.message, /only an underpaid request has a rest to ask for, and this one is open/);

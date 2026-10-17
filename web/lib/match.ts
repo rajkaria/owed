@@ -124,6 +124,11 @@ export async function confirmMatch(input: MatchInput, rpc: RpcOptions = { deadli
   if (checked.status === "paid") throw refuse(`this request can't take a match: ${describePaid(checked)}`);
   const { due, covers } = amountDue(checked);
   if (due <= 0n) throw refuse("this request has nothing left to pay");
+  // The rest is already asked in a follow-up request: the payment belongs there, or the follow-up would still ask for it.
+  const child = checked.restRequest;
+  if (covers === "rest" && child && child.status !== "cancelled" && child.status !== "expired") {
+    throw refuse(`the rest of this request is asked in request ${child.id}; match the payment to that request instead`);
+  }
 
   let tx: ParsedTransaction | null;
   try {
@@ -141,8 +146,11 @@ export async function confirmMatch(input: MatchInput, rpc: RpcOptions = { deadli
     throw refuse(`that transaction credits ${fromAtomic(credit.amountAtomic, row.token)} ${row.token}, not ${fromAtomic(due, row.token)} ${row.token} (${what}); only an exact match can be confirmed`);
   }
   if (tx.blockTime == null) throw refuse("that transaction has no block time yet; try again in a minute");
-  if (Number(tx.blockTime) < Date.parse(row.createdAt) / 1000 - CREATED_SKEW_SECONDS) {
-    throw refuse(`that transaction landed at ${credit.at}, before this request was made (${row.createdAt}), so it can't be its payment`);
+  // A rest request (ask_for_rest) asks for money owed since the first request was made, so its window starts there.
+  const since = row.restOf ? ((await getRequest(row.restOf))?.createdAt ?? row.createdAt) : row.createdAt;
+  if (Number(tx.blockTime) < Date.parse(since) / 1000 - CREATED_SKEW_SECONDS) {
+    const what = since === row.createdAt ? "this request was made" : "the request it asks the rest of was made";
+    throw refuse(`that transaction landed at ${credit.at}, before ${what} (${since}), so it can't be its payment`);
   }
 
   // A payment that names an Owed reference belongs to that request by Owed's rules; it is never re-attributed.
