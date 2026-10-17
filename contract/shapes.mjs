@@ -232,6 +232,10 @@ const statusFields = {
   expires_at: optional(iso), // W3-C: when an expiring request ends
   cancelled_at: optional(iso), // W3-C
   chain: optional(oneOf("base")), // W3-B: set on Base requests
+  // 0012: the paid rail, the recipient's match (no reference on the payment) and the ask_for_rest links.
+  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched")),
+  matched: optional((value, path, ctx) => matchedLite(value, path, ctx)),
+  rest_of: optional(id), rest_request: optional(id),
 };
 function statusConsistent(value, path, ctx) {
   if (["open", "paid", "underpaid", "cancelled", "expired"].includes(value.status)) {
@@ -244,6 +248,8 @@ function statusConsistent(value, path, ctx) {
     const decimals = TOKEN_DECIMALS[value.token];
     if (toAtomic(value.amount_paid, decimals) >= toAtomic(value.amount_requested, decimals)) ctx.errors.push(`${path}: underpaid but amount_paid ≥ amount_requested`);
   }
+  if (value.rail === "matched" && !value.matched) ctx.errors.push(`${path}.matched: rail is matched but matched is missing`); // 0012
+  if (value.matched && value.status !== "paid") ctx.errors.push(`${path}.matched: set for status ${value.status}`);
 }
 
 // ---------------------------------------------------------------------------------------------- split bills
@@ -256,7 +262,7 @@ export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
 }
 
 const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
-const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }); // 0012: + matched
 
 /** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
 function peopleFitTotal(value, path, ctx) {
@@ -340,8 +346,13 @@ const ledgerEntry = object({
   // W3-D: the monthly schedule and month that opened this request; null for one-off requests.
   schedule_id: optional(nullable(string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 schedule id" }))),
   period: optional(nullable(string({ pattern: /^\d{4}-(0[1-9]|1[0-2])$/, label: "a month written YYYY-MM" }))),
+  // 0012: paid rail, the recipient's match (no reference on the payment), and the ask_for_rest links.
+  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched")),
+  matched: optional((value, path, ctx) => matchedLite(value, path, ctx)),
+  rest_of: optional(id), rest_request: optional(id),
 }, (value, path, ctx) => {
   decimalsFit("amount")(value, path, ctx);
+  if (value.matched && value.status !== "paid") ctx.errors.push(`${path}.matched: set for status ${value.status}`); // 0012
   if ((value.schedule_id ?? null) === null !== ((value.period ?? null) === null)) ctx.errors.push(`${path}.period: set without schedule_id, or the reverse`); // W3-D
   // Invoices are paid on their invoice page; requests and split shares on their own pay page.
   const page = value.kind === "invoice" ? "i" : "r";
@@ -418,10 +429,13 @@ const getRequestFields = {
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
   status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
   solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
-  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") }))),
+  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }))), // 0012: + matched
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
+  // 0012: a payment without the reference matched by the recipient (signed), and the ask_for_rest links.
+  matched: optional(nullable((value, path, ctx) => matchedProof(value, path, ctx))), rest_of: optional(nullable(id)),
+  rest_request: optional(nullable((value, path, ctx) => restLink(value, path, ctx))),
 };
 function getRequestConsistent(value, path, ctx) {
   payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
@@ -434,6 +448,8 @@ function getRequestConsistent(value, path, ctx) {
   if (value.status === "expired" && !value.expires_at) ctx.errors.push(`${path}.expires_at: status is expired but expires_at is ${show(value.expires_at)}`);
   if (value.expires_at && Date.parse(value.expires_at) <= Date.parse(value.created_at)) ctx.errors.push(`${path}.expires_at: not after created_at`);
   if (value.cancelled) cancelSigned(value.cancelled.signed_message, value.cancelled.signature, value.id, value.recipient, `${path}.cancelled`, ctx);
+  if (value.matched) matchedConsistent(value, path, ctx); // 0012
+  if (value.rest_of && value.rest_of === value.id) ctx.errors.push(`${path}.rest_of: a request can't ask for its own rest`);
 }
 
 export const shapes = {
@@ -532,7 +548,7 @@ const invoiceQuantity = string({
   max: 20, label: "a positive quantity with at most 4 decimal places",
   test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
 });
-const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402") });
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched") }); // 0012: + matched
 
 /** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
 export function invoiceLineAtomic(quantity, unitPrice, decimals) {
@@ -788,4 +804,94 @@ Object.assign(fixtureShapes, {
   "base.create-request.res.json": "baseCreateRequestRes",
   "base.get-request.res.json": "baseGetRequestRes",
   "base.status.res.json": "statusRes",
+});
+
+// ---------------------------------------------------------------------------------------------- 0012: matched payments
+// match_payments: a payment that carried no Solana Pay reference (exchanges and some wallets drop it) counts only after
+// the recipient's wallet signs "Owed match <transaction> to <id> for <recipient> at <ISO>" and the server re-reads the
+// transaction. ask_for_rest: a new request for exactly what an underpaid request still owes. POST /api/v1/attributed
+// tells match_payments which transactions are already counted. Appended with Object.assign like the blocks above.
+
+const MATCH_RE = /^Owed match ([1-9A-HJ-NP-Za-km-z]{64,88}) to ([1-9A-HJ-NP-Za-km-z]{10,12}) for ([1-9A-HJ-NP-Za-km-z]{32,44}) at (.+)$/;
+function matchSigned(message, signature, transaction, id, recipient, path, ctx) {
+  const m = MATCH_RE.exec(message);
+  if (!m || m[1] !== transaction || (id && m[2] !== id) || m[3] !== recipient || !CANCEL_ISO.test(m[4])) {
+    return void ctx.errors.push(`${path}.signed_message: must read "Owed match ${transaction} to ${id ?? "<id>"} for ${recipient} at <UTC time>"`);
+  }
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(signature) && !ed25519Verifies(message, signature, recipient)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${recipient} over signed_message`);
+  }
+}
+function matchedProof(value, path, ctx) {
+  object({
+    signature, covers: oneOf("full", "rest"), payer: pubkey, amount: positiveAmount, at: iso, confirmed_by: pubkey, confirmed_at: iso,
+    signed_message: string({ min: 1, max: 200 }), message_signature: string({ min: 64, max: 200 }),
+  })(value, path, ctx);
+}
+function matchedLite(value, path, ctx) {
+  object({ signature, covers: oneOf("full", "rest"), amount: positiveAmount, confirmed_at: iso })(value, path, ctx);
+}
+function restLink(value, path, ctx) {
+  object({ id, status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), link: optional(httpsUrl) }, (v, p, c) => {
+    if (v.link && !new URL(v.link).pathname.endsWith(`/r/${v.id}`)) c.errors.push(`${p}.link: does not end in /r/${v.id}`);
+  })(value, path, ctx);
+}
+/** A matched request is paid; the match is signed by the recipient over this transaction and id; "full" names it in paid. */
+function matchedConsistent(value, path, ctx) {
+  const m = value.matched;
+  if (value.status !== "paid") ctx.errors.push(`${path}.matched: set for status ${value.status}`);
+  if (m.confirmed_by !== value.recipient) ctx.errors.push(`${path}.matched.confirmed_by: not the recipient`);
+  matchSigned(m.signed_message, m.message_signature, m.signature, value.id, value.recipient, `${path}.matched`, ctx);
+  if (Date.parse(m.at) < Date.parse(value.created_at) - 60_000) ctx.errors.push(`${path}.matched.at: before the request was made`);
+  if (!value.paid) return;
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (m.covers === "full") {
+    if (value.paid.rail !== "matched") ctx.errors.push(`${path}.paid.rail: a full match must say matched, not ${show(value.paid.rail)}`);
+    if (value.paid.signature !== m.signature) ctx.errors.push(`${path}.paid.signature: differs from matched.signature`);
+    if (toAtomic(m.amount, decimals) !== toAtomic(value.amount, decimals)) ctx.errors.push(`${path}.matched.amount: a full match must be exactly the amount`);
+  } else {
+    if (value.paid.rail === "matched") ctx.errors.push(`${path}.paid.rail: a rest match keeps the referenced payment's rail`);
+    if (value.paid.signature === m.signature) ctx.errors.push(`${path}.paid.signature: the rest's transaction can't also be the first payment`);
+    if (toAtomic(value.paid.amount, decimals) !== toAtomic(value.amount, decimals)) ctx.errors.push(`${path}.paid.amount: after a rest match the total paid must be the amount`);
+  }
+  if (value.paid.rail === "matched" && m.covers !== "full") ctx.errors.push(`${path}.paid.rail: matched without a full match`);
+}
+
+Object.assign(shapes, {
+  matchReq: object({ recipient: pubkey, transaction: signature, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) },
+    (value, path, ctx) => matchSigned(value.signed_message, value.signature, value.transaction, null, value.recipient, path, ctx)),
+  matchRes: object({ ...getRequestFields, already_matched: oneOf(true, false) }, (value, path, ctx) => {
+    getRequestConsistent(value, path, ctx);
+    if (value.status !== "paid") ctx.errors.push(`${path}.status: ${value.status} after a match`);
+    if (!value.matched) ctx.errors.push(`${path}.matched: missing after a match`);
+  }),
+  restReq: object({ source: optional(oneOf("plugin", "web")) }),
+  restRes: object({
+    id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
+    x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
+    expires_at: optional(nullable(iso)), chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer),
+    recipient: pubkey, amount: positiveAmount, token, rest_of: id, already_asked: oneOf(true, false),
+  }, (value, path, ctx) => {
+    payUrlIsSolanaPayUrl(value, path, ctx);
+    decimalsFit("amount")(value, path, ctx);
+    urlMatchesFields(value, path, ctx);
+    if (!new URL(value.link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /r/${value.id}`);
+    if (value.rest_of === value.id) ctx.errors.push(`${path}.rest_of: a request can't ask for its own rest`);
+  }),
+  attributedReq: object({ signatures: array(signature, { max: 100 }), keys: optional(array(pubkey, { max: 256 })) }),
+  attributedRes: object({
+    attributed: array(object({ signature, request_id: id, how: oneOf("reference", "matched", "x402") })),
+    references: array(object({ key: pubkey, request_id: id })),
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "match.req.json": "matchReq",
+  "match.res.json": "matchRes",
+  "match.rest.res.json": "matchRes",
+  "rest.req.json": "restReq",
+  "rest.res.json": "restRes",
+  "attributed.req.json": "attributedReq",
+  "attributed.res.json": "attributedRes",
+  "status.matched.res.json": "statusRes",
 });

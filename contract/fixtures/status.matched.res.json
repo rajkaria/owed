@@ -1,0 +1,43 @@
+{
+  "results": [
+    {
+      "id": "X4va4sFK7BNP",
+      "status": "paid",
+      "amount_requested": "15",
+      "token": "USDC",
+      "created_at": "2026-10-17T13:40:00Z",
+      "amount_paid": "15",
+      "payer": "F4v7iYwms8eoRsv1bvwgP5NXngspnuj8Fwf2E99gApTT",
+      "signature": "4rcmkmL969itqSdETjVifbgV3kpF4kaCrwynZzuZNajA1UiqYb15VH4dXcZFHmoacUbpqa1KWrjaMuCXptAcNPkJ",
+      "paid_at": "2026-10-17T14:55:40Z",
+      "rail": "matched",
+      "matched": {
+        "signature": "4rcmkmL969itqSdETjVifbgV3kpF4kaCrwynZzuZNajA1UiqYb15VH4dXcZFHmoacUbpqa1KWrjaMuCXptAcNPkJ",
+        "covers": "full",
+        "amount": "15",
+        "confirmed_at": "2026-10-17T15:02:13Z"
+      }
+    },
+    {
+      "id": "V4qawuVNVrAT",
+      "status": "underpaid",
+      "amount_requested": "12",
+      "token": "USDC",
+      "created_at": "2026-10-17T08:00:00Z",
+      "amount_paid": "4.5",
+      "payer": "F4v7iYwms8eoRsv1bvwgP5NXngspnuj8Fwf2E99gApTT",
+      "signature": "5wE3x81ZHT6x3yJVEM5HHpFFjPSsJPYTZL5fFZFRV9Da6UyJhfAzRN5MMWArXadM1MomCJhtv16moySmU3GcMhEi",
+      "paid_at": "2026-10-17T08:30:00Z",
+      "rail": "solana_pay",
+      "rest_request": "mUxo5PFPCh2R"
+    },
+    {
+      "id": "mUxo5PFPCh2R",
+      "status": "open",
+      "amount_requested": "7.5",
+      "token": "USDC",
+      "created_at": "2026-10-17T16:20:00Z",
+      "rest_of": "V4qawuVNVrAT"
+    }
+  ]
+}
