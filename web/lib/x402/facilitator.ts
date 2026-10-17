@@ -24,6 +24,8 @@ export interface Supported {
   feePayers: FeePayers;
   /** Every Solana address the facilitator signs with; a payment's fee payer must be one of them. */
   signers: Set<string>;
+  /** W3-B: `exact` on Base mainnet, per x402 generation (v2 eip155:8453, v1 "base"). */
+  base?: { v1: boolean; v2: boolean };
 }
 
 export interface Facilitator {
@@ -70,7 +72,12 @@ export function parseSupported(json: unknown): Supported {
   const feePayers = { v1: feePayerFor(1, NETWORK_V1), v2: feePayerFor(2, NETWORK_V2) };
   const listed = (json as { signers?: Record<string, unknown> }).signers?.["solana:*"];
   const signers = new Set([feePayers.v1, feePayers.v2, ...(Array.isArray(listed) ? listed.filter((s) => typeof s === "string") : [])]);
-  return { feePayers, signers };
+  // W3-B Base requests: whether this facilitator settles `exact` USDC payments on Base mainnet.
+  const base = {
+    v1: kinds.some((k) => k.x402Version === 1 && k.scheme === "exact" && k.network === "base"),
+    v2: kinds.some((k) => k.x402Version === 2 && k.scheme === "exact" && k.network === "eip155:8453"),
+  };
+  return { feePayers, signers, base };
 }
 
 export function makeFacilitator(options: FacilitatorOptions = {}): Facilitator {

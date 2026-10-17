@@ -6,6 +6,7 @@ import type { RequestRow } from "../requests";
 import type { SettlementCheck } from "./chain";
 import { FacilitatorError, type Facilitator, type Supported } from "./facilitator";
 import type { Store } from "./store";
+import { handleBaseX402, type BaseX402Extras } from "../evm/x402"; // W3-B
 import { inspectTransaction, transactionMismatch } from "./svm";
 import {
   b64, decodePayment, EXPOSED_HEADERS, HEADER_PAYMENT_V1, HEADER_PAYMENT_V2, HEADER_REQUIRED, mismatch,
@@ -77,7 +78,7 @@ async function challenge(t: Terms, resourceUrl: string, supported: Supported, er
   return json({ ...c.v1, ...body }, { status: 402, headers: { ...BASE_HEADERS, [HEADER_REQUIRED]: c.header, ...extra } });
 }
 
-export async function handleX402(req: Request, id: string, base: string, deps: X402Deps): Promise<Response> {
+export async function handleX402(req: Request, id: string, base: string, deps: X402Deps & BaseX402Extras): Promise<Response> {
   if (req.method === "POST") {
     // PayBox may send a JSON body (≤ 64 KiB) with the paid request; it is not used.
     const text = await req.text();
@@ -86,6 +87,8 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
 
   let row = await deps.load(id);
   if (!row) return errorResponse("not_found", "no request with this id", BASE_HEADERS);
+  // W3-B Base requests: USDC on Base pays over x402 on eip155:8453 (lib/evm/x402.ts).
+  if (row.chain === "base") return handleBaseX402(req, row, base, deps);
   if (row.token !== "USDC") {
     return conflict(`x402 pays USDC requests only; this request is in ${row.token}. Pay it with Solana Pay at ${base}/r/${row.id}`, 400);
   }
