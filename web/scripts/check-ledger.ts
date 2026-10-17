@@ -23,7 +23,7 @@ if (!/^https?:\/\//.test(base)) {
   console.error("usage: scripts/check-ledger.ts <base-url> [--signed <file.json|->] [--allow-production]");
   process.exit(2);
 }
-const PRODUCTION_HOSTS = ["owed-omega.vercel.app", "owed.link", "www.owed.link"];
+const PRODUCTION_HOSTS = ["owed-omega.vercel.app", "getowed.xyz", "www.getowed.xyz", "owed.link", "www.owed.link"];
 const isProduction = PRODUCTION_HOSTS.includes(new URL(base).hostname);
 if (isProduction && !args.includes("--allow-production")) {
   console.error(`${base} is production; pass --allow-production (it writes signature_nonces rows only)`);
