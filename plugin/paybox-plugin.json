@@ -1,6 +1,8 @@
 {
-  "tool": "echo",
+  "tool": "check_payments",
   "arguments": {
-    "message": "hello paybox"
+    "requests": [
+      "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=1&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8nUqYfwq3V4KQ5Lq1jqcUFdC1V2bQe2KJ7m2p3sYQk9e"
+    ]
   }
 }

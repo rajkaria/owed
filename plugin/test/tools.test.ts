@@ -14,8 +14,8 @@ function registerAll(): Map<string, Registered> {
   return seen;
 }
 
-test("index registers echo plus the three Owed tools", () => {
-  assert.deepEqual([...registerAll().keys()], ["echo", "ask_for_money", "check_payments", "pay_link"]);
+test("index registers the three Owed tools", () => {
+  assert.deepEqual([...registerAll().keys()], ["ask_for_money", "check_payments", "pay_link"]);
 });
 
 test("annotations are exactly the SPEC §5.1 hints", () => {
