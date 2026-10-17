@@ -8,9 +8,19 @@ Every number or claim in the README, landing page and submission comes from this
 - Plugin: build of `main` ed9623b (dist/plugin.mjs, 1,052,829 bytes, sha256 `2100bdbe4ed1f356976445ba4eadafc967ceb1a799f7333071e2b17f01ccd560`, same digest as CI) uploaded to the PayBox developer portal 2026-10-17 01:52 EDT. Hosted checks passed, 3 tools. Network access: owed-omega.vercel.app, solana-rpc.publicnode.com, api.mainnet-beta.solana.com. Variable OWED_BASE_URL=https://owed-omega.vercel.app. Not submitted.
 - Plugin: build of `main` 9c93ee8 (dist/plugin.mjs, 1,053,764 bytes, sha256 `019eda0fe05488e5a6e37c84ed918f5ef633ba5f38a27f3549c2e82574722474`) uploaded 2026-10-17 02:10 EDT, replacing ed9623b. Hosted checks passed, 3 tools. Not submitted.
 - Web production: ed9623b at https://owed-omega.vercel.app; `smoke.mjs --strict --create` 22 pass, 0 fail (2026-10-17 01:40 EDT, request `1RRer81ufk`).
+- Web production: main 758ba4c (wave 2: split bills, invoices, x402 rail, verified payee) live 2026-10-17 07:18 EDT, deployment `dpl_29do7nuh5rLaCBEK3A26Ai97YUD8`; CI run 39028117706 green (plugin, web, contract). `smoke.mjs --strict --create` 23 pass, 0 fail (request `nsxnm39fhvoR`).
+- Domain: https://www.getowed.xyz serves the same production deployment (`/api/v1/stats` 200); https://getowed.xyz answers 308 to it. Registered at Porkbun; `_owed.getowed.xyz` TXT `owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs` read through dns.google. OWED_BASE_URL is still https://owed-omega.vercel.app.
+- Plugin: build of main 758ba4c (dist/plugin.mjs, 1,096,747 bytes, sha256 `ff140f6ccafadd175dad8b73292087462eb6d08c74a856897f082bab8c9b1960`, `pnpm test` passed, 6 tools: ask_for_money, check_payments, pay_link, verify_payee, split_bill, create_invoice). Not uploaded to the portal yet.
 
 ## Database
 - Neon Postgres via the Vercel integration: `owed-db` serves Production, `owed-db-preview` serves Preview and Development, so previews and smoke runs never write production rows. Migration `0001_core` applied to both on 2026-10-17 (04:45Z and 04:49Z), recorded by `web/scripts/migrate.sh --status`.
+- Migrations `0002_groups`, `0003_invoices`, `0004_x402_receipts`, `0009_payee_domain` applied to `owed-db` (production) 2026-10-17 11:16Z, after the four ran inside `begin … rollback` on its 4 existing rows. `owed-db-preview` had them from 10:07Z to 10:34Z.
+
+## Wave 2 on production (main 758ba4c, 2026-10-17 07:20 EDT, nothing paid yet)
+- Split bill: `check-groups.ts --create --allow-production` all checks passed; group `GuRPADHGLGiu`, 3 × 0.5 USDC to the team wallet, board "0 of 3 paid".
+- Invoice: `check-invoices.ts --create --allow-production` all checks passed; invoice `SuVNtmmeBt9b`, 3 lines, 1 USDC, due 2026-10-24, printable page and preview card served.
+- x402: `GET /x/nsxnm39fhvoR` → 402 whose v2 challenge pays 10000 atomic USDC (`EPjFWdd5…Dt1v`) to the team wallet on `solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp`. No x402 payment settled on mainnet yet.
+- Verified payee: `POST /api/v1/requests` with `from_domain: getowed.xyz` → 201 `3sUaVYuB3nzV`, stored `from_domain_verified_at` 2026-10-17T11:19:12Z, pay page shows "From getowed.xyz · verified just now". The same domain for a wallet it doesn't publish → 400 naming the TXT record to add.
 
 ## Solana mainnet behaviour (observed 2026-10-17)
 - Mainnet carries version-1 transactions (solana-core 4.3.0, about 10% of transactions in sampled blocks). `getTransaction` and `getBlock` with `maxSupportedTransactionVersion: 0` fail with -32015, so plugin and web both request version 1. Verified by W1-B's block sampling and the recorded fixtures in `plugin/test/fixtures/chain/`.
