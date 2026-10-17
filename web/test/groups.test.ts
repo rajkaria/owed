@@ -215,8 +215,8 @@ test("POST /groups: bad input is a contract 400", async () => {
     [{ ...fixture("groups.create.req.json"), total: "2" }, /add up to the total/],
     [{ ...fixture("groups.create.req.json"), recipient: tokenAccount }, /wallet address, not a token account/],
     [{ ...fixture("groups.create.req.json"), recipient: "nope" }, /base58/],
-    // Until W2-H's requireVerifiedDomain merges, a claimed domain is refused, never stored unverified.
-    [{ ...fixture("groups.create.req.json"), from_domain: "getowed.xyz" }, /from_domain can't be verified/],
+    // W2-H's requireVerifiedDomain: a malformed domain is a 400 before any DNS lookup (DNS-backed cases: test/payee*.test.ts).
+    [{ ...fixture("groups.create.req.json"), from_domain: "https://getowed.xyz/pay" }, /from_domain must be a domain name/],
   ];
   for (const [body, message] of cases) {
     const res = await post(body);

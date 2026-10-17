@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { AlertIcon, CheckIcon, CopyIcon, ExternalIcon, LinkIcon } from "@/components/icons";
 import { LocalTime } from "@/components/local-time";
@@ -176,7 +176,7 @@ function ShareRow({ share, token }: { share: BoardShare; token: Token }) {
   );
 }
 
-export function GroupBoard({ initial }: { initial: BoardModel }) {
+export function GroupBoard({ initial, badge }: { initial: BoardModel; badge?: ReactNode }) {
   const model = useLiveBoard(initial);
   const p = progress(model);
   const { token } = model;
@@ -199,14 +199,7 @@ export function GroupBoard({ initial }: { initial: BoardModel }) {
         <p className="mt-2 text-xs font-medium uppercase tracking-wider text-muted">
           Title and names written by the requester
         </p>
-        {model.fromDomain && model.fromDomainVerifiedAt && (
-          // TODO(W2-H): swap for <VerifiedBadge> from components/verified-badge.tsx.
-          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-paid-soft px-3 py-1 text-sm font-medium text-paid">
-            <CheckIcon width={14} height={14} strokeWidth={3} />
-            From {model.fromDomain} · verified{" "}
-            <LocalTime iso={model.fromDomainVerifiedAt} fallback={formatUtc(model.fromDomainVerifiedAt) ?? ""} />
-          </p>
-        )}
+        {badge /* W2-H: <VerifiedBadge>, rendered by the server page */}
       </section>
 
       {model.brandWords.length > 0 && (

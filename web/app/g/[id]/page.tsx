@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { VerifiedBadge } from "@/components/verified-badge";
 import { Wordmark } from "@/components/wordmark";
 import { requestOrigin } from "@/lib/site";
 import { GroupBoard } from "./board";
@@ -45,7 +46,7 @@ export default async function GroupPage({ params }: PageProps<"/g/[id]">) {
       </header>
 
       <main className="mt-8 flex-1 md:mt-14">
-        <GroupBoard initial={model} />
+        <GroupBoard initial={model} badge={<VerifiedBadge domain={model.fromDomain} verifiedAt={model.fromDomainVerifiedAt} />} />
       </main>
 
       <footer className="mx-auto mt-12 w-full max-w-2xl border-t border-line pt-5 text-sm leading-relaxed text-muted">

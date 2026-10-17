@@ -11,6 +11,7 @@ import { MAX_SPLIT, splitEvenly, USDC_MINT, type Token } from "../money.js";
 import { idMatchesTerms } from "../request-id.js";
 import { screenRecipient, type Screening } from "../screen.js";
 import type { TransferRequest } from "../solana-pay.js";
+import { checkFromDomain } from "../payee.js";
 import { clean, quote, shareText } from "../text.js";
 
 const MIN_PEOPLE = 2;
@@ -124,8 +125,7 @@ export async function splitBill(
   args: SplitInput,
   deps: Deps = defaultDeps,
   screen: (addr: string) => Promise<Screening> = screenRecipient,
-  // TODO(W2-H): default to `checkFromDomain` imported from ../payee.js once verified payee merges.
-  checkDomain: CheckFromDomain | null = null,
+  checkDomain: CheckFromDomain | null = checkFromDomain,
 ) {
   const started = deps.now();
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");

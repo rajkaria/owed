@@ -9,6 +9,7 @@ import type { Screening } from "../src/screen.ts";
 import * as solanaPay from "../src/solana-pay.ts";
 import { groupIdFor, inputSchema, outputSchema, planShares, splitBill, type CheckFromDomain, type SplitOutput } from "../src/tools/split_bill.ts";
 import { BASE, fixture, html, json, makeDeps, RECIPIENT, textOf, USDC_MINT, type Call, type Route } from "./helpers.ts";
+import { dohFixture, dohRoutes } from "./payee-helpers.ts";
 
 const createdFixture: GroupRes = fixture("groups.create.res.json");
 const PEOPLE = [{ name: "Priya" }, { name: "Sam" }, { name: "Alex" }];
@@ -240,10 +241,11 @@ test("screening: a listed recipient is refused before anything is created; unava
   assert.doesNotMatch(textOf(await splitBill(input(), deps, clear)), /screening/);
 });
 
-test("from_domain is refused until verified payee is wired in (never silently ignored)", async () => {
-  const { deps, rec } = makeDeps({ routes: { "POST /api/v1/groups": server() } });
-  assert.match(refused(await splitBill(input({ from_domain: "getowed.xyz" }), deps, clear)), /can't verify from_domain yet/);
-  assert.equal(rec.calls.length, 0);
+test("from_domain uses W2-H's checkFromDomain by default: a domain without the record is refused before creating", async () => {
+  const { deps, rec } = makeDeps({ routes: { ...dohRoutes(dohFixture("nodata-signed")), "POST /api/v1/groups": server() } });
+  assert.match(refused(await splitBill(input({ from_domain: "example.com" }), deps, clear)),
+    new RegExp(`add a DNS TXT record named _owed\\.example\\.com with the value owed-pay=${RECIPIENT}`));
+  assert.deepEqual(rec.calls.map((c) => c.url), ["https://cloudflare-dns.com/dns-query?name=_owed.example.com&type=TXT"]);
 });
 
 test("from_domain: verified → sent on the split and said in the text; unverified → refused before anything is created", async () => {

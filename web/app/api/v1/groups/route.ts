@@ -3,6 +3,7 @@ import { CreateGroupBody, type GroupResponse } from "@/lib/contract";
 import { createGroup, GROUP_TEXT_LIMITS, planShares, toPublicGroup } from "@/lib/groups";
 import { ApiError, baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { AmountError, toAtomic } from "@/lib/money";
+import { requireVerifiedDomain } from "@/lib/payee";
 import { takeCreateSlot } from "@/lib/ratelimit";
 import { brandFlags, sanitizeText } from "@/lib/safety";
 
@@ -40,13 +41,9 @@ export async function POST(req: Request): Promise<Response> {
     }));
     const flags = brandFlags([body.title, body.requester_name, ...body.people.map((p) => p.name)]);
 
-    // TODO(W2-H): replace this refusal with
-    //   fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
-    // (web/lib/payee.ts). createGroup already stores it on the group and on every share.
-    const fromDomain: string | null = null;
-    if (body.from_domain != null) {
-      throw new ApiError("invalid_input", "from_domain can't be verified by this server yet; split the bill without it");
-    }
+    // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
+    // createGroup stores it on the group and on every share.
+    const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
     for (let i = 0; i < shares.length; i++) {

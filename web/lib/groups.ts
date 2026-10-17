@@ -227,6 +227,8 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         paidRail: null,
         source: input.source,
         createdAt,
+        fromDomain,
+        fromDomainVerifiedAt,
       }));
       return { group, shares: rows };
     } catch (e) {
