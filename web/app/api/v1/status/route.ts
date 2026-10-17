@@ -15,6 +15,7 @@ function result(row: RequestRow): StatusResult {
     status: row.status,
     amount_requested: fromAtomic(row.amountAtomic, row.token),
     token: row.token,
+    created_at: row.createdAt,
   };
   if ((row.status === "paid" || row.status === "underpaid") && row.paidAmountAtomic != null) {
     out.amount_paid = fromAtomic(row.paidAmountAtomic, row.token);

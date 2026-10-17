@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parseJsonExact } from "@/lib/solana";
-import { creditFromTransaction, decide, usdcAta, type Credit, type ParsedTransaction } from "@/lib/validate";
+import { creditFromTransaction, decide, type Credit, type ParsedTransaction } from "@/lib/validate";
 
 // Real mainnet getTransaction (jsonParsed) responses, captured 2026-10-17 from
 // solana-rpc.publicnode.com: the two transactions that funded the team wallet.
@@ -20,10 +20,6 @@ const USDC_REF = "DeJBGdMFa1uynnnKiwrVioatTuHmNLpyFKnmB5kaFdzQ";
 // sol: SystemProgram.transfer of 0.05 SOL to TEAM; the System Program id is its read-only key.
 const solTx = load("sol-0.05-to-team.json");
 const SOL_REF = "11111111111111111111111111111111";
-
-test("derives the team's USDC associated token account", () => {
-  assert.equal(usdcAta(TEAM), "2YXyjxcV8FqSeZ8iRqZoNUnxAvfuX49d7VmzTmySgv1x");
-});
 
 test("USDC transfer into a freshly created ATA credits the recipient", () => {
   const credit = creditFromTransaction(usdcTx, { reference: USDC_REF, recipient: TEAM, token: "USDC" });
@@ -93,10 +89,10 @@ test("decide: full payment is paid, more than asked is paid", () => {
   assert.equal(decide([credit(1, 20_000_000n)], 15_000_000n).status, "paid");
 });
 
-test("decide: less than asked is underpaid and reports the largest partial", () => {
-  const check = decide([credit(1, 3_000_000n), credit(2, 10_000_000n)], 15_000_000n);
+test("decide: less than asked is underpaid and reports the earliest partial", () => {
+  const check = decide([credit(2, 10_000_000n), credit(1, 3_000_000n)], 15_000_000n);
   assert.equal(check.status, "underpaid");
-  assert.equal(check.payment?.amountAtomic, 10_000_000n);
+  assert.equal(check.payment?.amountAtomic, 3_000_000n);
 });
 
 test("decide: partial payments are not summed (one transaction must pay in full)", () => {

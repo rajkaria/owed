@@ -84,7 +84,7 @@ const PaymentFields = {
   paid_at: isoTime.optional(),
 };
 
-export const StatusResult = z.object({ id: z.string(), status: StatusValue, ...PaymentFields });
+export const StatusResult = z.object({ id: z.string(), status: StatusValue, ...PaymentFields, created_at: isoTime.optional() });
 export type StatusResult = z.infer<typeof StatusResult>;
 
 export const StatusResponse = z.object({ results: z.array(StatusResult) });
