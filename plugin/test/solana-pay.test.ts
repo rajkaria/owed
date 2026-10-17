@@ -147,6 +147,20 @@ test("Owed request links and bare ids parse to kind owed", () => {
   assert.deepEqual(parseLink("https://localhost:3000/r/JArQ6g9JvoWr", ["localhost:3000"]), owed);
 });
 
+test("Owed invoice links parse to the invoice's payment request (same id)", () => {
+  const owed = { kind: "owed", id: "3ERgzxsixBMk" };
+  for (const input of [
+    "https://owed-omega.vercel.app/i/3ERgzxsixBMk",
+    "https://owed.link/i/3ERgzxsixBMk/",
+    "owed.link/i/3ERgzxsixBMk?utm_source=email",
+  ]) {
+    assert.deepEqual(parseLink(input, HOSTS), owed, input);
+  }
+  assert.throws(() => parseLink("https://owed.link/i/", HOSTS), /invalid request id/);
+  assert.throws(() => parseLink("https://evil.example/i/3ERgzxsixBMk", HOSTS), /isn't an Owed link/);
+  assert.throws(() => parseLink("https://owed.link/g/3ERgzxsixBMk", HOSTS), /isn't a payment request/);
+});
+
 test("bare ids must be exactly 10 base58 characters", () => {
   for (const id of ["7Gh2kQpXa", "JArQ6g9JvoWrZ", "0Gh2kQpXa9", "OGh2kQpXa9", "IGh2kQpXa9", "lGh2kQpXa9", "7Gh2kQp-a9"]) {
     rejects(id, "That isn't an Owed link or a Solana Pay link.");

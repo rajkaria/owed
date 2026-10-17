@@ -8,7 +8,7 @@ import {
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
 export const API_TIMEOUT_MS = 4000;
 
-/** Hosts whose /r/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
+/** Hosts whose /r/<id>, /i/<id> and /p?u= links are Owed links, in addition to the configured base URL's host. */
 export const KNOWN_OWED_HOSTS = ["owed.link", "www.owed.link", "owed-omega.vercel.app"];
 
 /** `code` mirrors the API's error codes; network errors, timeouts, 5xx and off-contract replies are `upstream_unavailable`. */
