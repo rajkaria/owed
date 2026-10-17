@@ -67,7 +67,9 @@ const SAFETY = [
   "Owed never holds money. Every payment goes straight from the payer's wallet to yours in one Solana transaction.",
   "Owed charges no fees.",
   "A request counts as paid only when a confirmed transaction sends the full amount of the right token to your address.",
-  "Notes appear exactly as the requester wrote them, in quotes, marked as unverified. Requests that mention names like MoonPay or PayBox carry a warning.",
+  "Notes appear in quotes, marked as unverified, with links and hidden characters removed. Requests that mention names like MoonPay or PayBox carry a warning.",
+  "Recipients on the U.S. Treasury's OFAC sanctions list are refused, by the plugin and by the server.",
+  "A request id is a hash of its terms, so a server can't swap who gets paid or how much behind a shared link.",
 ];
 
 function Hero() {
@@ -90,7 +92,7 @@ function Hero() {
           <p className="animate-rise mt-6 max-w-xl text-pretty text-lg leading-relaxed text-ink-muted [animation-delay:120ms]">
             Owed is a PayBox plugin that lets your agent ask anyone for money, then tells you who has paid. Ask one person,
             split a bill or send an invoice; any Solana wallet or PayBox agent can pay it, and before your agent pays a
-            request, Owed checks the payee against the sender&apos;s own domain.
+            request from a domain, Owed checks that the domain lists the wallet.
           </p>
           <div className="animate-rise mt-8 flex flex-wrap gap-3 [animation-delay:180ms]">
             <a

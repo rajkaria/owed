@@ -1,7 +1,7 @@
 import { Container, SectionHeading } from "./ui";
 
 // The plugin's tools, one line each, condensed from the DESCRIPTION in plugin/src/tools/<name>.ts.
-// The eight here are the ones in the build uploaded to the PayBox developer portal (docs/FACTS.md).
+// The ten here are the ones in the build uploaded to the PayBox developer portal (docs/FACTS.md, build 79a06eb).
 
 export const TOOLS: { name: string; summary: string }[] = [
   {
@@ -43,6 +43,16 @@ export const TOOLS: { name: string; summary: string }[] = [
     summary:
       "Draft a friendly, firm or formal reminder with the pay link and days outstanding. It checks Solana first and drafts nothing for a paid request; Owed sends nothing itself.",
   },
+  {
+    name: "ask_every_month",
+    summary:
+      "Ask someone for the same amount every month: a new request opens on that day each month, and each one is an ordinary Owed request that check_payments, write_reminder and pay_link work on.",
+  },
+  {
+    name: "cancel_request",
+    summary:
+      "Cancel one of your own requests, split shares or invoices so nobody pays it, proven by a signature from the wallet it pays. A paid request can't be cancelled.",
+  },
 ];
 
 export function Toolbox() {
@@ -53,7 +63,7 @@ export function Toolbox() {
           <SectionHeading
             id="tools-title"
             eyebrow="The toolbox"
-            title="Eight tools your agent can call."
+            title="Ten tools your agent can call."
             lede={
               <>
                 Each one is an MCP tool in the Owed plugin. <code className="font-mono text-[0.9em] text-fg">recipient</code> and{" "}

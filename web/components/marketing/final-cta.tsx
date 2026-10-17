@@ -14,6 +14,8 @@ const TRY = [
   { say: "Pay this link", tool: "pay_link" },
   { say: `Is this request really from ${DEMO_DOMAIN}?`, tool: "verify_payee" },
   { say: "Nudge Sam about the 20 USDC", tool: "write_reminder" },
+  { say: "Ask Sam for 450 USDC rent on the 1st", tool: "ask_every_month" },
+  { say: "Priya paid me in cash, cancel her link", tool: "cancel_request" },
 ];
 
 export function FinalCta() {
@@ -56,7 +58,7 @@ export function FinalCta() {
                   <h3 className="font-semibold">Turn on Owed</h3>
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-                  Open{" "}
+                  Owed is in the PayBox developer portal and not yet listed in the public marketplace. Once it is, open{" "}
                   <a href={PAYBOX_PLUGINS_URL} className="font-medium text-ink-accent underline-offset-4 hover:underline">
                     app.paybox.sh/plugins
                   </a>{" "}
