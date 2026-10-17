@@ -17,7 +17,8 @@ export const KNOWN_OWED_HOSTS = ["owed.link", "www.owed.link", "owed-omega.verce
 
 /** `code` mirrors the API's error codes; network errors, timeouts, 5xx and off-contract replies are `upstream_unavailable`. */
 export class ApiError extends Error {
-  constructor(readonly code: ErrorCode, message: string, readonly httpStatus?: number) {
+  /** A 5xx reply's own contract message (e.g. why no exchange rate could be locked); `message` stays generic. */
+  constructor(readonly code: ErrorCode, message: string, readonly httpStatus?: number, readonly detail?: string) {
     super(message);
     this.name = "ApiError";
   }
@@ -91,7 +92,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
       json = undefined;
     }
     if (response.status >= 500) {
-      throw new ApiError("upstream_unavailable", "Owed's server had an error.", response.status);
+      const detail = errorResSchema.safeParse(json);
+      throw new ApiError("upstream_unavailable", "Owed's server had an error.", response.status, detail.success ? detail.data.error.message : undefined);
     }
     if (!response.ok) {
       const parsed = errorResSchema.safeParse(json);

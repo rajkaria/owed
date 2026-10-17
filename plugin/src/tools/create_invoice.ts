@@ -13,6 +13,13 @@ import type { Screening } from "../screen.js";
 import { cautionLine, clean, quote, rateLimitedText, shortAddress } from "../text.js";
 import { DAY_MS as EXPIRY_DAY_MS, expiresInDaysInput, expiryLine, expiryProblem } from "../expiry.js"; // W3-C
 import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
+// Local-currency invoices start
+import { fromMinor, toMinor, type FiatCode } from "../fiat.js";
+import {
+  checkQuote, currencyInput, fiatAmountText, fiatApiRefusal, fiatHeadline, fiatOutput, fiatRateLine, parseFiatAsk,
+} from "../local-currency.js";
+import type { FiatQuoteRes } from "../contract.js";
+// Local-currency invoices end
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -36,7 +43,7 @@ const itemSchema = z.object({
   description: z.string().min(1).max(INVOICE_LIMITS.description).describe('What this line is for, e.g. "Logo design, 2 rounds of changes".'),
   quantity: z.union([z.number().int().min(1).max(1_000_000), quantitySchema]).default(1)
     .describe('How many: a whole number, or a decimal string with up to 4 places such as "1.5" for hours. Default 1.'),
-  unit_price: decimalSchema.describe('Price of one unit in whole token units as a decimal string, e.g. "40" or "0.25".'),
+  unit_price: decimalSchema.describe('Price of one unit in whole token units as a decimal string, e.g. "40" or "0.25". With currency, in that currency, e.g. "4000" for ₹4,000.'),
 }).strict();
 
 export const inputSchema = z.object({
@@ -50,6 +57,7 @@ export const inputSchema = z.object({
   notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional().describe("Optional note printed on the invoice, e.g. payment terms or a thank-you."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls whose _owed TXT record publishes this wallet (verified payee)."),
   expires_in_days: expiresInDaysInput.optional().describe("Optional: the invoice stops taking payments after this many days (1 to 90, reaching at least the due date). Owed's server sets the exact time."), // W3-C
+  currency: currencyInput.optional(), // local-currency invoice: every unit_price is in this currency
 }).strict();
 
 const itemOutput = z.object({
@@ -78,6 +86,7 @@ export const outputSchema = z.object({
   share_text: z.string().describe("A ready-to-send message for the client."),
   status: z.literal("open"),
   expires_at: z.string().optional().describe("When the invoice stops taking payments (set by Owed's server)."), // W3-C
+  fiat: fiatOutput.optional(), // local-currency invoice: items are in fiat.currency, total is the USDC locked
 }).strict();
 
 export type InvoiceInput = z.output<typeof inputSchema>;
@@ -89,6 +98,7 @@ const DESCRIPTION = [
   "recipient is the user's own PayBox Solana wallet address (get it from list_credentials); the client pays it directly, Owed never holds money.",
   "Give each line a description, quantity and unit price; Owed adds them up. Returns invoice_link and a ready-to-send share_text: show both to the user.",
   "Later, check_payments with the id tells whether the invoice has been paid.",
+  "If the user prices the work in their own currency (\"invoice Acme ₹40,000 for the logo\"), pass currency (\"INR\") with unit prices in it: the invoice lists the items in that currency and the total is locked to USDC at a live rate.", // local-currency invoices
 ].join(" ");
 
 // ---- pure: amounts and dates (bigint only) ----
@@ -188,12 +198,15 @@ export interface InvoiceShareInput {
   token: string;
   dueDate: string;
   link: string;
+  /** Local-currency invoice: the total in its currency ("₹40,000"); `total` is then the USDC locked. */
+  fiat?: string;
 }
 
 /** The message the user sends their client. Inputs must already be clean()ed. */
 export function invoiceShareText(i: InvoiceShareInput): string {
   const which = i.invoiceNumber ? `invoice ${i.invoiceNumber}` : "an invoice";
-  return `Hi ${i.clientName}, here is ${which} from ${i.businessName} for ${i.total} ${i.token}, due ${readableDate(i.dueDate)}. ` +
+  const amount = i.fiat ? `${i.fiat} (${i.total} ${i.token})` : `${i.total} ${i.token}`;
+  return `Hi ${i.clientName}, here is ${which} from ${i.businessName} for ${amount}, due ${readableDate(i.dueDate)}. ` +
     `View it and pay with any Solana wallet: ${i.link}`;
 }
 
@@ -215,13 +228,27 @@ export async function createInvoice(
   const expiryEarly = expiryBeforeDue(args.due_date, args.expires_in_days, started); // W3-C
   if (expiryEarly) return refusal(expiryEarly);
 
+  // Local-currency invoice: items are priced in the currency's minor units; the server locks the USDC total.
+  let code: FiatCode | undefined;
+  if (args.currency !== undefined) {
+    const parsed = parseFiatAsk(args.currency, "1", token);
+    if (!parsed.ok) return refusal(parsed.message);
+    code = parsed.ask.code;
+  }
+  const unit: Token = code ? (code as unknown as Token) : token;
+  const units: Pick<Deps, "toAtomic" | "fromAtomic"> = code
+    ? { toAtomic: (amount: string) => toMinor(amount, code), fromAtomic: (atomic: bigint) => fromMinor(atomic, code) }
+    : deps;
+
   let priced: ReturnType<typeof priceItems>;
   try {
-    priced = priceItems(args.items, token, deps);
+    priced = priceItems(args.items, unit, units);
   } catch (error) {
     return refusal(errorText(error, "The line items don't add up to a valid total."));
   }
-  const total = deps.fromAtomic(priced.totalAtomic, token);
+  let total = units.fromAtomic(priced.totalAtomic, unit);
+  const fiatTotal = code ? total : undefined;
+  let fiat: FiatQuoteRes | undefined;
 
   const text = {
     businessName: clean(args.business_name, INVOICE_LIMITS.business_name),
@@ -267,7 +294,7 @@ export async function createInvoice(
     items: args.items.map((item, i) => ({
       description: descriptions[i]!,
       quantity: priced.lines[i]!.quantity,
-      unit_price: deps.fromAtomic(priced.lines[i]!.unitPriceAtomic, token),
+      unit_price: units.fromAtomic(priced.lines[i]!.unitPriceAtomic, unit),
     })),
     due_date: args.due_date,
     ...(text.invoiceNumber && { invoice_number: text.invoiceNumber }),
@@ -275,6 +302,7 @@ export async function createInvoice(
     ...(domain?.ok && { from_domain: domain.from_domain }),
     source: "plugin",
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
+    ...(code && { currency: code }), // local-currency invoice
   };
 
   // The API client gives up after API_TIMEOUT_MS; `within` also keeps a slow screening + DNS step from pushing past 10 s.
@@ -286,11 +314,21 @@ export async function createInvoice(
   if ("error" in outcome) {
     const error = outcome.error;
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the invoice."));
+    if (code) { const why = fiatApiRefusal(error, "invoice"); if (why) return refusal(why); } // local-currency invoice
     return refusal(apiRefusal(error));
   }
   const res = outcome.res;
 
-  const mismatch = checkInvoice(res, body, priced, ctx, deps);
+  // Local-currency invoice: the quote must be these items' total in `code`, and must give the USDC total.
+  let payAtomic = priced.totalAtomic;
+  if (code && fiatTotal !== undefined) {
+    const quoted = checkQuote(res.fiat, res.total, { code, amount: fiatTotal });
+    if (!quoted.ok) return refusal("Owed's server returned a quote that doesn't match this invoice, so it wasn't used. Try again.");
+    fiat = quoted.fiat;
+    payAtomic = quoted.atomic;
+    total = quoted.amount;
+  }
+  const mismatch = checkInvoice(res, body, priced, ctx, deps, code ? { code, payAtomic } : undefined);
   if (mismatch) return refusal(mismatch);
   const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
   if (expiry) return refusal(expiry);
@@ -300,6 +338,7 @@ export async function createInvoice(
     businessName: res.business_name ? clean(res.business_name, INVOICE_LIMITS.business_name) : text.businessName,
     invoiceNumber: res.invoice_number ? clean(res.invoice_number, INVOICE_LIMITS.invoice_number) : null,
     total, token, dueDate: res.due_date, link: res.link,
+    ...(fiat && { fiat: fiatAmountText(fiat) }), // local-currency invoice
   });
   const output: InvoiceOutput = {
     id: res.id,
@@ -325,13 +364,15 @@ export async function createInvoice(
     share_text,
     status: "open",
     ...(args.expires_in_days !== undefined && res.expires_at && { expires_at: res.expires_at }), // W3-C
+    ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
   };
 
   const count = res.items.length;
   const lines = [
-    `Invoice ready: ${total} ${token} to ${quote(output.client_name, INVOICE_LIMITS.client_name)}, due ${readableDate(res.due_date)} (${count} ${count === 1 ? "item" : "items"}). Send this link: ${res.link}`,
+    `Invoice ready: ${fiat ? fiatHeadline(fiat, total) : `${total} ${token}`} to ${quote(output.client_name, INVOICE_LIMITS.client_name)}, due ${readableDate(res.due_date)} (${count} ${count === 1 ? "item" : "items"}). Send this link: ${res.link}`,
     `Message to send: ${share_text}`,
   ];
+  if (fiat) lines.push(fiatRateLine(fiat, total).replace("The payer pays", "The client pays")); // local-currency invoice
   if (domain?.ok) lines.push(...domain.lines);
   if (output.expires_at && args.expires_in_days !== undefined) lines.push(expiryLine(output.expires_at, args.expires_in_days, "the invoice")); // W3-C
   const caution = cautionLine(res.flags);
@@ -346,30 +387,36 @@ export async function createInvoice(
  * than what this call priced. The page link's host isn't pinned (the server's domain can change before
  * the plugin's OWED_BASE_URL does), but it must be https and name this invoice.
  */
-function checkInvoice(res: InvoiceRes, body: CreateInvoiceReq, priced: ReturnType<typeof priceItems>, ctx: CallContext, deps: Deps): string | null {
+function checkInvoice(
+  res: InvoiceRes, body: CreateInvoiceReq, priced: ReturnType<typeof priceItems>, ctx: CallContext, deps: Deps,
+  // Local-currency invoice: items are in `code` minor units, and the payment is `payAtomic` USDC (checked by checkQuote).
+  local?: { code: FiatCode; payAtomic: bigint },
+): string | null {
   const bad = "Owed's server returned an invoice that doesn't match what was asked, so it wasn't used. Try again.";
   try {
     const token = body.token;
+    const payAtomic = local ? local.payAtomic : priced.totalAtomic;
+    const itemUnits = (amount: string) => (local ? toMinor(amount, local.code) : deps.toAtomic(amount, token));
     const link = new URL(res.link);
     const payLink = new URL(res.request_link);
     if (link.protocol !== "https:" || link.pathname !== `/i/${res.id}`) return bad;
     if (payLink.protocol !== "https:" || payLink.pathname !== `/r/${res.id}`) return bad;
     if (res.recipient !== body.recipient || res.token !== token || res.status !== "open" || res.due_date !== body.due_date) return bad;
-    if (deps.toAtomic(res.total, token) !== priced.totalAtomic) return bad;
+    if (deps.toAtomic(res.total, token) !== payAtomic) return bad;
     if (res.items.length !== priced.lines.length) return bad;
     for (const [i, line] of priced.lines.entries()) {
       const item = res.items[i]!;
       if (parseQuantity(item.quantity) !== parseQuantity(line.quantity)) return bad;
-      if (deps.toAtomic(item.unit_price, token) !== line.unitPriceAtomic || deps.toAtomic(item.amount, token) !== line.amountAtomic) return bad;
+      if (itemUnits(item.unit_price) !== line.unitPriceAtomic || itemUnits(item.amount) !== line.amountAtomic) return bad;
     }
     if ((body.from_domain ?? null) !== (res.from_domain ?? null)) return bad;
     const parsed = deps.parseLink(res.solana_pay_url, ctx.hosts);
     if (parsed.kind !== "transfer") return bad;
     const r = parsed.request;
     if (r.recipient !== body.recipient || r.splToken !== (token === "USDC" ? USDC_MINT : undefined) || !r.references.includes(res.reference)) return bad;
-    if (r.amount === undefined || deps.toAtomic(r.amount, token) !== priced.totalAtomic) return bad;
+    if (r.amount === undefined || deps.toAtomic(r.amount, token) !== payAtomic) return bad;
     // The id must commit to these exact terms, or a payer's pay_link would refuse the invoice.
-    if (!idMatchesTerms(res.id, { recipient: body.recipient, token, amountAtomic: priced.totalAtomic, reference: res.reference })) return bad;
+    if (!idMatchesTerms(res.id, { recipient: body.recipient, token, amountAtomic: payAtomic, reference: res.reference })) return bad;
     return null;
   } catch {
     return bad;

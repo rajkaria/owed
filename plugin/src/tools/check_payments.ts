@@ -8,6 +8,7 @@ import { atomicAmount } from "../paybox.js";
 import type { TransferRequest } from "../solana-pay.js";
 import { ago, explorerUrl, shortAddress } from "../text.js";
 import { basescanTx } from "../evm.js"; // W3-B
+import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
 export const CHECK_BUDGET_MS = 8500;
@@ -36,6 +37,7 @@ export const resultSchema = z.object({
   cancelled_at: z.string().optional().describe("When the recipient cancelled it."),
   error: z.string().optional(),
   chain: z.literal("base").optional().describe("Set for a request on Base: amounts are USDC on Base and explorer_url is Basescan."), // W3-B
+  fiat: fiatOutput.optional(), // local-currency asks: the quote behind amount_requested (USDC)
 }).strict();
 
 export const outputSchema = z.object({
@@ -142,6 +144,10 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
     out.explorer_url = r.chain === "base" ? basescanTx(r.signature) : explorerUrl(r.signature); // W3-B
   }
   if (r.chain === "base") out.chain = "base"; // W3-B
+  // Local-currency asks: only a quote that produces the USDC requested is shown.
+  if (r.fiat && fiatStatusLine(r.fiat, r.amount_requested)) {
+    out.fiat = { currency: r.fiat.currency, amount: r.fiat.amount, rate: r.fiat.rate, rate_source: r.fiat.rate_source, quoted_at: r.fiat.quoted_at };
+  }
   if (r.paid_at !== undefined) out.paid_at = r.paid_at;
   if (r.expires_at !== undefined) out.expires_at = r.expires_at; // W3-C
   if (r.cancelled_at !== undefined) out.cancelled_at = r.cancelled_at;
@@ -245,6 +251,13 @@ function label(r: CheckResult): string {
 }
 
 function detailLine(r: CheckResult): string[] {
+  const lines = statusLine(r);
+  // Local-currency asks: the quote under the status line, labelled as one.
+  const quoted = lines.length > 0 ? fiatStatusLine(r.fiat, r.amount_requested ?? undefined) : null;
+  return quoted ? [...lines, `  Asked as ${quoted}; a quote, not a guarantee.`] : lines;
+}
+
+function statusLine(r: CheckResult): string[] {
   const from = r.payer ? ` from ${shortAddress(r.payer)}` : "";
   const link = r.explorer_url ? `: ${r.explorer_url}` : "";
   if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${link}`];

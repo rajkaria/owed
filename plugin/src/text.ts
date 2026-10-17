@@ -134,6 +134,8 @@ export interface ShareTextInput {
   amount: string;
   token: string;
   link: string;
+  /** Local-currency ask: the amount asked, formatted ("₹1,200"); `amount` is then the USDC locked. */
+  fiat?: string;
 }
 
 /** The message the requester sends. Inputs must already be clean()ed. */
@@ -141,9 +143,11 @@ export function shareText(i: ShareTextInput): string {
   const greeting = i.payerName
     ? (i.requesterName ? `Hey ${i.payerName}, it's ${i.requesterName}.` : `Hey ${i.payerName}!`)
     : (i.requesterName ? `Hi, it's ${i.requesterName}.` : "Hi!");
+  // Local-currency asks lead with the amount asked, then the USDC actually paid.
+  const what = i.fiat ? `${i.fiat} (${i.amount} ${i.token})` : `${i.amount} ${i.token}`;
   const ask = i.forText
-    ? `Your share for "${i.forText.replace(/"/g, "'")}" is ${i.amount} ${i.token}.`
-    : `This is a request for ${i.amount} ${i.token}.`;
+    ? `Your share for "${i.forText.replace(/"/g, "'")}" is ${what}.`
+    : `This is a request for ${what}.`;
   return `${greeting} ${ask} Pay with any Solana wallet here: ${i.link}`;
 }
 

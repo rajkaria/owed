@@ -19,10 +19,16 @@ import { belowNewWalletMinimum, newWalletMinimum } from "../sol-minimum.js";
 import { checkFromDomain, fromDomainSchema } from "../payee.js";
 // W2-H verified payee end
 import { expiresInDaysInput, expiryLine, expiryProblem, OFFLINE_NO_EXPIRY } from "../expiry.js"; // W3-C
+// Local-currency asks start
+import {
+  checkQuote, currencyInput, fiatAmountText, fiatApiRefusal, fiatHeadline, fiatOutput, fiatRateLine, parseFiatAsk, type FiatAsk,
+} from "../local-currency.js";
+import type { FiatQuoteRes } from "../contract.js";
+// Local-currency asks end
 
 export const inputSchema = z.object({
   recipient: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address."), // W3-B: 0x with chain base
-  amount: decimalSchema.describe('Amount in whole token units as a decimal string, e.g. "15" or "2.5". Not atomic units.'),
+  amount: decimalSchema.describe('Amount in whole token units as a decimal string, e.g. "15" or "2.5". Not atomic units. With currency, the amount in that currency, e.g. "1200" for ₹1,200.'),
   token: tokenSchema.default("USDC").describe('"USDC" (default) or "SOL".'),
   payer_name: z.string().min(1).max(40).optional().describe("First name of the person who owes the money, e.g. \"Priya\"."),
   for: z.string().min(1).max(80).optional().describe('What the money is for, e.g. "dinner". The payer sees it quoted.'),
@@ -35,6 +41,7 @@ export const inputSchema = z.object({
   // W3-B Base requests start
   chain: chainSchema.default("solana").describe('"solana" (default) or "base": USDC on Base, paid from any Base wallet or over x402.'),
   // W3-B Base requests end
+  currency: currencyInput.optional(), // local-currency asks
 }).strict();
 
 export const outputSchema = z.object({
@@ -62,6 +69,7 @@ export const outputSchema = z.object({
   chain: chainSchema.optional().describe('"base" for a Base request (absent means Solana).'),
   pay_url: z.string().optional().describe("Base requests: the EIP-681 link a Base wallet opens (USDC transfer on chain 8453)."),
   // W3-B Base requests end
+  fiat: fiatOutput.optional(), // local-currency asks: amount is then the USDC locked
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -84,23 +92,36 @@ const DESCRIPTION = [
   "The recipient is screened against sanctions lists (Chainalysis) first: a listed address is refused, and if the screen can't be reached the request is still made and says so.",
   // W2-E sanctions screen end
   "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
+  "If the user asks in their own currency (\"ask Priya for ₹1,200 for dinner\", \"bill the team €45\"), pass currency (\"INR\", \"EUR\") with amount in that currency: Owed locks the USDC amount at a live rate, the payer pays that USDC, and the pay page shows both.", // local-currency asks
   BASE_DESCRIPTION, // W3-B
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
+  // Local-currency asks start: `amount` is in `currency`; Owed's server locks the USDC (Solana USDC only).
+  let ask: FiatAsk | undefined;
+  if (args.currency !== undefined) {
+    if (args.chain === "base") return refusal("Local-currency asks are Solana USDC only for now. Leave chain out, or ask in USDC on Base.");
+    const parsed = parseFiatAsk(args.currency, args.amount, args.token);
+    if (!parsed.ok) return refusal(parsed.message);
+    ask = parsed.ask;
+  }
+  // Local-currency asks end
   // W3-B Base requests start
   if (args.chain === "base") return askForMoneyOnBase(args, deps);
   if (args.recipient.startsWith("0x")) return refusal('That is a Base (0x) address. To ask for USDC on Base, pass chain: "base"; for Solana, use the user\'s Solana wallet address.');
   // W3-B Base requests end
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
   const token = args.token;
-  let atomic: bigint;
-  try {
-    atomic = deps.toAtomic(args.amount, token);
-  } catch (error) {
-    return refusal(`${args.amount} ${token} isn't a valid amount: ${errorText(error, "use a positive decimal amount.")}`);
+  let atomic = 0n; // a local-currency ask learns its USDC amount from the server's quote
+  if (!ask) {
+    try {
+      atomic = deps.toAtomic(args.amount, token);
+    } catch (error) {
+      return refusal(`${args.amount} ${token} isn't a valid amount: ${errorText(error, "use a positive decimal amount.")}`);
+    }
   }
-  const amount = deps.fromAtomic(atomic, token);
+  let amount = ask ? ask.amount : deps.fromAtomic(atomic, token);
+  let fiat: FiatQuoteRes | undefined; // local-currency asks
   const text = {
     payerName: clean(args.payer_name, 40) || undefined,
     forText: clean(args.for, 80) || undefined,
@@ -143,6 +164,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
 
   const body: CreateRequestReq = {
     recipient: args.recipient, amount, token, source: "plugin",
+    ...(ask && { currency: ask.code }), // local-currency ask: amount is in this currency
     ...(text.payerName && { payer_name: text.payerName }),
     ...(text.forText && { for: text.forText }),
     ...(text.note && { note: text.note }),
@@ -157,6 +179,12 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   let expiresAt: string | undefined; // W3-C
   try {
     const res = await ctx.api.createRequest(body);
+    // Local-currency ask: the quote must be what was asked and must produce the USDC every link commits to.
+    if (ask) {
+      const quoted = checkQuote(res.fiat, res.amount, ask);
+      if (!quoted.ok) return refusal("Owed's server returned a quote that doesn't match this request, so the link wasn't used. Nothing was created on your side; try again.");
+      ({ atomic, amount, fiat } = quoted);
+    }
     const mismatch = checkHosted(res, args.recipient, token, atomic, ctx, deps);
     if (mismatch) return refusal(mismatch);
     // W2-H verified payee start
@@ -171,6 +199,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     created = { id: res.id, mode: "hosted", link: res.link, solana_pay_url: res.solana_pay_url as string /* W3-B: checkHosted refuses null */, qr_url: res.qr_url, reference: res.reference };
   } catch (error) {
     if (!(error instanceof ApiError)) return refusal(errorText(error, "Couldn't create the request."));
+    if (ask) return refusal(fiatApiRefusal(error, "request") ?? apiRefusal(error)); // no offline link: only the server locks a rate
     if (error.code !== "upstream_unavailable") return refusal(apiRefusal(error));
     try {
       created = buildOffline(args.recipient, amount, token, text, ctx, deps);
@@ -179,7 +208,10 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     }
   }
 
-  const share_text = shareText({ payerName: text.payerName, requesterName: text.requesterName, forText: text.forText, amount, token, link: created.link });
+  const share_text = shareText({
+    payerName: text.payerName, requesterName: text.requesterName, forText: text.forText, amount, token, link: created.link,
+    ...(fiat && { fiat: fiatAmountText(fiat) }), // local-currency asks
+  });
   const output: AskOutput = {
     ...created, recipient: args.recipient, amount, token,
     ...(text.payerName && { payer_name: text.payerName }),
@@ -192,13 +224,15 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     screening: screening.screening,
     // W2-E sanctions screen end
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
+    ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
   const lines = [
-    `Request ready: ${amount} ${token}${from}${forPart}. Send this link: ${created.link}`,
+    `Request ready: ${fiat ? fiatHeadline(fiat, amount) : `${amount} ${token}`}${from}${forPart}. Send this link: ${created.link}`,
     `Message to send: ${share_text}`,
   ];
+  if (fiat) lines.push(fiatRateLine(fiat, amount)); // local-currency asks
   if (created.mode === "offline") {
     lines.push("Owed's server didn't answer, so this is a self-contained link with no short id. It works with any Solana wallet, and check_payments can verify it with the same link.");
   }

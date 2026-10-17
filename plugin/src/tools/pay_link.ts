@@ -17,6 +17,7 @@ import { brandFlags, cautionLine, quote, shortAddress, withoutOwnBrandFlags } fr
 // W3-B Base requests start
 import { evmAddressSchema } from "../contract.js";
 import { payBaseRequest } from "../base-request.js";
+import { fiatLine, quoteProblem } from "../fiat.js"; // local-currency asks
 // W3-B Base requests end
 
 export const inputSchema = z.object({
@@ -72,6 +73,8 @@ interface Resolved {
   /** The domain the request claims to come from (server-supplied, untrusted until DNS says so). */
   fromDomain?: string | null;
   // W2-H verified payee end
+  /** Local-currency asks: what was asked, shown beside the USDC paid ("₹1,200 · 12.637145 USDC (rate locked …)"). */
+  fiatLine?: string;
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -216,6 +219,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     `Pay ${amount} ${token} to ${payee.lead ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`,
     // W2-H verified payee end
+    resolved.fiatLine ? `Asked as ${resolved.fiatLine}; a quote, not a guarantee. The USDC amount is what is paid.` : "", // local-currency asks
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
     createRecipientAta ? "This also opens the recipient's USDC account (about 0.002 SOL, paid by you)." : "",
@@ -232,6 +236,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 
+export const REFUSE_FIAT_MISMATCH = "This request's local-currency quote doesn't match its USDC amount, so the price it shows can't be trusted. Nothing was sent; ask the requester for a new link.";
 export const REFUSE_UNVERIFIABLE = "This is an older Owed link whose payment details can't be checked against its id, so Owed won't pay it. Ask the requester for a new link.";
 export const REFUSE_TAMPERED = "This link's payment details don't match its id: the recipient or amount may have been changed after the link was made. Nothing was sent; ask the requester for a new link.";
 
@@ -284,8 +289,12 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     || !idMatchesTerms(id, { recipient: rq.recipient, token, amountAtomic: deps.toAtomic(rq.amount, token), reference: rq.reference })) {
     return REFUSE_TAMPERED;
   }
+  // Local-currency asks: the quote is display only (the id commits to the USDC), but a quote that doesn't
+  // produce exactly this USDC amount would tell the payer a wrong local price, so the request isn't paid.
+  if (rq.fiat && quoteProblem(rq.fiat, deps.toAtomic(rq.amount, token)) !== null) return REFUSE_FIAT_MISMATCH;
   return {
     id, request: parsed.request, token,
+    ...(rq.fiat && { fiatLine: fiatLine(rq.fiat, rq.amount) }),
     name: rq.requester_name, notes: [rq.for, rq.note], flags: rq.flags,
     // W2-H verified payee start
     fromDomain: rq.from_domain,
