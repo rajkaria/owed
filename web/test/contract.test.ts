@@ -25,6 +25,7 @@ import { BulkRequestsResponse, InboxBlockBody, InboxBlockResponse, InboxBody, In
 import { CreatePlanBody, CreatePlanResponse, FundingPlanDoc, PlanStatsResponse, PlanUsedBody, PlanUsedResponse } from "@/lib/contract"; // F2
 import { AddExpenseBody, AddExpenseResponse, CreateLedgerBody, GroupLedgerResponse, SettleUpBody, SettleUpResponse } from "@/lib/contract"; // F6 ledger
 import { CreateInvoiceTermsBody, CreateRefundBody, CreateRefundResponse, InvoiceTermsResponse, RefundResponse, RefundsLookupResponse, StatementResponse } from "@/lib/contract"; // F8 invoices
+import { AlertTokenBody, ConfirmAlertResponse, CreateAlertBody, CreateAlertResponse, UnsubscribeAlertResponse } from "@/lib/contract"; // S1 alerts
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -127,6 +128,15 @@ const SCHEMAS: Record<string, ZodType> = {
   "refund.create.res.json": CreateRefundResponse,
   "refund.get.res.json": RefundResponse,
   "refunds.lookup.res.json": RefundsLookupResponse,
+  // S1 alerts
+  "alerts.create.telegram.req.json": CreateAlertBody,
+  "alerts.create.telegram.res.json": CreateAlertResponse,
+  "alerts.create.email.req.json": CreateAlertBody,
+  "alerts.create.email.res.json": CreateAlertResponse,
+  "alerts.confirm.req.json": AlertTokenBody,
+  "alerts.confirm.res.json": ConfirmAlertResponse,
+  "alerts.unsubscribe.req.json": AlertTokenBody,
+  "alerts.unsubscribe.res.json": UnsubscribeAlertResponse,
 };
 
 // F8 invoices: every existing invoice fixture still parses with the terms-aware schemas (all F8 fields are optional).

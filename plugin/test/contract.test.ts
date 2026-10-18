@@ -16,6 +16,7 @@ import { bulkRequestsResSchema, inboxBlockReqSchema, inboxBlockResSchema, inboxR
 import { createPlanReqSchema, createPlanResSchema, fundingPlanDocSchema, planStatsResSchema, planUsedReqSchema, planUsedResSchema } from "../src/contract.ts"; // F2
 import { addExpenseReqSchema, addExpenseResSchema, createGroupLedgerReqSchema, groupLedgerResSchema, settleUpReqSchema, settleUpResSchema } from "../src/contract.ts"; // F6 ledger
 import { createInvoiceTermsReqSchema, createRefundReqSchema, createRefundResSchema, invoiceTermsResSchema, ledgerResF8Schema, refundResSchema, refundsLookupResSchema, statementResSchema } from "../src/contract.ts"; // F8 invoices
+import { alertTokenReqSchema, confirmAlertResSchema, createAlertReqSchema, createAlertResSchema, unsubscribeAlertResSchema } from "../src/contract.ts"; // S1 alerts
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -117,6 +118,15 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "refund.create.res.json": createRefundResSchema,
   "refund.get.res.json": refundResSchema,
   "refunds.lookup.res.json": refundsLookupResSchema,
+  // S1 alerts (server-only routes; mirrored so both sides parse every fixture)
+  "alerts.create.telegram.req.json": createAlertReqSchema,
+  "alerts.create.telegram.res.json": createAlertResSchema,
+  "alerts.create.email.req.json": createAlertReqSchema,
+  "alerts.create.email.res.json": createAlertResSchema,
+  "alerts.confirm.req.json": alertTokenReqSchema,
+  "alerts.confirm.res.json": confirmAlertResSchema,
+  "alerts.unsubscribe.req.json": alertTokenReqSchema,
+  "alerts.unsubscribe.res.json": unsubscribeAlertResSchema,
 };
 
 // F8 invoices: the existing invoice and ledger fixtures parse with the terms-aware schemas too (every F8 field is optional).
