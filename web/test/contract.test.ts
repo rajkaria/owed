@@ -161,6 +161,15 @@ const SCHEMAS: Record<string, ZodType> = {
   "deposit.status.res.json": StatusResponse,
   "deposit.invoices.create.req.json": CreateInvoiceBody,
   "deposit.invoices.create.res.json": InvoiceResponse,
+  // F7 pots
+  "pots.create.req.json": CreatePotBody,
+  "pots.create.res.json": PotResponse,
+  "pots.get.res.json": PotResponse,
+  "pots.contribution.req.json": ContributionBody,
+  "pots.contribution.res.json": PotContributionResponse,
+  "pots.get-request.res.json": PotContributionResponse,
+  "ledger.pots.res.json": LedgerPotsResponse,
+  "stats.pots.res.json": StatsPotsResponse,
 };
 
 // F5/F3: the new fields are optional, so every older shape still parses, and the new ones keep every field they carry.
@@ -174,16 +183,7 @@ test("F5/F3: autopay verdicts, rules and deposit links survive parsing; the plai
   assert.equal(CreateInvoiceTermsBody.parse(read("deposit.invoices.create.req.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
   assert.equal(InvoiceTermsResponse.parse(read("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
   assert.equal(InboxResponse.parse(read("inbox.res.json")).autopay_rules, undefined);
-  // F7 pots
-  "pots.create.req.json": CreatePotBody,
-  "pots.create.res.json": PotResponse,
-  "pots.get.res.json": PotResponse,
-  "pots.contribution.req.json": ContributionBody,
-  "pots.contribution.res.json": PotContributionResponse,
-  "pots.get-request.res.json": PotContributionResponse,
-  "ledger.pots.res.json": LedgerPotsResponse,
-  "stats.pots.res.json": StatsPotsResponse,
-};
+});
 
 // F7 pots: a contribution is a request, so its fixtures parse as one too, and the pots fields are optional on the ledger and stats.
 test("F7: contribution fixtures parse as plain requests; ledger and stats fixtures with pots parse with the older schemas", () => {

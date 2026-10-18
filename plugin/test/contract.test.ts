@@ -151,15 +151,6 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "deposit.status.res.json": statusResSchema,
   "deposit.invoices.create.req.json": createInvoiceReqSchema,
   "deposit.invoices.create.res.json": invoiceResSchema,
-};
-
-// F5/F3: older replies (no autopay, no deposit link) still parse; the request bodies stay strict.
-test("F5/F3: optional autopay and deposit fields, strict bodies", () => {
-  assert.equal(inboxResSchema.parse(fixture("inbox.res.json")).autopay_rules, undefined);
-  assert.equal(createRequestReqSchema.safeParse({ ...fixture("deposit.create-request.req.json"), deposit_link: true }).success, false);
-  assert.equal(autopayCreateReqSchema.safeParse({ ...fixture("autopay.create.req.json"), extra: 1 }).success, false);
-  assert.equal(createInvoiceTermsReqSchema.safeParse(fixture("deposit.invoices.create.req.json")).success, true);
-  assert.equal(invoiceTermsResSchema.parse(fixture("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
   // F7 pots
   "pots.create.req.json": createPotReqSchema,
   "pots.create.res.json": potResSchema,
@@ -170,6 +161,15 @@ test("F5/F3: optional autopay and deposit fields, strict bodies", () => {
   "ledger.pots.res.json": ledgerResPotsSchema,
   "stats.pots.res.json": statsPotsResSchema,
 };
+
+// F5/F3: older replies (no autopay, no deposit link) still parse; the request bodies stay strict.
+test("F5/F3: optional autopay and deposit fields, strict bodies", () => {
+  assert.equal(inboxResSchema.parse(fixture("inbox.res.json")).autopay_rules, undefined);
+  assert.equal(createRequestReqSchema.safeParse({ ...fixture("deposit.create-request.req.json"), deposit_link: true }).success, false);
+  assert.equal(autopayCreateReqSchema.safeParse({ ...fixture("autopay.create.req.json"), extra: 1 }).success, false);
+  assert.equal(createInvoiceTermsReqSchema.safeParse(fixture("deposit.invoices.create.req.json")).success, true);
+  assert.equal(invoiceTermsResSchema.parse(fixture("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+});
 
 // F7 pots: older shapes still read the pot fixtures (new fields are optional or ignored), and pot ids are pinned like request ids.
 test("F7: pot fixtures parse with the older schemas; the pot id hashes its terms; contributions hash theirs", async () => {
