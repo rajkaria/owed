@@ -36,22 +36,58 @@ export function moonpayFlagOn(env: Env = process.env): boolean {
   return env.NEXT_PUBLIC_OWED_MOONPAY === "1";
 }
 
-/** The server-side configuration, or null when the feature is off or the keys are missing or mismatched. */
-export function moonpayConfig(env: Env = process.env): MoonpayConfig | null {
-  if (!moonpayFlagOn(env)) return null;
+/** The publishable/secret key pair, or null when either is missing, malformed, or the two are from different environments. */
+function keyPair(env: Env): { publishableKey: string; secretKey: string; sandbox: boolean } | null {
   const publishableKey = env.MOONPAY_PUBLISHABLE_KEY?.trim() ?? "";
   const secretKey = env.MOONPAY_SECRET_KEY?.trim() ?? "";
   const pk = /^pk_(test|live)_[A-Za-z0-9]+$/.exec(publishableKey);
   const sk = /^sk_(test|live)_[A-Za-z0-9]+$/.exec(secretKey);
   // A test key signing a live URL (or the reverse) makes the widget refuse to load: treat it as unconfigured.
   if (!pk || !sk || pk[1] !== sk[1]) return null;
-  const sandbox = pk[1] === "test";
+  return { publishableKey, secretKey, sandbox: pk[1] === "test" };
+}
+
+/** The server-side configuration, or null when the feature is off or the keys are missing or mismatched. */
+export function moonpayConfig(env: Env = process.env): MoonpayConfig | null {
+  if (!moonpayFlagOn(env)) return null;
+  const keys = keyPair(env);
+  if (!keys) return null;
   return {
-    publishableKey,
-    secretKey,
+    ...keys,
     webhookKey: env.MOONPAY_WEBHOOK_KEY?.trim() || null,
-    sandbox,
-    widgetBase: sandbox ? WIDGET_SANDBOX : WIDGET_LIVE,
+    widgetBase: keys.sandbox ? WIDGET_SANDBOX : WIDGET_LIVE,
     ipMatch: env.MOONPAY_IP_MATCH !== "0",
   };
 }
+
+// F4 cash out start ---------------------------------------------------------------------------------------------------
+// Selling USDC to MoonPay in its off-ramp ("sell") widget, which pays the user's bank. Its own flag, OWED_MOONPAY_SELL=1,
+// so cash-out can go live without the card (and the reverse); it shares the card's standard keys. From
+// https://dev.moonpay.com/widget/off-ramp/integration-methods/url.md: the live widget is sell.moonpay.com, the sandbox
+// sell-sandbox.moonpay.com. The webhook key is required: MoonPay's REST sell transaction documents no deposit address,
+// only the signed sell webhook does (depositWallet.walletAddress), so without it a sale could never be paid in.
+
+export const SELL_WIDGET_LIVE = "https://sell.moonpay.com";
+export const SELL_WIDGET_SANDBOX = "https://sell-sandbox.moonpay.com";
+
+export interface MoonpaySellConfig {
+  publishableKey: string;
+  secretKey: string;
+  webhookKey: string;
+  sandbox: boolean;
+  widgetBase: string;
+}
+
+export function moonpaySellConfig(env: Env = process.env): MoonpaySellConfig | null {
+  if (env.OWED_MOONPAY_SELL !== "1") return null;
+  const keys = keyPair(env);
+  const webhookKey = env.MOONPAY_WEBHOOK_KEY?.trim() || null;
+  if (!keys || !webhookKey) return null;
+  return { ...keys, webhookKey, widgetBase: keys.sandbox ? SELL_WIDGET_SANDBOX : SELL_WIDGET_LIVE };
+}
+
+/** The key that verifies Moonpay-Signature-V2 on /api/hooks/moonpay: the card's or cash-out's (the same MOONPAY_WEBHOOK_KEY). */
+export function moonpayWebhookKey(env: Env = process.env): string | null {
+  return moonpayConfig(env)?.webhookKey ?? moonpaySellConfig(env)?.webhookKey ?? null;
+}
+// F4 cash out end -----------------------------------------------------------------------------------------------------

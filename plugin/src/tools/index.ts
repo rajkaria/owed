@@ -17,6 +17,7 @@ import { register as addExpense } from "./add_expense.js"; // F6 ledger
 import { register as ledgerBalances } from "./ledger_balances.js"; // F6 ledger
 import { register as settleUp } from "./settle_up.js"; // F6 ledger
 import { register as refundPayment } from "./refund_payment.js"; // F8 invoices
+import { register as cashOut } from "./cash_out.js"; // F4 cash out
 
 // One line per tool. Sprints append their import + entry; LEAD resolves merge conflicts.
 export const tools: Array<(server: McpServer) => void> = [
@@ -38,4 +39,5 @@ export const tools: Array<(server: McpServer) => void> = [
   ledgerBalances, // F6 ledger
   settleUp, // F6 ledger
   refundPayment, // F8 invoices
+  cashOut, // F4 cash out
 ];

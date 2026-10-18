@@ -17,6 +17,7 @@ import { createPlanReqSchema, createPlanResSchema, fundingPlanDocSchema, planSta
 import { addExpenseReqSchema, addExpenseResSchema, createGroupLedgerReqSchema, groupLedgerResSchema, settleUpReqSchema, settleUpResSchema } from "../src/contract.ts"; // F6 ledger
 import { createInvoiceTermsReqSchema, createRefundReqSchema, createRefundResSchema, invoiceTermsResSchema, ledgerResF8Schema, refundResSchema, refundsLookupResSchema, statementResSchema } from "../src/contract.ts"; // F8 invoices
 import { alertTokenReqSchema, confirmAlertResSchema, createAlertReqSchema, createAlertResSchema, unsubscribeAlertResSchema } from "../src/contract.ts"; // S1 alerts
+import { cashOutResSchema, createCashOutReqSchema } from "../src/contract.ts"; // F4 cash out
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -127,6 +128,13 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "alerts.confirm.res.json": confirmAlertResSchema,
   "alerts.unsubscribe.req.json": alertTokenReqSchema,
   "alerts.unsubscribe.res.json": unsubscribeAlertResSchema,
+  // F4 cash out
+  "cash-out.create.req.json": createCashOutReqSchema,
+  "cash-out.create.res.json": cashOutResSchema,
+  "cash-out.status.res.json": cashOutResSchema,
+  "cash-out.enterprise.res.json": cashOutResSchema,
+  // F3 bank rail: a request paid by bank transfer (paid.rail "bank_transfer")
+  "bank.get-request.res.json": getRequestResSchema,
 };
 
 // F8 invoices: the existing invoice and ledger fixtures parse with the terms-aware schemas too (every F8 field is optional).

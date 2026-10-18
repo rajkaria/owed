@@ -34,6 +34,7 @@ test("the registry lists the 11 submitted tools, F1's two, F6's four and F8's re
     "verify_payee", "who_owes_me", "write_reminder", "what_do_i_owe", "pay_all", // F1
     "start_ledger", "add_expense", "ledger_balances", "settle_up", // F6 ledger
     "refund_payment", // F8 invoices
+    "cash_out", // F4 cash out
   ]) assert.ok(names.includes(name), name);
   assert.equal(new Set(names).size, names.length, "no tool is registered twice");
 });

@@ -10,8 +10,8 @@ export const PROOF_LIMIT = 200;
 
 export type ProofKind = "single" | "split_share" | "invoice";
 // 0012: "matched" = the payment carried no reference and the recipient matched it with a signed message.
-export type ProofRail = "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card";
-const RAILS: readonly ProofRail[] = ["solana_pay", "x402", "base_transfer", "matched", "moonpay_card"];
+export type ProofRail = "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" | "bank_transfer"; // F3 bank rail: + bank_transfer
+const RAILS: readonly ProofRail[] = ["solana_pay", "x402", "base_transfer", "matched", "moonpay_card", "bank_transfer"];
 
 export interface ProofPayment {
   id: string;
@@ -59,7 +59,8 @@ export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
               count(*) filter (where paid_rail = 'x402')::text as x402,
               count(*) filter (where paid_rail = 'matched')::text as matched,
               count(*) filter (where paid_rail = 'base_transfer')::text as base_transfer,
-              count(*) filter (where paid_rail = 'moonpay_card')::text as moonpay_card
+              count(*) filter (where paid_rail = 'moonpay_card')::text as moonpay_card,
+              count(*) filter (where paid_rail = 'bank_transfer')::text as bank_transfer
          from requests
         where status = 'paid' and is_team and paid_signature is not null and paid_at is not null`,
     ),
@@ -87,11 +88,12 @@ export async function loadProof(limit = PROOF_LIMIT): Promise<ProofSummary> {
   const matched = Number(totals.matched);
   const baseTransfer = Number(totals.base_transfer);
   const moonpayCard = Number(totals.moonpay_card);
+  const bankTransfer = Number(totals.bank_transfer ?? "0"); // F3 bank rail
   return {
     payments,
     count,
     usdc: formatUnits(BigInt(totals.usdc_atomic!), TOKENS.USDC.decimals),
     sol: formatUnits(BigInt(totals.sol_atomic!), TOKENS.SOL.decimals),
-    rails: { solana_pay: count - x402 - matched - baseTransfer - moonpayCard, x402, base_transfer: baseTransfer, matched, moonpay_card: moonpayCard },
+    rails: { solana_pay: count - x402 - matched - baseTransfer - moonpayCard - bankTransfer, x402, base_transfer: baseTransfer, matched, moonpay_card: moonpayCard, bank_transfer: bankTransfer },
   };
 }

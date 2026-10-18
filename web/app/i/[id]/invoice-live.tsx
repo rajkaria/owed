@@ -163,7 +163,7 @@ function Receipt({ state, token }: { state: Extract<LiveState, { status: "paid" 
     <section aria-labelledby="receipt-title" className="rounded-xl border border-paid/40 bg-paid-soft px-4 py-4 sm:px-5 print:border-paid">
       <h2 id="receipt-title" className="flex items-center gap-2 text-lg font-semibold text-paid">
         <CheckIcon width={20} height={20} strokeWidth={2.5} />
-        {state.rail === "moonpay_card" ? "Paid by card via MoonPay" : "Paid on Solana"}
+        {state.rail === "moonpay_card" ? "Paid by card via MoonPay" : state.rail === "bank_transfer" ? "Paid by bank transfer via MoonPay" : "Paid on Solana"}
       </h2>
       <p className="mt-2 leading-relaxed" role="status">
         {state.amount ? <strong className="tabular-nums">{formatAmount(state.amount, token)}</strong> : "The full amount"} arrived

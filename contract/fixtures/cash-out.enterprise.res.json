@@ -1,0 +1,24 @@
+{
+  "id": "Hw4kT8pZr2Ma",
+  "wallet": "SRxf5fukmnFADYWsdsCvUX2VJqTeZnmAU562yv38htT",
+  "amount": "250",
+  "token": "USDC",
+  "fiat_currency": null,
+  "request_ids": [],
+  "mode": "enterprise",
+  "status": "waiting_for_deposit",
+  "widget_url": null,
+  "moonpay_transaction_id": null,
+  "deposit_address": "EGKrbe7YXyY77Lz1MR1UNWFUJJKB17JvcjYh5q8zWfHm",
+  "transfer_signature": null,
+  "failure_reason": null,
+  "problem": null,
+  "account": {
+    "id": "9a7b6c5d-e3f1-4a2b-8c7d-6e5f4a3b2c1d",
+    "liquidation_address": "EGKrbe7YXyY77Lz1MR1UNWFUJJKB17JvcjYh5q8zWfHm",
+    "signed_message": "Owed cash-out account 9a7b6c5d-e3f1-4a2b-8c7d-6e5f4a3b2c1d to EGKrbe7YXyY77Lz1MR1UNWFUJJKB17JvcjYh5q8zWfHm for SRxf5fukmnFADYWsdsCvUX2VJqTeZnmAU562yv38htT at 2026-10-18T11:58:00Z",
+    "signature": "93285ab481a1b81bb190271ca79660e138ce22c486367071999b091b08703ac6731f0626436346eca936214fa62e5b37fe6b2d0da9c4eb1203af82043a25350d"
+  },
+  "created_at": "2026-10-18T12:00:00Z",
+  "updated_at": "2026-10-18T12:00:00Z"
+}
