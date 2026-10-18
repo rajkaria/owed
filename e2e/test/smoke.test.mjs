@@ -66,6 +66,14 @@ function deployedApp({ stats, planStats, ledgerOwner, bugs = {} }) {
       const id = path.slice(prefix.length);
       return /^[1-9A-HJ-NP-Za-km-z]{12}$/.test(id) ? json(404, error("not_found", `no ${what} with this id`), matched) : json(400, error("invalid_input", `id must be a 12-character Owed ${what} id`), matched);
     }
+    // F7 pots: 14-character ids; nothing exists in this double, and it refuses a token-account recipient like the real route.
+    if (req.method === "GET" && path.startsWith("/pot/")) return html(404, "not found", "/pot/[id]");
+    if (req.method === "GET" && path.startsWith("/api/v1/pots/")) {
+      const id = path.slice("/api/v1/pots/".length);
+      return /^[1-9A-HJ-NP-Za-km-z]{14}$/.test(id) ? json(404, error("not_found", "no pot with this id"), "/api/v1/pots/[id]") : json(400, error("invalid_input", "id must be a 14-character Owed pot id"), "/api/v1/pots/[id]");
+    }
+    if (req.method === "POST" && path === "/api/v1/pots") return json(400, error("invalid_input", "recipient must be a wallet address, not a token account or program address"), "/api/v1/pots");
+    if (req.method === "GET" && path.startsWith("/x/pot/")) return json(404, error("not_found", "no pot with this id"), "/x/pot/[potId]/[amount]");
     if (req.method === "POST" && path === "/api/v1/ledgers") {
       const input = JSON.parse(body);
       // The real route refuses an owner off the ed25519 curve; the double knows the one wallet its fixture uses.
@@ -121,11 +129,11 @@ test("nothing deployed yet: pending is OK, --strict fails", async () => {
     assert.equal(report.ok, true);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.summary.pass, 2); // landing + unknown page is 404
-    assert.equal(report.summary.pending, 19); // 14 + F6 ledger page and 3 ledger routes + F8 refund lookup
+    assert.equal(report.summary.pending, 24); // 14 + F6 ledger page and 3 ledger routes + F8 refund lookup + F7 pot page and 4 pot routes
     assert.equal(report.summary.skip, 6);
     const strict = await runSmoke({ base: server.base, strict: true });
     assert.equal(strict.ok, false);
-    assert.equal(strict.summary.fail, 19);
+    assert.equal(strict.summary.fail, 24);
     assert.ok(strict.results.every((result) => result.status !== "fail" || result.detail.includes("--strict")));
   } finally {
     await server.close();
