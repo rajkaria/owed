@@ -93,6 +93,9 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Migrations on the build (D10)
+- Build-time migrations (`web/scripts/migrate-on-build.mjs`, `pnpm build`): `web/test/migrate-on-build.test.ts` 19/19 on PGlite; the web suite 599/599 with it. Not yet run against Neon: the first Preview build after this lands is the first real run, and its log should show one `migrate-on-build: preview · applied N (…) · already applied M` line, and the next Production build the same for owed-db.
+
 ## Remote MCP endpoint (SP2, on production from main d864a4c, 2026-10-18 07:40Z)
 - `POST https://www.getowed.xyz/api/mcp`, checked 2026-10-18 07:49Z from this machine:
   - `initialize` (2025-06-18) → 200 in 558 ms;

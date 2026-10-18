@@ -2,8 +2,15 @@
 # Apply web/db/migrations/*.sql in order, each in one transaction, recording
 # applied versions in schema_migrations. Safe to re-run.
 #
+# Production and preview are migrated by the Vercel build now: `pnpm build` runs
+# scripts/migrate-on-build.mjs before `next build`, with the same schema_migrations
+# table and one transaction per file, so shipping a migration needs no manual step.
+# This script still works by hand (a recovery, a Development-only database, --status);
+# the two share the bookkeeping, so each skips the versions the other has recorded.
+# It takes no advisory lock: don't run it while a deployment is building.
+#
 # Two databases (Neon, via the Vercel marketplace): `owed-db` serves Production,
-# `owed-db-preview` serves Preview and Development. Apply every migration to both:
+# `owed-db-preview` serves Preview and Development. To apply by hand:
 #
 #   cd web
 #   vercel env pull .env.local --environment=development

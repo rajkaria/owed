@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/migrate-on-build.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --import ./test/setup.mjs --test 'test/**/*.test.ts'",
@@ -32,6 +32,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "pg": "8.23.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
