@@ -2,6 +2,26 @@
 
 What reached production, newest first. Times are UTC. Every line is backed by [FACTS.md](FACTS.md), which says how it was verified.
 
+## 2026-10-18 10:10 · main 390547d · funding plans, group ledgers, merchant-grade invoices
+
+- **Funding plan** (migration 0018). When the payer can't cover a payment, `pay_link` and `pay_all` return the exact PayBox calls that fix it, plus a `plan_id` the server records. The options are:
+  - a SOL swap sized at Pyth's on-chain price;
+  - a bridge from Base;
+  - a swap from another token;
+  - a MoonPay buy link;
+  - x402 when only the fee is short.
+- **Group ledgers** (migration 0020):
+  - `start_ledger`, `add_expense` (even, shares, exact amounts, or receipt items with tax and tip, plus locked local-currency quotes) and `ledger_balances`.
+  - `settle_up` needs at most n−1 requests, addressed to debtors' inboxes. Writes are signed by the owner or a member.
+  - The page is `/l/<id>`.
+- **Merchant-grade invoices** (migration 0021):
+  - `refund_payment`: signed, an unsigned transfer back to the payer, confirmed on chain.
+  - Installments opened by the scheduler, or an early price paired with the full price.
+  - A late fee opened once.
+  - Chase days in `who_owes_me`.
+  - Signed monthly statements.
+- The remote MCP endpoint now serves 18 tools. The PayBox portal build cecfbd2 keeps 11 until the next upload.
+
 ## 2026-10-18 08:30 · main ab382d8 · payer inbox and pay_all, migrations on deploy
 
 - **Ask by X handle, pay several requests with one approval** (migration 0017). Every asking tool takes `payer`: an X handle the agent resolved with PayBox `resolve_username`, an `.sns` name, or a wallet. It also takes `requester_handle`.

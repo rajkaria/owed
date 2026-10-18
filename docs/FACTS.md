@@ -93,6 +93,19 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Funding plans, ledgers, invoice terms on production (main 390547d, 2026-10-18 ~10:10Z)
+- Production build of 390547d, checked from this machine:
+  - `POST /api/mcp` `tools/list` → 18 tools.
+  - `GET /api/v1/plans/stats` → 200 `{offered 0, used 0, paid 0}`, so 0018 is applied.
+  - `smoke.mjs --strict --id qNaosx73zzt3`: 28 pass, 0 fail. That includes the ledger and refund route checks, so 0020 and 0021 are applied.
+- Gates on the commit, from a clean clone:
+  - plugin unit 699/699; bundle 18 tools;
+  - contract 89/89;
+  - e2e tooling 63/63;
+  - web 702/702;
+  - remote bundle sha256 `09dfedbc03e7af3aa66cdb0c4c5727de370ccdfaf535fc3ee20fe1f8947a44a1`.
+- Not run on mainnet yet: a funded payment from a plan, a ledger settle-up paid, a refund, an installment paid.
+
 ## Payer inbox and pay_all on production (SP3, main ab382d8, 2026-10-18 08:30Z)
 - Production build of ab382d8, checked from this machine:
   - `POST /api/mcp` `tools/list` → 13 tools, including `what_do_i_owe` and `pay_all`.
