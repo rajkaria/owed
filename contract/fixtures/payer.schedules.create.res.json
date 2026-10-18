@@ -1,0 +1,25 @@
+{
+  "id": "Xr4HPa9WmT2q",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "450",
+  "token": "USDC",
+  "payer_name": "Sam",
+  "for": "rent",
+  "requester_name": "Raj",
+  "day_of_month": 1,
+  "months": null,
+  "first_period": "2026-11",
+  "status": "active",
+  "next_request_on": "2026-11-01",
+  "created_at": "2026-10-18T09:30:00Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "first_request": null,
+  "payer": {
+    "wallet": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK",
+    "handle": "sam_ok",
+    "sns": null
+  },
+  "requester_handle": "rajkaria"
+}

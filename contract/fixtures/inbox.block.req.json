@@ -1,0 +1,7 @@
+{
+  "payer": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK",
+  "requester": "5q5mejti7Hnq6YcokKVkHbbxcPa9p7pTmKBHeC3Ma8na",
+  "action": "block",
+  "signed_message": "Owed block 5q5mejti7Hnq6YcokKVkHbbxcPa9p7pTmKBHeC3Ma8na for Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK at 2026-10-18T10:16:30Z",
+  "signature": "7cd55d72a721d6f1c4b6ae744aec8fbf4ced884bde69bea7df439b2a78dbf3b0c16456e35e51123f969371fa91964ec3543007c5d05a9db9fa962d4abdfe5202"
+}

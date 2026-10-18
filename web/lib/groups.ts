@@ -4,7 +4,7 @@ import bs58 from "bs58";
 import { isoUtc, isUniqueViolation, sql, transaction, type Query, type Row } from "./db";
 import { newReference, requestIdFor } from "./ids";
 import { AmountError, fromAtomic, TOKENS, USDC_MINT, type Token } from "./money";
-import { chainCheckable, fiatFromRow, getRequests, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
+import { chainCheckable, fiatFromRow, getRequests, settleFromChain, solanaPayUrl, toPublic, type PayerRecord, type RequestRow } from "./requests";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import { watchSoon } from "./notify/helius"; // W3-A
@@ -127,6 +127,8 @@ export interface ShareInput {
   flags: string[];
   /** Local-currency split: this share's quote; amountAtomic must be the USDC it locks. */
   fiat?: FiatQuote | null;
+  /** F1: who this share is addressed to (lib/inbox-payer.ts requirePayer). Never part of the id. */
+  payer?: PayerRecord | null;
 }
 
 export interface CreateGroupInput {
@@ -143,6 +145,8 @@ export interface CreateGroupInput {
   expiresInDays?: number | null;
   /** Local-currency split: the bill's total in its currency and the shared rate (amount = the fiat total). */
   fiat?: FiatQuote | null;
+  /** F1: the requester's own X handle (lib/inbox-payer.ts parseHandle), stored on every share. */
+  requesterHandle?: string | null;
 }
 
 export interface GroupWithShares {
@@ -209,6 +213,12 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
           ],
         }),
       ),
+      // F1: who each share is addressed to, and the requester's handle (after the inserts, before the expiry, which
+      // must stay the last statement).
+      ...shares.filter((s) => s.payer || input.requesterHandle).map((s): Query => ({
+        text: `update requests set payer_wallet = $2, payer_handle = $3, payer_sns = $4, requester_handle = $5 where id = $1`,
+        params: [s.id, s.payer?.wallet ?? null, s.payer?.handle ?? null, s.payer?.sns ?? null, input.requesterHandle ?? null],
+      })),
       // W3-C: the shares expire together, at the transaction's now() + N days (the same instant as created_at).
       ...(input.expiresInDays
         ? [{
@@ -266,6 +276,8 @@ export async function createGroup(input: CreateGroupInput): Promise<GroupWithSha
         fromDomainVerifiedAt,
         expiresAt, // W3-C
         fiat: s.fiat ?? null,
+        payer: s.payer ?? null, // F1
+        requesterHandle: input.requesterHandle ?? null,
       }));
       return { group, shares: rows };
     } catch (e) {
@@ -317,6 +329,8 @@ export interface PublicShare {
   from_domain: string | null;
   /** Local-currency split: this share in the bill's currency (display only). */
   fiat?: FiatQuote;
+  /** F1: who this share is addressed to (labels for handle and sns). Only when set. */
+  payer?: PayerRecord;
 }
 
 export interface PublicGroup {
@@ -342,6 +356,8 @@ export interface PublicGroup {
   expires_at?: string;
   /** Local-currency split: the bill's total in its currency (display only); `total` is the shares' USDC sum. */
   fiat?: FiatQuote;
+  /** F1: the requester's own X handle (a label), when the shares carry one. */
+  requester_handle?: string;
 }
 
 /** W3-C: the shares' common expiry, only when they have one (so groups without one keep their exact shape). */
@@ -368,8 +384,10 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
       paid: pub.paid,
       from_domain: row.fromDomain ?? null,
       ...(row.fiat && { fiat: row.fiat }),
+      ...(row.payer && { payer: { wallet: row.payer.wallet, handle: row.payer.handle, sns: row.payer.sns } }), // F1
     };
   });
+  const requesterHandle = shares.find((r) => r.requesterHandle)?.requesterHandle; // F1
   return {
     id: group.id,
     link: `${base}/g/${group.id}`,
@@ -388,5 +406,6 @@ export function toPublicGroup({ group, shares }: GroupWithShares, base: string):
     shares: out,
     ...expiryOf(shares), // W3-C
     ...(group.fiat && { fiat: group.fiat }),
+    ...(requesterHandle && { requester_handle: requesterHandle }), // F1
   };
 }

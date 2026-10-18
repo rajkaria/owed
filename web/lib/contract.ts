@@ -51,6 +51,18 @@ const untrusted = (cap: number) => z.string().max(cap * 4).nullish();
 
 export const snsSource = z.enum(["sol_record_v2", "sol_record_v1", "owner"]); // W3-S
 
+// F1 payer inbox. A create body may say who it is addressed to; lib/inbox-payer.ts checks it (the handle's format,
+// the wallet, an .sns name resolved on Solana). Replies echo what was stored. Handles are labels, never verified.
+export const PayerBody = z.object({
+  wallet: z.string().max(64).nullish(),
+  handle: z.string().max(32).nullish(),
+  sns: z.string().min(1).max(140).nullish(),
+});
+export type PayerBody = z.infer<typeof PayerBody>;
+const handle = z.string().regex(/^[a-z0-9_]{1,15}$/, "must be an X handle, lower case without @");
+export const PayerInfo = z.object({ wallet: base58Key, handle: handle.nullable(), sns: z.string().max(140).nullable() });
+const requesterHandleBody = z.string().max(32).nullish();
+
 export const CreateRequestBody = z.object({
   recipient: z.string().max(64), // W3-B: checked per chain below
 
@@ -68,6 +80,8 @@ export const CreateRequestBody = z.object({
   chain: chain.default("solana"), // W3-B
   currency, // local-currency ask: `amount` is in this currency
   sns_name: z.string().min(1).max(140).nullish(), // W3-S: re-resolved to recipient before the request is created (lib/sns.ts)
+  payer: PayerBody.nullish(), // F1: who it is addressed to (never part of the id)
+  requester_handle: requesterHandleBody, // F1: the requester's own X handle, a label
 }).superRefine((b, ctx) => {
   // W3-B: a Solana request keeps its base58 rule and message; a Base request takes a 0x address.
   const schema = b.chain === "base" ? evmAddress : base58Key;
@@ -93,6 +107,8 @@ export const CreateRequestResponse = z.object({
   fiat: FiatQuote.optional(),
   sns_name: z.string().nullable().optional(), // W3-S
   sns_source: snsSource.nullable().optional(),
+  payer: PayerInfo.nullable().optional(), // F1
+  requester_handle: handle.nullable().optional(),
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -153,6 +169,9 @@ export const GetRequestResponse = z.object({
   sns_name: z.string().nullable().optional(),
   sns_source: snsSource.nullable().optional(),
   sns_resolved_at: isoTime.nullable().optional(),
+  // F1: who it is addressed to, and the requester's own X handle (labels, not verified by Owed).
+  payer: PayerInfo.nullable().optional(),
+  requester_handle: handle.nullable().optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -208,7 +227,7 @@ export const CreateGroupBody = z.object({
   token: token.default("USDC"),
   title: z.string().min(1).max(60 * 4),
   people: z
-    .array(z.object({ name: z.string().min(1).max(TEXT_LIMITS.payer_name * 4), amount: z.string().max(40).nullish() }))
+    .array(z.object({ name: z.string().min(1).max(TEXT_LIMITS.payer_name * 4), amount: z.string().max(40).nullish(), payer: PayerBody.nullish() }))
     .min(2, "a split needs at least 2 people")
     .max(20, "a split takes at most 20 people"),
   requester_name: untrusted(TEXT_LIMITS.requester_name),
@@ -216,6 +235,7 @@ export const CreateGroupBody = z.object({
   from_domain: z.string().min(1).max(253).nullish(),
   expires_in_days: expiresInDays, // W3-C: every share expires together
   currency, // local-currency split: `total` and people's amounts are in this currency
+  requester_handle: requesterHandleBody, // F1
 });
 export type CreateGroupBody = z.infer<typeof CreateGroupBody>;
 
@@ -230,6 +250,7 @@ export const GroupShare = z.object({
   paid: PaidInfo.nullable(),
   from_domain: z.string().nullable().optional(), // W2-H: each share carries the group's verified domain
   fiat: FiatQuote.optional(), // local-currency split: this share's amount in the bill's currency, at the group's rate
+  payer: PayerInfo.optional(), // F1: who this share is addressed to
 });
 
 export const GroupResponse = z.object({
@@ -250,6 +271,7 @@ export const GroupResponse = z.object({
   shares: z.array(GroupShare).min(2).max(20),
   expires_at: isoTime.optional(), // W3-C: when every share stops taking payments (absent: never)
   fiat: FiatQuote.optional(), // local-currency split: the bill's total in its currency; `total` is the shares' USDC sum
+  requester_handle: handle.optional(), // F1
 });
 export type GroupResponse = z.infer<typeof GroupResponse>;
 // ---- invoices (POST /api/v1/invoices, GET /api/v1/invoices/:id) ----
@@ -280,6 +302,8 @@ export const CreateInvoiceBody = z.object({
   source: z.enum(["plugin", "web"]).default("web"),
   expires_in_days: expiresInDays, // W3-C: must reach the due date
   currency, // local-currency invoice: every unit_price is in this currency
+  payer: PayerBody.nullish(), // F1: the client, as a payer the inbox lists it for
+  requester_handle: requesterHandleBody,
 });
 export type CreateInvoiceBody = z.infer<typeof CreateInvoiceBody>;
 
@@ -323,6 +347,8 @@ export const InvoiceResponse = z.object({
   // Local-currency invoice: items' unit_price and amount are in fiat.currency, fiat.amount is their sum,
   // and `total` is the USDC locked for it.
   fiat: FiatQuote.optional(),
+  payer: PayerInfo.optional(), // F1
+  requester_handle: handle.optional(),
 });
 export type InvoiceResponse = z.infer<typeof InvoiceResponse>;
 
@@ -423,6 +449,8 @@ export const CreateScheduleBody = z.object({
   from_domain: z.string().min(1).max(253).nullish(),
   source: z.enum(["plugin", "web"]).default("web"),
   currency, // refused: a rate locked today would be wrong next month
+  payer: PayerBody.nullish(), // F1: every month's request is addressed to this payer
+  requester_handle: requesterHandleBody,
 });
 export type CreateScheduleBody = z.infer<typeof CreateScheduleBody>;
 
@@ -481,6 +509,8 @@ export const ScheduleResponse = z.object({
     flags: z.array(z.string()),
     from_domain: domain.nullable(),
   }).nullable(),
+  payer: PayerInfo.optional(), // F1
+  requester_handle: handle.optional(),
 });
 export type ScheduleResponse = z.infer<typeof ScheduleResponse>;
 
@@ -522,3 +552,82 @@ export const AttributedResponse = z.object({
   references: z.array(z.object({ key: z.string(), request_id: requestId })),
 });
 export type AttributedResponse = z.infer<typeof AttributedResponse>;
+
+// ---- F1: the payer inbox (what_do_i_owe), blocking a requester, and bulk terms for pay_all ----
+
+// POST /api/v1/inbox. The payer's wallet signs "Owed inbox access for <payer> at <ISO time>" (once, within 5 minutes).
+export const InboxBody = z.object({
+  payer: base58Key,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type InboxBody = z.infer<typeof InboxBody>;
+
+export const InboxEntry = z.object({
+  id: requestId,
+  kind: z.enum(["single", "split_share", "invoice"]),
+  link: z.url(),
+  status: z.enum(["open", "underpaid"]),
+  amount: decimal,
+  amount_due: decimal,
+  token,
+  chain,
+  recipient: anyAddress,
+  requester_name: z.string().nullable(),
+  requester_handle: handle.nullable(),
+  for: z.string().nullable(),
+  from_domain: z.string().nullable(),
+  sns_name: z.string().nullable(),
+  created_at: isoTime,
+  expires_at: isoTime.nullable(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  invoice_number: z.string().nullable(),
+  group_title: z.string().nullable(),
+  addressed_as: z.object({ handle: handle.nullable(), sns: z.string().nullable() }),
+  first_time: z.boolean(),
+  flags: z.array(z.string()),
+  fiat: FiatQuote.optional(),
+});
+export type InboxEntry = z.infer<typeof InboxEntry>;
+
+export const InboxResponse = z.object({
+  payer: base58Key,
+  caution: z.string(),
+  generated_at: isoTime,
+  chain_checked: z.boolean(),
+  owed: z.array(InboxEntry),
+  base: z.array(InboxEntry),
+  totals: z.array(z.object({ token, chain, amount_due: decimal, count: z.number().int().nonnegative() })),
+  blocked_hidden: z.number().int().nonnegative(),
+  blocked_requesters: z.array(anyAddress),
+  truncated: z.boolean(),
+});
+export type InboxResponse = z.infer<typeof InboxResponse>;
+
+// POST /api/v1/inbox/block. The payer's wallet signs "Owed block <requester> for <payer> at <ISO time>" (or unblock).
+export const InboxBlockBody = z.object({
+  payer: base58Key,
+  requester: z.string().max(64),
+  action: z.enum(["block", "unblock"]),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type InboxBlockBody = z.infer<typeof InboxBlockBody>;
+
+export const InboxBlockResponse = z.object({
+  payer: base58Key,
+  requester: anyAddress,
+  action: z.enum(["block", "unblock"]),
+  blocked: z.boolean(),
+  changed: z.boolean(),
+  inbox: InboxResponse,
+});
+export type InboxBlockResponse = z.infer<typeof InboxBlockResponse>;
+
+// GET /api/v1/requests?ids=a,b,c (1 to 20): each request in the shape GET /api/v1/requests/<id> returns, in the
+// order asked; ids Owed doesn't know are listed in not_found.
+export const BulkRequestsResponse = z.object({
+  requests: z.array(GetRequestResponse).max(20),
+  not_found: z.array(z.string()).max(20),
+});
+export type BulkRequestsResponse = z.infer<typeof BulkRequestsResponse>;

@@ -3,7 +3,7 @@ import { isoUtc, isUniqueViolation, sql, type Row } from "./db";
 import { newReference, requestIdFor } from "./ids";
 import { fromAtomic, TOKENS, type Token } from "./money";
 import { buildTransferUrl } from "./solana-pay";
-import { findPayments, type PaymentCheck } from "./validate";
+import { findPayments, type ClaimedUnit, type PaymentCheck } from "./validate";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
 import type { SnsSource } from "./sns"; // W3-S
@@ -67,6 +67,20 @@ export interface RequestRow {
   snsName?: string | null;
   snsSource?: SnsSource | null;
   snsResolvedAt?: string | null;
+  // F1 payer inbox (0017). Optional for the same reason as the W2-H fields.
+  /** Who the request is addressed to: the payer's Solana wallet, and the X handle or .sns name used to find it. */
+  payer?: PayerRecord | null;
+  /** The requester's own X handle, lower case without "@". A label: never verified by Owed. */
+  requesterHandle?: string | null;
+  /** Which transfer instruction paid it (lib/validate.ts Credit.instruction); null = the whole transaction. */
+  paidInstruction?: number | null;
+}
+
+/** F1: who a request is addressed to. `handle` and `sns` are how the requester found `wallet`; labels, never proof. */
+export interface PayerRecord {
+  wallet: string;
+  handle: string | null;
+  sns: string | null;
 }
 
 /** A payment without the request's reference that the recipient's own wallet attributed to it (0012). */
@@ -104,7 +118,8 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
   chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS},
   fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at,
-  sns_name, sns_source, ${isoUtc("sns_resolved_at")} as sns_resolved_at`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*; W3-S: sns_*
+  sns_name, sns_source, ${isoUtc("sns_resolved_at")} as sns_resolved_at,
+  payer_wallet, payer_handle, payer_sns, requester_handle, paid_instruction`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*; W3-S: sns_*; F1: payer_*
 
 export function fromRow(r: Row): RequestRow {
   return {
@@ -144,6 +159,9 @@ export function fromRow(r: Row): RequestRow {
     snsName: r.sns_name ?? null, // W3-S
     snsSource: (r.sns_source as SnsSource | null) ?? null,
     snsResolvedAt: r.sns_resolved_at ?? null,
+    payer: r.payer_wallet ? { wallet: r.payer_wallet, handle: r.payer_handle ?? null, sns: r.payer_sns ?? null } : null, // F1
+    requesterHandle: r.requester_handle ?? null,
+    paidInstruction: r.paid_instruction == null ? null : Number(r.paid_instruction),
   };
 }
 
@@ -203,8 +221,14 @@ export function payUrl(row: RequestRow): string {
 }
 // W3-B Base requests end
 
+/** F1: the public shape plus who it is addressed to (only on requests that carry it). */
+export type PublicRequestWithPayer = PublicRequest & {
+  payer?: { wallet: string; handle: string | null; sns: string | null };
+  requester_handle?: string;
+};
+
 /** `base` is the public origin for links; without it the x402 URL is left out. */
-export function toPublic(row: RequestRow, base?: string): PublicRequest {
+export function toPublic(row: RequestRow, base?: string): PublicRequestWithPayer {
   const settled = (row.status === "paid" || row.status === "underpaid") && row.paidSignature && row.paidAmountAtomic != null;
   return {
     id: row.id,
@@ -248,6 +272,9 @@ export function toPublic(row: RequestRow, base?: string): PublicRequest {
     sns_name: row.snsName ?? null, // W3-S
     sns_source: row.snsSource ?? null,
     sns_resolved_at: row.snsResolvedAt ?? null,
+    // F1: only on requests that carry them, so every older shape is unchanged.
+    ...(row.payer && { payer: { wallet: row.payer.wallet, handle: row.payer.handle, sns: row.payer.sns } }),
+    ...(row.requesterHandle && { requester_handle: row.requesterHandle }),
   };
 }
 
@@ -298,6 +325,10 @@ export interface CreateInput {
   fiat?: FiatQuote | null;
   /** W3-S: only a value returned by requireSnsName (lib/sns.ts); stores sns_wallet = recipient and stamps sns_resolved_at. */
   sns?: { name: string; source: SnsSource } | null;
+  /** F1: only a value returned by requirePayer (lib/inbox-payer.ts). Never part of the id. */
+  payer?: PayerRecord | null;
+  /** F1: a value returned by parseHandle (lib/inbox-payer.ts). */
+  requesterHandle?: string | null;
 }
 
 export async function createRequest(input: CreateInput): Promise<RequestRow> {
@@ -316,12 +347,14 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
         `insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference,
            payer_name, for_text, note, requester_name, flags, source, from_domain, from_domain_verified_at, expires_at, chain, rest_of,
            fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, fiat_quoted_at,
-           sns_name, sns_wallet, sns_source, sns_resolved_at)
+           sns_name, sns_wallet, sns_source, sns_resolved_at,
+           payer_wallet, payer_handle, payer_sns, requester_handle)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13,
            $14, case when $14::text is null then null else now() end,
            case when $15::int is null then null else now() + make_interval(days => $15::int) end, $16, $17,
            $18, $19, $20, $21, $22::timestamptz,
-           $23, case when $23::text is null then null else $2::text end, $24, case when $23::text is null then null else now() end)
+           $23, case when $23::text is null then null else $2::text end, $24, case when $23::text is null then null else now() end,
+           $25, $26, $27, $28)
          returning ${COLUMNS}`,
         [
           id,
@@ -348,6 +381,10 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
           fiat?.quoted_at ?? null,
           input.sns?.name ?? null, // W3-S
           input.sns?.source ?? null,
+          input.payer?.wallet ?? null, // F1: who it is addressed to (not in the id)
+          input.payer?.handle ?? null,
+          input.payer?.sns ?? null,
+          input.requesterHandle ?? null,
         ],
       );
       watchSoon(); // W3-A: Helius watches the new request's reference key
@@ -360,7 +397,7 @@ export async function createRequest(input: CreateInput): Promise<RequestRow> {
   }
 }
 
-/** Write what the chain says. Paid is written once; a transaction can settle only one request. */
+/** Write what the chain says. Paid is written once; a transfer can settle only one request (F1: one transaction may pay several). */
 async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<RequestRow> {
   const p = check.payment;
   if (check.status === "open" || !p) return row;
@@ -370,17 +407,18 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
       `update requests
           set status = $2, paid_signature = $3, paid_payer = $4, paid_amount_atomic = $5,
               paid_at = $6::timestamptz, paid_rail = 'solana_pay',
+              paid_instruction = $8::smallint, -- F1: the transfer that paid it (null: the whole transaction)
               is_team = ${isTeamSql("$7", "$4::text")} -- W2-F is_team (lib/team.ts)
         where id = $1 and status in ('open', 'underpaid', 'cancelled') -- W3-C: a late payment to a cancelled request is recorded
         returning ${COLUMNS}`,
-      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets()],
+      [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets(), p.instruction ?? null],
     );
     if (rows.length && check.status === "paid") watchSoon(); // W3-A: a paid request leaves the Helius watch
     if (rows.length) return fromRow(rows[0]);
     return (await getRequest(row.id)) ?? row; // settled concurrently
   } catch (e) {
     if (isUniqueViolation(e, "requests_paid_signature_key")) {
-      console.warn(`request ${row.id}: transaction ${p.signature} already settles another request`);
+      console.warn(`request ${row.id}: transaction ${p.signature}${p.instruction === undefined ? "" : ` (transfer ${p.instruction})`} already settles another request`);
       return row;
     }
     throw e;
@@ -388,12 +426,19 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
 }
 
 /**
- * Which of these transactions already settle a stored request (signature -> request id). A
- * transaction naming two requests' references pays only one; the other must find its own (QA-03).
+ * Which of these transactions already settle stored requests, and with which transfer (F1). One transfer naming
+ * two requests' references pays only one; the other must find its own (QA-03). A transaction that pays several
+ * requests with separate transfers (pay_all) stays a candidate for each of them.
  */
-async function claimedSignatures(signatures: readonly string[]): Promise<Map<string, string>> {
-  const rows = await sql(`select paid_signature, id from requests where paid_signature = any($1::text[])`, [signatures]);
-  return new Map(rows.map((r) => [r.paid_signature!, r.id!]));
+async function claimedUnits(signatures: readonly string[]): Promise<Map<string, ClaimedUnit[]>> {
+  const rows = await sql(`select paid_signature, id, paid_instruction from requests where paid_signature = any($1::text[])`, [signatures]);
+  const out = new Map<string, ClaimedUnit[]>();
+  for (const r of rows) {
+    const list = out.get(r.paid_signature!) ?? [];
+    list.push({ requestId: r.id!, instruction: r.paid_instruction == null ? null : Number(r.paid_instruction) });
+    out.set(r.paid_signature!, list);
+  }
+  return out;
 }
 
 const RECHECK_MS = 3000;
@@ -450,7 +495,7 @@ export async function settleFromChain(rows: readonly RequestRow[], rpc: RpcOptio
   const checks = await findPayments(
     due.map((r) => ({ reference: r.reference, recipient: r.recipient, token: r.token, amountAtomic: r.amountAtomic, requestId: r.id })),
     rpc,
-    { claimed: claimedSignatures },
+    { claimedUnits },
   );
   if (lastChecked.size > 10_000) lastChecked.clear();
   for (const r of due) lastChecked.set(r.id, now);

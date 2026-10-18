@@ -118,8 +118,11 @@ export function describeInstruction(instruction) {
  * Checks a tools/call structuredContent that carries a PayBox proposal. `sender` is the fee payer the tx must use;
  * `expected` (from the Solana Pay URL being paid) adds recipient/amount/token/reference/memo checks, and
  * `ataFor(owner, mint)` (optional, needs web3.js) lets USDC destinations be matched to the recipient.
+ * F1 pay_all: `expectedMany` (one entry per request that may be paid: id, recipient, amount, token, splToken,
+ * references) allows several transfers; each must carry exactly one request's references and pay exactly its terms,
+ * no request is paid twice, and the memo names every request paid. `multi: true` allows several transfers unchecked.
  */
-export function inspectProposal(structuredContent, { sender, expected, ataFor, now = Date.now() } = {}) {
+export function inspectProposal(structuredContent, { sender, expected, expectedMany, multi = false, ataFor, now = Date.now() } = {}) {
   const errors = [];
   const warnings = [];
   const proposal = structuredContent?.[PROPOSAL_KEY];
@@ -157,31 +160,71 @@ export function inspectProposal(structuredContent, { sender, expected, ataFor, n
     if (entry.type === "ata_create") warnings.push(`instruction ${index} is a non-idempotent ATA create; it fails if the account exists`);
   }
   const transfers = described.filter((entry) => entry.type === "sol_transfer" || entry.type === "spl_transfer_checked");
-  if (transfers.length !== 1) errors.push(`${transfers.length} transfer instructions, expected exactly 1`);
+  const many = multi || Array.isArray(expectedMany);
+  if (!many && transfers.length !== 1) errors.push(`${transfers.length} transfer instructions, expected exactly 1`);
+  if (many && transfers.length === 0) errors.push("0 transfer instructions, expected at least 1");
+  if (Array.isArray(expectedMany) && transfers.length > expectedMany.length) errors.push(`${transfers.length} transfer instructions for ${expectedMany.length} requests`);
   const transfer = transfers[0];
   const memos = described.filter((entry) => entry.type === "memo");
-  const ataCreate = described.find((entry) => entry.type === "ata_create_idempotent" || entry.type === "ata_create");
+  const ataCreates = described.filter((entry) => entry.type === "ata_create_idempotent" || entry.type === "ata_create");
+  const ataCreate = ataCreates[0];
+  const ownerOf = new Map(ataCreates.map((entry) => [entry.ata, entry.owner]));
+
+  const summarize = (t) => {
+    const isSol = t.type === "sol_transfer";
+    const token = isSol ? "SOL" : t.mint === USDC_MINT ? "USDC" : t.mint;
+    for (const account of t.extra) {
+      if (account.signer || account.writable) errors.push(`reference ${account.address} must be a read-only non-signer`);
+    }
+    if (!isSol && token === "USDC" && t.decimals !== TOKEN_DECIMALS.USDC) errors.push(`USDC transfer with ${t.decimals} decimals`);
+    const from = isSol ? t.from : t.owner;
+    if (sender && from !== sender) errors.push(`transfer authority ${from}, expected the sender ${sender}`);
+    return {
+      token, amount: t.amount, atomic: t.atomic.toString(), from, destination: isSol ? t.to : t.destination,
+      destinationOwner: isSol ? t.to : ownerOf.get(t.destination) ?? null,
+      references: t.extra.map((account) => account.address),
+    };
+  };
 
   let summary = null;
   if (transfer) {
-    for (const account of transfer.extra) {
-      if (account.signer || account.writable) errors.push(`reference ${account.address} must be a read-only non-signer`);
-    }
-    const isSol = transfer.type === "sol_transfer";
-    const token = isSol ? "SOL" : transfer.mint === USDC_MINT ? "USDC" : transfer.mint;
+    const all = transfers.map(summarize);
     summary = {
       bytes: tx.size, feePayer, blockhash: tx.blockhash, instructions: described.map((entry) => entry.type),
-      transfer: {
-        token, amount: transfer.amount, atomic: transfer.atomic.toString(),
-        from: isSol ? transfer.from : transfer.owner, destination: isSol ? transfer.to : transfer.destination,
-        destinationOwner: isSol ? transfer.to : ataCreate && ataCreate.ata === transfer.destination ? ataCreate.owner : null,
-        references: transfer.extra.map((account) => account.address),
-      },
+      transfer: all[0],
+      ...(many && { transfers: all }),
       memo: memos[0]?.text ?? null,
       createsRecipientAta: Boolean(ataCreate),
     };
-    if (!isSol && token === "USDC" && transfer.decimals !== TOKEN_DECIMALS.USDC) errors.push(`USDC transfer with ${transfer.decimals} decimals`);
-    if (sender && summary.transfer.from !== sender) errors.push(`transfer authority ${summary.transfer.from}, expected the sender ${sender}`);
+    if (many && memos.length > 1) warnings.push(`${memos.length} memos; pay_all writes one`);
+  }
+
+  // F1 pay_all: every transfer pays exactly one listed request, by its references.
+  if (Array.isArray(expectedMany) && summary) {
+    const used = new Set();
+    for (const [index, t] of summary.transfers.entries()) {
+      const owners = expectedMany.filter((e) => e.references.some((r) => t.references.includes(r)));
+      if (owners.length !== 1) {
+        errors.push(`transfer ${index} carries the references of ${owners.length} requests, expected exactly 1`);
+        continue;
+      }
+      const e = owners[0];
+      if (used.has(e.id)) errors.push(`request ${e.id} is paid twice`);
+      used.add(e.id);
+      for (const r of e.references) if (!t.references.includes(r)) errors.push(`transfer ${index} misses reference ${r} of request ${e.id}`);
+      if (t.token !== e.token) errors.push(`transfer ${index} pays ${t.token}, request ${e.id} is for ${e.token}`);
+      const decimals = TOKEN_DECIMALS[e.token];
+      if (decimals !== undefined && BigInt(t.atomic) !== toAtomic(e.amount, decimals)) errors.push(`transfer ${index} pays ${t.amount} ${t.token}, request ${e.id} is for ${e.amount}`);
+      if (t.token === "SOL" && t.destination !== e.recipient) errors.push(`transfer ${index} sends SOL to ${t.destination}, request ${e.id} pays ${e.recipient}`);
+      if (t.token !== "SOL") {
+        const derived = ataFor && e.splToken ? ataFor(e.recipient, e.splToken) : null;
+        if (derived && derived !== t.destination) errors.push(`transfer ${index} goes to ${t.destination}, not ${e.id}'s recipient's USDC account ${derived}`);
+        if (t.destinationOwner && t.destinationOwner !== e.recipient) errors.push(`transfer ${index}: token account owner ${t.destinationOwner}, request ${e.id} pays ${e.recipient}`);
+        if (!derived && !t.destinationOwner) warnings.push(`could not confirm transfer ${index}'s destination belongs to ${e.recipient}`);
+      }
+      if (!(summary.memo ?? "").split(" ").includes(`owed:${e.id}`)) errors.push(`the memo doesn't name owed:${e.id}`);
+    }
+    summary.paidIds = [...used];
   }
 
   if (expected && summary) {

@@ -113,6 +113,9 @@ interface ParsedTx {
  * lamports) with at least the amount. Signatures are checked oldest first; the first full payment
  * wins, otherwise the oldest partial one is reported as underpaid. Credits to anyone else, other
  * mints and failed transactions are ignored.
+ * F1 pay_all: one transaction may pay several requests, even two to one recipient for one amount, so the
+ * reference is paired with the transfer instruction that carries it (pairedAmount, the same rule as
+ * web/lib/validate.ts pairedCredit): each request counts exactly its own transfer.
  */
 export async function findPayment(
   rpc: Rpc,
@@ -138,8 +141,19 @@ export async function findPayment(
     }
     if (!tx?.meta || tx.meta.err) continue;
 
-    const credit = q.token === "USDC" ? usdcCredit(tx, q.recipient) : lamportCredit(tx, q.recipient);
-    if (credit <= 0n) continue;
+    let credit = pairedAmount(tx as RichTx, q);
+    if (credit === "raw") {
+      // Two or more SOL transfers into the recipient: read each instruction's accounts to find the one carrying the reference.
+      let raw: RawTx | null = null;
+      try {
+        raw = await within(deadline, rpc.call<RawTx | null>("getTransaction", [s.signature, RAW_TX_OPTS]));
+      } catch (e) {
+        if (e instanceof DeadlineError) { failure = e; break; }
+        raw = null; // can't tell them apart: the whole transaction's credit, as before F1
+      }
+      credit = pairedAmount(tx as RichTx, q, raw);
+    }
+    if (credit === "raw" || credit <= 0n) continue;
     const found: PaymentCheck = {
       status: credit >= q.amountAtomic ? "paid" : "underpaid",
       signature: s.signature,
@@ -383,6 +397,179 @@ function memoOf(tx: RichTx): string | undefined {
     if (ix.program === "spl-memo" && typeof ix.parsed === "string") return ix.parsed.slice(0, 200);
   }
   return undefined;
+}
+
+// ---------------------------------------------------------------------------------------------
+// F1: pairing a reference with its transfer instruction (web/lib/validate.ts pairedCredit is the same rule).
+
+/** getTransaction with encoding "json": each instruction's account list (jsonParsed drops a SOL transfer's extras). */
+export const RAW_TX_OPTS = { maxSupportedTransactionVersion: 1, commitment: "confirmed", encoding: "json" } as const;
+
+interface RawIx { programIdIndex: number; accounts: number[] }
+export interface RawTx {
+  meta: { loadedAddresses?: { writable?: string[]; readonly?: string[] } | null; innerInstructions?: Array<{ instructions: RawIx[] }> | null } | null;
+  transaction: { message: { accountKeys: string[]; instructions: RawIx[] } };
+}
+
+interface TransferInto { index: number; amountAtomic: bigint; refs: string[] | null }
+
+const atomicOf = (v: unknown): bigint | null =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? BigInt(v)
+    : typeof v === "string" && /^\d{1,30}$/.test(v) ? BigInt(v)
+      : typeof v === "bigint" && v >= 0n ? v : null;
+
+function rawAccountLists(raw: RawTx): string[][] {
+  const keys = [...raw.transaction.message.accountKeys, ...(raw.meta?.loadedAddresses?.writable ?? []), ...(raw.meta?.loadedAddresses?.readonly ?? [])];
+  const list = [...raw.transaction.message.instructions, ...(raw.meta?.innerInstructions ?? []).flatMap((g) => g.instructions ?? [])];
+  return list.map((ix) => (ix.accounts ?? []).map((i) => keys[i] ?? ""));
+}
+
+/** USDC transfers into an account `recipient` owns, or SOL transfers to it; refs = the transfer's extra accounts (null: not visible). */
+export function transfersInto(tx: RichTx, recipient: string, token: "USDC" | "SOL", raw?: RawTx | null): TransferInto[] {
+  if (!tx.meta) return [];
+  const keys = tx.transaction.message.accountKeys.map((k) => (typeof k === "string" ? k : k.pubkey));
+  const rawLists = raw ? rawAccountLists(raw) : null;
+  const destinations = token === "USDC"
+    ? new Set([...(tx.meta.preTokenBalances ?? []), ...(tx.meta.postTokenBalances ?? [])]
+      .filter((b) => b.mint === USDC_MINT && b.owner === recipient).map((b) => keys[b.accountIndex]))
+    : new Set([recipient]);
+  const out: TransferInto[] = [];
+  instructionsOf(tx).forEach((ix, index) => {
+    if (typeof ix.parsed !== "object" || !ix.parsed?.info) return;
+    const info = ix.parsed.info;
+    const type = ix.parsed.type ?? "";
+    if (typeof info.destination !== "string" || !destinations.has(info.destination)) return;
+    if (token === "USDC" && ix.program === "spl-token" && (type === "transfer" || type === "transferChecked")) {
+      if (type === "transferChecked" && info.mint !== USDC_MINT) return;
+      const amount = atomicOf(type === "transferChecked" ? (info.tokenAmount as { amount?: unknown } | undefined)?.amount : info.amount);
+      if (amount === null) return;
+      out.push({ index, amountAtomic: amount, refs: Array.isArray(info.signers) ? info.signers.filter((x): x is string => typeof x === "string") : [] });
+    }
+    if (token === "SOL" && ix.program === "system" && (type === "transfer" || type === "transferWithSeed")) {
+      const amount = atomicOf(info.lamports);
+      if (amount === null) return;
+      out.push({ index, amountAtomic: amount, refs: rawLists ? (rawLists[index]?.slice(type === "transfer" ? 2 : 3) ?? []) : null });
+    }
+  });
+  return out;
+}
+
+/**
+ * What this transaction paid this request: the transfers into the recipient that carry the reference (capped at the
+ * net credit); else the net credit when one transfer goes into the recipient, or when several do and their
+ * references can't be seen even with `raw` (the rule before F1). "raw": read the transaction with RAW_TX_OPTS and ask
+ * again (two SOL transfers into one wallet). 0n: nothing.
+ */
+export function pairedAmount(tx: RichTx, q: { reference: string; recipient: string; token: "USDC" | "SOL" }, raw?: RawTx | null): bigint | "raw" {
+  const net = q.token === "USDC" ? usdcCredit(tx, q.recipient) : lamportCredit(tx, q.recipient);
+  if (net <= 0n) return 0n;
+  const into = transfersInto(tx, q.recipient, q.token, raw);
+  const carriers = into.filter((t) => t.refs !== null && t.refs.includes(q.reference));
+  if (carriers.length > 0) {
+    const sum = carriers.reduce((n, t) => n + t.amountAtomic, 0n);
+    return sum < net ? sum : net;
+  }
+  if (into.length > 1 && raw === undefined && into.some((t) => t.refs === null)) return "raw";
+  return net;
+}
+
+// ---------------------------------------------------------------------------------------------
+// F1 pay_all: one read for every wallet a batch touches, then a pure check of what the batch needs.
+
+/** Rent a new USDC account takes (165 bytes), paid by the sender for each recipient that has none. */
+export const ATA_RENT_LAMPORTS = 2_039_280n;
+
+export interface BatchAccounts {
+  senderLamports: bigint;
+  senderUsdc: bigint;
+  senderUsdcFrozen: boolean;
+  /** recipient wallet → its USDC account (null: none yet; frozen as read). USDC recipients only. */
+  usdcAccounts: Map<string, { exists: boolean; frozen: boolean }>;
+  /** SOL recipients whose account doesn't exist yet. */
+  newSolWallets: Set<string>;
+  /** Solana's rent-exempt minimum for a 0-byte account, read only when a SOL recipient is new. */
+  rentMinimum: bigint | null;
+}
+
+/** One getMultipleAccounts read: [sender, sender's USDC account, each USDC recipient's USDC account, each SOL recipient]. */
+export async function readBatchAccounts(
+  rpc: Rpc, q: { sender: string; usdcRecipients: string[]; solRecipients: string[] }, budgetMs = RPC_BUDGET_MS,
+): Promise<BatchAccounts> {
+  const sender = address(q.sender, "sender");
+  const mint = new PublicKey(USDC_MINT);
+  const usdc = [...new Set(q.usdcRecipients)];
+  const sol = [...new Set(q.solRecipients)];
+  const deadline = Date.now() + budgetMs;
+  const keys = [
+    sender, getAssociatedTokenAddressSync(mint, sender, true),
+    ...usdc.map((r) => getAssociatedTokenAddressSync(mint, address(r, "recipient"), true)),
+    ...sol.map((r) => address(r, "recipient")),
+  ];
+  const got = await accounts(rpc, keys, deadline);
+  const from = tokenInfo(got[1] ?? null);
+  const usdcAccounts = new Map(usdc.map((r, i) => {
+    const a = got[2 + i] ?? null;
+    return [r, { exists: a !== null, frozen: tokenInfo(a)?.state === "frozen" }] as const;
+  }));
+  const newSolWallets = new Set(sol.filter((_, i) => (got[2 + usdc.length + i] ?? null) === null));
+  const rentMinimum = newSolWallets.size > 0
+    ? BigInt(await within(deadline, rpc.call<number>("getMinimumBalanceForRentExemption", [0, { commitment: "confirmed" }])))
+    : null;
+  return {
+    senderLamports: lamportsOf(got[0] ?? null), senderUsdc: from?.amount === undefined ? 0n : BigInt(from.amount),
+    senderUsdcFrozen: from?.state === "frozen", usdcAccounts, newSolWallets, rentMinimum,
+  };
+}
+
+export interface BatchNeed {
+  ok: boolean;
+  reason?: string;
+  usdcTotal: bigint;
+  solTotal: bigint;
+  /** USDC recipients (wallets) whose account the batch opens, once each. */
+  opensAccountFor: string[];
+  /** Lamports the sender needs besides the SOL it sends: fees and new USDC accounts. */
+  feeLamports: bigint;
+}
+
+/** Whether `sender` covers every item: the sum per token, the fee reserve and the rent of each USDC account opened. */
+export function assessBatch(a: BatchAccounts, items: ReadonlyArray<{ recipient: string; token: "USDC" | "SOL"; amountAtomic: bigint }>): BatchNeed {
+  let usdcTotal = 0n;
+  let solTotal = 0n;
+  const solTo = new Map<string, bigint>();
+  const opens: string[] = [];
+  for (const it of items) {
+    if (it.token === "USDC") {
+      usdcTotal += it.amountAtomic;
+      if (!a.usdcAccounts.get(it.recipient)?.exists && !opens.includes(it.recipient)) opens.push(it.recipient);
+    } else {
+      solTotal += it.amountAtomic;
+      solTo.set(it.recipient, (solTo.get(it.recipient) ?? 0n) + it.amountAtomic);
+    }
+  }
+  const feeLamports = FEE_RESERVE_LAMPORTS + (opens.length > 1 ? BigInt(opens.length - 1) * ATA_RENT_LAMPORTS : 0n);
+  const base = { usdcTotal, solTotal, opensAccountFor: opens, feeLamports };
+  const no = (reason: string): BatchNeed => ({ ok: false, reason, ...base });
+  const count = (token: "USDC" | "SOL") => items.filter((i) => i.token === token).length;
+  if (usdcTotal > 0n) {
+    if (a.senderUsdc < usdcTotal) return no(`Your wallet has ${usdc(a.senderUsdc)} USDC; ${count("USDC") === 1 ? "this request is" : `these ${count("USDC")} requests total`} ${usdc(usdcTotal)} USDC.`);
+    if (a.senderUsdcFrozen) return no("Your USDC account is frozen, so it cannot send.");
+    for (const it of items) {
+      if (it.token === "USDC" && a.usdcAccounts.get(it.recipient)?.frozen) return no(`The USDC account of ${it.recipient} is frozen, so it cannot receive.`);
+    }
+  }
+  if (a.senderLamports < solTotal + feeLamports) {
+    return no(solTotal > 0n
+      ? `Your wallet needs ${sol(solTotal)} SOL for the SOL requests plus about ${sol(feeLamports)} SOL for fees${opens.length ? " and new USDC accounts" : ""}; it has ${sol(a.senderLamports)} SOL.`
+      : `Your wallet needs about ${sol(feeLamports)} SOL for fees${opens.length ? ` (it also opens ${opens.length} recipient USDC ${opens.length === 1 ? "account" : "accounts"})` : ""}; it has ${sol(a.senderLamports)} SOL.`);
+  }
+  for (const wallet of a.newSolWallets) {
+    const sent = solTo.get(wallet) ?? 0n;
+    if (a.rentMinimum !== null && sent > 0n && sent < a.rentMinimum) {
+      return no(`${wallet} has never been used, so the first payment to it must be at least ${sol(a.rentMinimum)} SOL.`);
+    }
+  }
+  return { ok: true, ...base };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -7,6 +7,12 @@ import { rpcBatch, rpcEach, type RpcOptions } from "./solana";
 // the recipient owns (normally their associated account); for SOL, the wallet's lamports.
 // Less is underpaid. A transaction that mentions the reference but credits nothing is
 // ignored. Same rules as the plugin's direct-RPC check (plugin/src/chain.ts).
+//
+// F1 pay_all: one transaction can pay several requests, even two to the same recipient for the same amount. Each
+// reference is paired with the transfer INSTRUCTION that carries it as an account (Solana Pay puts references on the
+// transfer), so a request counts exactly its own transfer and one transfer never counts for two requests
+// (pairedCredit, allocate). A transaction whose reference rides on another instruction keeps the old rule: the net
+// credit of the whole transaction, and the whole transaction is used up by the request it pays.
 
 export interface PaymentTarget {
   reference: string;
@@ -23,13 +29,25 @@ export interface PaymentQuery extends PaymentTarget {
   requestId?: string;
 }
 
+/** A stored payment: the request it settles and the transfer instruction that paid it (null: the whole transaction). */
+export interface ClaimedUnit {
+  requestId: string;
+  instruction: number | null;
+}
+
 export interface FindOptions {
   /**
-   * Which of these signatures already settle a stored request (signature -> request id). A
-   * transaction carrying several references settles only one request; the others keep looking
+   * Which of these signatures already settle a stored request (signature -> request id), each as a whole
+   * transaction. A transaction carrying several references settles only one request; the others keep looking
    * for their own payment instead of re-picking that transaction forever (QA-03).
    */
   claimed?: (signatures: readonly string[]) => Promise<ReadonlyMap<string, string>>;
+  /**
+   * F1: the same, per transfer instruction (lib/requests.ts reads paid_instruction). Wins over `claimed`. A
+   * transaction that paid several requests (pay_all) stays a candidate for the others; only a transfer another
+   * request already counts is skipped.
+   */
+  claimedUnits?: (signatures: readonly string[]) => Promise<ReadonlyMap<string, readonly ClaimedUnit[]>>;
 }
 
 export interface Credit {
@@ -39,6 +57,13 @@ export interface Credit {
   /** "2026-10-17T05:00:09Z" */
   at: string;
   slot: number;
+  /**
+   * F1: the transfer instruction this credit pairs with (its index in the transaction's instructions, inner ones
+   * after the top-level ones). Absent: the credit is the whole transaction's.
+   */
+  instruction?: number;
+  /** F1: that transfer carries this request's reference itself (so it wins over a credit that only shares it). */
+  byReference?: true;
 }
 
 export interface PaymentCheck {
@@ -80,6 +105,25 @@ export interface ParsedTransaction {
     signatures: string[];
     message: { accountKeys: (ParsedAccountKey | string)[]; instructions: ParsedInstruction[] };
   };
+}
+
+interface RawInstruction {
+  programIdIndex: number;
+  accounts: number[];
+}
+
+/**
+ * The subset of a `getTransaction` (encoding "json") result pairedCredit reads: each instruction's account list.
+ * jsonParsed drops the extra accounts of a SOL transfer (the references), so a transaction with two SOL transfers
+ * into the same wallet is read once more this way to tell them apart.
+ */
+export interface RawTransaction {
+  meta: {
+    err?: unknown;
+    loadedAddresses?: { writable?: string[]; readonly?: string[] } | null;
+    innerInstructions?: { instructions: RawInstruction[] }[] | null;
+  } | null;
+  transaction: { message: { accountKeys: string[]; instructions: RawInstruction[] } };
 }
 
 export function isoSeconds(unixSeconds: number | bigint | null): string {
@@ -158,6 +202,105 @@ export function creditTo(tx: ParsedTransaction | null, recipient: string, token:
   };
 }
 
+// ---------------------------------------------------------------- F1: pairing a reference with its transfer
+
+/** One transfer instruction into the recipient. `refs` = the accounts after its fixed ones; null = not visible. */
+export interface TransferInto {
+  /** Index in the transaction's instructions, inner ones after the top-level ones (allInstructions order). */
+  index: number;
+  amountAtomic: bigint;
+  /** The token owner (USDC) or source wallet (SOL). */
+  authority: string | null;
+  refs: string[] | null;
+}
+
+/** Each instruction's accounts, from the "json" encoding, in allInstructions order. */
+function rawAccountLists(raw: RawTransaction): string[][] {
+  const keys = [
+    ...raw.transaction.message.accountKeys,
+    ...(raw.meta?.loadedAddresses?.writable ?? []),
+    ...(raw.meta?.loadedAddresses?.readonly ?? []),
+  ];
+  const list = [...raw.transaction.message.instructions, ...(raw.meta?.innerInstructions ?? []).flatMap((g) => g.instructions)];
+  return list.map((ix) => (ix.accounts ?? []).map((i) => keys[i] ?? ""));
+}
+
+const atomicOf = (value: unknown): bigint | null => {
+  if (typeof value === "bigint") return value >= 0n ? value : null;
+  if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : null;
+  if (typeof value === "string" && /^\d{1,30}$/.test(value)) return BigInt(value);
+  return null;
+};
+
+/**
+ * Every USDC transfer (transfer / transferChecked) into an account `recipient` owns, or every SOL transfer to
+ * `recipient`. jsonParsed shows the extra accounts of a token transfer as `signers` (the references Solana Pay
+ * appends), but drops them from a SOL transfer: those come from `raw` when it is given, else refs is null.
+ */
+export function transfersInto(tx: ParsedTransaction, recipient: string, token: Token, raw?: RawTransaction | null): TransferInto[] {
+  if (!tx.meta) return [];
+  const keys = accountKeys(tx);
+  const rawLists = raw ? rawAccountLists(raw) : null;
+  const destinations = token === "USDC"
+    ? new Set([...(tx.meta.preTokenBalances ?? []), ...(tx.meta.postTokenBalances ?? [])]
+      .filter((b) => b.mint === TOKENS.USDC.mint && b.owner === recipient).map((b) => keys[b.accountIndex]))
+    : new Set([recipient]);
+  const out: TransferInto[] = [];
+  allInstructions(tx).forEach((ix, index) => {
+    if (typeof ix.parsed !== "object" || !ix.parsed?.info) return;
+    const info = ix.parsed.info;
+    const type = ix.parsed.type ?? "";
+    if (typeof info.destination !== "string" || !destinations.has(info.destination)) return;
+    if (token === "USDC" && ix.program === "spl-token" && (type === "transfer" || type === "transferChecked")) {
+      if (type === "transferChecked" && info.mint !== TOKENS.USDC.mint) return;
+      const amount = atomicOf(type === "transferChecked" ? (info.tokenAmount as { amount?: unknown } | undefined)?.amount : info.amount);
+      if (amount === null) return;
+      const signers = Array.isArray(info.signers) ? info.signers.filter((s): s is string => typeof s === "string") : [];
+      const who = typeof info.authority === "string" ? info.authority : typeof info.multisigAuthority === "string" ? info.multisigAuthority : null;
+      out.push({ index, amountAtomic: amount, authority: who, refs: signers });
+    }
+    if (token === "SOL" && ix.program === "system" && (type === "transfer" || type === "transferWithSeed")) {
+      const amount = atomicOf(info.lamports);
+      if (amount === null) return;
+      // transfer: [from, to, ...extra]; transferWithSeed: [from, base, to, ...extra].
+      const fixed = type === "transfer" ? 2 : 3;
+      const refs = rawLists ? (rawLists[index]?.slice(fixed) ?? []) : null;
+      out.push({ index, amountAtomic: amount, authority: typeof info.source === "string" ? info.source : null, refs });
+    }
+  });
+  return out;
+}
+
+/**
+ * What this transaction paid this request, F1 rules:
+ * - the transfers into the recipient that carry the reference (its "carriers"): their sum, capped at the net
+ *   credit, paired with the first carrier's instruction;
+ * - else, when exactly one transfer goes into the recipient: the net credit (today's rule, for wallets that put the
+ *   reference on another instruction), paired with that transfer;
+ * - else the net credit of the whole transaction (no instruction), as before F1.
+ * "raw" means two or more SOL transfers go into the recipient and jsonParsed can't say which carries the reference:
+ * read the transaction with RAW_TX_PARAMS and call again with it (null when that read failed: whole transaction).
+ */
+export function pairedCredit(tx: ParsedTransaction | null, target: PaymentTarget, raw?: RawTransaction | null): Credit | null | "raw" {
+  if (!tx?.meta || tx.meta.err != null) return null;
+  if (!accountKeys(tx).includes(target.reference)) return null;
+  const net = creditTo(tx, target.recipient, target.token);
+  if (!net) return null;
+  const into = transfersInto(tx, target.recipient, target.token, raw);
+  const carriers = into.filter((t) => t.refs !== null && t.refs.includes(target.reference));
+  if (carriers.length > 0) {
+    const sum = carriers.reduce((s, t) => s + t.amountAtomic, 0n);
+    const amountAtomic = sum < net.amountAtomic ? sum : net.amountAtomic;
+    if (amountAtomic <= 0n) return null;
+    return { ...net, amountAtomic, payer: carriers[0].authority ?? net.payer, instruction: carriers[0].index, byReference: true };
+  }
+  // One transfer into the recipient: it is the payment, whatever else it carries (wallets append extra signer
+  // accounts too). If it also carries another request's reference, allocate() gives it to only one of them.
+  if (into.length === 1) return { ...net, instruction: into[0].index };
+  if (into.length > 1 && raw === undefined && into.some((t) => t.refs === null)) return "raw";
+  return net;
+}
+
 /**
  * Earliest transaction that pays in full wins; otherwise the earliest partial credit is
  * reported as underpaid. Same rule as the plugin's direct-RPC check (plugin/src/chain.ts).
@@ -188,6 +331,14 @@ const FIRST_ROUND = 4;
 const ROUND_MIN_MS = 750;
 
 export const TX_PARAMS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" } as const;
+/** F1: the same transaction with each instruction's account list (pairedCredit's "raw"). */
+export const RAW_TX_PARAMS = { encoding: "json", maxSupportedTransactionVersion: 1, commitment: "confirmed" } as const;
+
+/** The claims of other requests on this signature that block `credit` for request `requestId`. */
+function blockedByClaims(units: readonly ClaimedUnit[] | undefined, requestId: string | undefined, credit: Credit): boolean {
+  return (units ?? []).some((u) => u.requestId !== requestId
+    && (u.instruction === null || credit.instruction === undefined || u.instruction === credit.instruction));
+}
 
 /**
  * Check many requests against the chain: one batch of reference -> signatures, then parsed
@@ -212,17 +363,24 @@ export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOpt
       .reverse()
       .slice(0, MAX_TRANSACTIONS),
   );
-  if (options.claimed) {
-    const all = [...new Set(candidates.flat())];
+  // Stored payments: per transfer with claimedUnits (F1), else per whole transaction with claimed.
+  let units = new Map<string, readonly ClaimedUnit[]>();
+  const all = [...new Set(candidates.flat())];
+  if (options.claimedUnits) {
+    units = all.length ? new Map(await options.claimedUnits(all)) : new Map();
+  } else if (options.claimed) {
     const owners = all.length ? await options.claimed(all) : new Map<string, string>();
-    candidates = candidates.map((list, i) => list.filter((sig) => {
-      const owner = owners.get(sig);
-      return owner === undefined || owner === queries[i].requestId;
-    }));
+    units = new Map([...owners].map(([sig, requestId]) => [sig, [{ requestId, instruction: null }]]));
+  }
+  if (units.size > 0) {
+    // A transaction another request holds as a whole is never a candidate (QA-03).
+    candidates = candidates.map((list, i) => list.filter((sig) =>
+      !(units.get(sig) ?? []).some((u) => u.instruction === null && u.requestId !== queries[i].requestId)));
   }
 
   // Mainnet carries v1 transactions; asking for at most v0 makes the node refuse them.
   const bySig = new Map<string, ParsedTransaction | null>();
+  const rawBySig = new Map<string, RawTransaction | null>();
   const credits: Credit[][] = queries.map(() => []);
   const cursor = queries.map(() => 0);
   const settled = (i: number) => allocate(queries, credits)[i].status === "paid";
@@ -244,11 +402,30 @@ export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOpt
     if (round > 0 && deadline - Date.now() < ROUND_MIN_MS) break;
     const txs = (await rpcEach(batch.map((sig) => ({ method: "getTransaction", params: [sig, TX_PARAMS] })), rpc)) as (ParsedTransaction | null)[];
     batch.forEach((sig, k) => bySig.set(sig, txs[k]));
+    // F1: several SOL transfers into one wallet need each instruction's accounts to pair references (once per tx).
+    const rawWanted = new Set<string>();
+    for (let i = 0; i < queries.length; i++) {
+      for (const sig of taken[i]) {
+        if (bySig.has(sig) && !rawBySig.has(sig) && pairedCredit(bySig.get(sig) ?? null, queries[i]) === "raw") rawWanted.add(sig);
+      }
+    }
+    if (rawWanted.size > 0) {
+      const list = [...rawWanted];
+      let raws: (RawTransaction | null)[];
+      try {
+        raws = (await rpcEach(list.map((sig) => ({ method: "getTransaction", params: [sig, RAW_TX_PARAMS] })), rpc)) as (RawTransaction | null)[];
+      } catch {
+        raws = list.map(() => null); // can't tell the transfers apart: the whole transaction, as before F1
+      }
+      list.forEach((sig, k) => rawBySig.set(sig, raws[k] ?? null));
+    }
     for (let i = 0; i < queries.length; i++) {
       for (const sig of taken[i]) {
         if (!bySig.has(sig)) continue; // over the read cap
-        const credit = creditFromTransaction(bySig.get(sig) ?? null, queries[i]);
-        if (credit) credits[i].push(credit);
+        const credit = pairedCredit(bySig.get(sig) ?? null, queries[i], rawBySig.has(sig) ? rawBySig.get(sig) : undefined);
+        if (!credit || credit === "raw") continue;
+        if (blockedByClaims(units.get(sig), queries[i].requestId, credit)) continue;
+        credits[i].push(credit);
       }
     }
     if (bySig.size >= MAX_TRANSACTIONS) break;
@@ -258,28 +435,60 @@ export async function findPayments(queries: readonly PaymentQuery[], rpc: RpcOpt
 
 const bySlot = (a: Credit, b: Credit) => a.slot - b.slot;
 
+/** What credits use up: a credit's transfer instruction, or (without one) its whole transaction. */
+function usedUnits() {
+  const whole = new Set<string>();
+  const any = new Set<string>();
+  const transfers = new Set<string>();
+  return {
+    free(c: Credit): boolean {
+      if (c.instruction === undefined) return !any.has(c.signature);
+      return !whole.has(c.signature) && !transfers.has(`${c.signature}#${c.instruction}`);
+    },
+    take(c: Credit): void {
+      any.add(c.signature);
+      if (c.instruction === undefined) whole.add(c.signature);
+      else transfers.add(`${c.signature}#${c.instruction}`);
+    },
+  };
+}
+
 /**
- * decide() for several requests at once, where one transaction can pay only one of them: a
- * transaction naming two requests' references goes to the request with fewer alternatives, and
- * the other keeps its own payment (QA-03). For a single request this is exactly decide().
+ * decide() for several requests at once, where one transfer can pay only one of them: a
+ * transaction naming two requests' references on one transfer goes to the request with fewer
+ * alternatives, and the other keeps its own payment (QA-03). F1: separate transfers in one transaction
+ * (pay_all) pay their own requests. For a single request this is exactly decide().
  */
 export function allocate(queries: readonly Pick<PaymentQuery, "amountAtomic">[], credits: readonly (readonly Credit[])[]): PaymentCheck[] {
   const full = queries.map((q, i) => credits[i].filter((c) => q.amountAtomic === null || c.amountAtomic >= q.amountAtomic).sort(bySlot));
   const order = queries.map((_, i) => i).sort((a, b) => full[a].length - full[b].length || a - b);
-  const used = new Set<string>();
+  const used = usedUnits();
+  // F1: a transfer that carries a request's own reference belongs to that request. Another request that only shares
+  // the transaction (its reference rides elsewhere, or a whole-transaction credit) never takes it.
+  const carried = new Set<string>();
+  const carriedTx = new Set<string>();
+  for (const list of credits) {
+    for (const c of list) {
+      if (!c.byReference) continue;
+      carried.add(`${c.signature}#${c.instruction}`);
+      carriedTx.add(c.signature);
+    }
+  }
+  const own = (c: Credit) => c.byReference === true
+    || (c.instruction === undefined ? !carriedTx.has(c.signature) : !carried.has(`${c.signature}#${c.instruction}`));
   const out: PaymentCheck[] = queries.map(() => ({ status: "open" }));
   for (const i of order) {
-    const pick = full[i].find((c) => !used.has(c.signature));
+    const pick = full[i].find((c) => own(c) && used.free(c));
     if (pick) {
-      used.add(pick.signature);
+      used.take(pick);
       out[i] = { status: "paid", payment: pick };
     }
   }
   for (const i of order) {
     if (out[i].status === "paid") continue;
-    const partial = [...credits[i]].sort(bySlot).find((c) => !used.has(c.signature));
+    const partial = [...credits[i]].sort(bySlot).find((c) => own(c) && used.free(c));
     if (partial) {
-      used.add(partial.signature);
+      used.take(partial);
       out[i] = { status: "underpaid", payment: partial };
     }
   }

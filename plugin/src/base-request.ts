@@ -8,6 +8,7 @@ import { idMatchesTerms, VERIFIED_ID_LENGTH } from "./request-id.js";
 import { brandFlags, cautionLine, clean, quote, shortAddress } from "./text.js";
 import { expiryLine, expiryProblem } from "./expiry.js"; // W3-C on Base
 import { SCREENING_UNAVAILABLE_LINE } from "./screen.js"; // W2-E on Base
+import { ADDRESSED_LINE, REFUSE_PAYER_NOT_STORED, samePayer, type PayerResolution } from "./payer.js"; // F1
 
 // W3-B Base requests, plugin side. USDC on Base (eip155:8453):
 // - ask_for_money with chain "base" creates a hosted request whose link opens an EIP-681 USDC
@@ -34,6 +35,9 @@ export interface BaseAskArgs {
   requester_name?: string;
   from_domain?: string;
   expires_in_days?: number; // W3-C
+  /** F1: the payer, already being checked by ask_for_money (an .sns name resolves on Solana). */
+  payerCheck?: Promise<PayerResolution | null>;
+  requesterHandle?: string | null;
 }
 
 /** The Base share message: same shape as text.ts shareText, with "any Base wallet". Inputs already clean()ed. */
@@ -71,11 +75,14 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
   };
 
   // W2-E: the sanctions screen (OFAC SDN list, 0x addresses included) runs beside the DNS check, as on Solana.
-  const [screening, check] = await Promise.all([
+  const [screening, check, payerResult] = await Promise.all([
     deps.screenRecipient(recipient, deps),
     args.from_domain !== undefined ? checkFromDomain(args.from_domain, recipient, deps, 4000) : undefined,
+    args.payerCheck ?? Promise.resolve(null), // F1
   ]);
   if (!screening.ok) return refusal(screening.message);
+  if (payerResult && !payerResult.ok) return refusal(payerResult.message); // F1
+  const payer = payerResult?.ok ? payerResult : null;
   let fromDomain: { domain: string; lines: string[] } | undefined;
   if (check) {
     if (!check.ok) return refusal(check.message);
@@ -96,6 +103,8 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     ...(text.requesterName && { requester_name: text.requesterName }),
     ...(fromDomain && { from_domain: fromDomain.domain }),
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
+    ...(payer && { payer: payer.body }), // F1: the payer's Solana wallet (their inbox key), even for a Base request
+    ...(args.requesterHandle && { requester_handle: args.requesterHandle }),
   };
 
   let res: CreateRequestRes;
@@ -122,6 +131,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
   if (fromDomain && res.from_domain !== fromDomain.domain) {
     return refusal(`Owed's server didn't attach ${fromDomain.domain} to the request, so the link wasn't used. Try again, or ask without from_domain.`);
   }
+  if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer)); // F1
   // W3-C: the server must have set the expiry that was asked for.
   const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
   if (expiry) return refusal(expiry);
@@ -138,6 +148,8 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     ...(fromDomain && { from_domain: fromDomain.domain }),
     chain: "base" as const, pay_url: payUrl,
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
+    ...(payer && { payer: payer.payer }), // F1
+    ...(args.requesterHandle && { requester_handle: args.requesterHandle }),
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -148,6 +160,7 @@ export async function askForMoneyOnBase(args: BaseAskArgs, deps: Deps) {
     ...(fromDomain ? fromDomain.lines : []),
     ...(expiresAt && args.expires_in_days !== undefined ? [expiryLine(expiresAt, args.expires_in_days)] : []), // W3-C
     ...(screening.screening === "unavailable" ? [SCREENING_UNAVAILABLE_LINE] : []), // W2-E
+    ...(payer ? [...payer.lines, ADDRESSED_LINE(payer.payer)] : []), // F1
   ];
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

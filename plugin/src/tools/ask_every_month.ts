@@ -8,6 +8,12 @@ import { checkFromDomain, fromDomainSchema, type FromDomainCheck } from "../paye
 import { idMatchesTerms } from "../request-id.js";
 import { screenRecipient, type Screening } from "../screen.js";
 import { cautionLine, clean, quote } from "../text.js";
+// F1 payer inbox start
+import {
+  ADDRESSED_LINE, normalizeHandle, payerInput, payerLabel, payerOutput, requesterHandleInput, resolvePayer, samePayer, type PayerResolution,
+} from "../payer.js";
+import { SNS_BUDGET_MS } from "../sns-payee.js";
+// F1 payer inbox end
 
 // ask_every_month (W3-D): the same request on the same day of every month, e.g. rent on the 1st. Owed's
 // server stores the schedule; when today is the day it opens this month's request at once, otherwise it
@@ -35,6 +41,8 @@ export const inputSchema = z.object({
   // Local-currency asks lock a rate when each request is made; a schedule would reuse one rate for months, so
   // it is refused with a clear reason rather than rejected by the schema.
   currency: z.string().max(8).optional().describe("Not supported: monthly requests are in USDC or SOL. Leave it out."),
+  payer: payerInput.optional().describe("Optional: who pays each month, so every month's request shows up in their own agent's inbox (what_do_i_owe). For an X handle, call PayBox resolve_username first, tell the user which wallet it resolved to, and pass {handle, wallet}; or pass {sns} or {wallet}. A handle is a label: Owed doesn't verify it."), // F1
+  requester_handle: requesterHandleInput.optional(), // F1
 }).strict();
 
 const firstRequestSchema = z.object({
@@ -60,6 +68,8 @@ export const outputSchema = z.object({
   first_request: firstRequestSchema.nullable().describe("This month's request, opened now because today is the day; null otherwise."),
   share_text: z.string().optional().describe("A ready-to-send message for this month's request (only with first_request)."),
   from_domain: z.string().optional().describe("The verified domain payers see on every month's request."),
+  payer: payerOutput.optional().describe("Who every month's request is addressed to: each is in their what_do_i_owe inbox."), // F1
+  requester_handle: z.string().optional().describe("The user's own X handle as the payer sees it (not verified by Owed)."), // F1
 }).strict();
 
 export type EveryMonthInput = z.output<typeof inputSchema>;
@@ -136,11 +146,15 @@ export async function askEveryMonth(
   // Screening and the DNS check run side by side; together with the API call they must fit 10 s.
   const budgetLeft = () => CALL_BUDGET_MS - (deps.now() - started);
   const domainBudget = Math.max(0, budgetLeft() - SCHEDULE_API_TIMEOUT_MS - 500);
-  const [screening, domain] = await Promise.all([
+  const requesterHandle = args.requester_handle === undefined ? null : normalizeHandle(args.requester_handle); // F1
+  const [screening, domain, payerResult] = await Promise.all([
     screen(args.recipient),
     args.from_domain !== undefined ? checkDomain(args.from_domain, args.recipient, deps, domainBudget) : Promise.resolve(null as FromDomainCheck | null),
+    args.payer ? resolvePayer(args.payer, args.recipient, deps, Math.min(SNS_BUDGET_MS, Math.max(500, domainBudget)), text.payerName) : Promise.resolve(null as PayerResolution | null), // F1
   ]);
   if (!screening.ok) return refusal(screening.message);
+  if (payerResult && !payerResult.ok) return refusal(payerResult.message.replace("Nothing was created.", "No monthly request was set up.")); // F1
+  const payer = payerResult?.ok ? payerResult : null;
   if (domain && !domain.ok) return refusal(domain.message.replace("the request wasn't created", "no monthly request was set up"));
 
   const body: CreateScheduleReq = {
@@ -151,6 +165,8 @@ export async function askEveryMonth(
     day_of_month: args.day_of_month,
     ...(args.months !== undefined && { months: args.months }),
     ...(domain?.ok && { from_domain: domain.from_domain }),
+    ...(payer && { payer: payer.body }), // F1
+    ...(requesterHandle && { requester_handle: requesterHandle }),
   };
 
   const api = makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: SCHEDULE_API_TIMEOUT_MS });
@@ -168,6 +184,10 @@ export async function askEveryMonth(
 
   const mismatch = checkSchedule(res, body, atomic, ctx, deps);
   if (mismatch) return refusal(mismatch);
+  // F1: the schedule must carry the payer, or no month's request lands in their inbox.
+  if (payer && !samePayer(res.payer, payer.payer)) {
+    return refusal(`Owed's server stored the monthly request without addressing it to ${payerLabel(payer.payer)}. Check who_owes_me before trying again; cancel_request ends a month's request.`);
+  }
 
   const first = res.first_request;
   const share_text = first
@@ -189,6 +209,8 @@ export async function askEveryMonth(
       : null,
     ...(share_text && { share_text }),
     ...(domain?.ok && { from_domain: domain.from_domain }),
+    ...(payer && { payer: payer.payer }), // F1
+    ...(requesterHandle && { requester_handle: requesterHandle }),
   };
 
   const runs = res.months === null ? "every month, no end date" : `${res.months} ${res.months === 1 ? "month" : "months"} in all`;
@@ -203,6 +225,7 @@ export async function askEveryMonth(
     lines.push(`The first request opens on ${readableDate(res.next_request_on)}. Owed opens one each month on that day; who_owes_me lists each with its link to send.`);
   }
   if (domain?.ok) lines.push(...domain.lines);
+  if (payer) lines.push(...payer.lines, ADDRESSED_LINE(payer.payer).replace("sees it", "sees each month's request")); // F1
   const caution = cautionLine(first?.flags ?? res.flags);
   if (caution) lines.push(caution);
   if (screening.screening === "unavailable") lines.push("Recipient screening was unavailable, so this address wasn't screened.");

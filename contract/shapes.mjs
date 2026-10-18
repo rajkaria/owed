@@ -428,6 +428,21 @@ const cancelProof = object({ at: iso, signed_message: string({ min: 1, max: 200 
 const snsName = string({ max: 140, pattern: /^[^.\s]{1,63}(\.[^.\s]{1,63})?\.sns$/u, test: (t) => t === t.toLowerCase(), label: "a lower-case SNS name ending in .sns" });
 const snsSource = oneOf("sol_record_v2", "sol_record_v1", "owner");
 
+// F1 payer inbox: who a request is addressed to. X handles are stored lower case without "@" (labels: Owed never
+// verifies them); the payer is a Solana wallet, found by a handle (PayBox resolve_username), an .sns name or itself.
+// Never part of a request id.
+const handle = string({ max: 15, pattern: /^[a-z0-9_]{1,15}$/, label: "an X handle, lower case without @" });
+const handleIn = string({ max: 16, pattern: /^@?[A-Za-z0-9_]{1,15}$/, label: "an X handle like @sam_ok" });
+const payerReq = object({ wallet: optional(pubkey), handle: optional(handleIn), sns: optional(string({ min: 1, max: 140 })) }, (value, path, ctx) => {
+  if (!value.wallet && !value.sns) ctx.errors.push(`${path}: needs wallet or sns`);
+  if (value.handle && !value.wallet) ctx.errors.push(`${path}.wallet: a handle comes with the wallet resolve_username returned`);
+});
+const payerInfo = object({ wallet: pubkey, handle: nullable(handle), sns: nullable(snsName) });
+/** The payer can never be the wallet the request pays. */
+function payerNotRecipient(value, path, ctx) {
+  if (value.payer && value.recipient && value.payer.wallet === value.recipient) ctx.errors.push(`${path}.payer.wallet: the request's own recipient`);
+}
+
 const getRequestFields = {
   id, kind: oneOf("single", "split_share", "invoice"), recipient: pubkey, amount: positiveAmount, token,
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
@@ -441,8 +456,10 @@ const getRequestFields = {
   matched: optional(nullable((value, path, ctx) => matchedProof(value, path, ctx))), rest_of: optional(nullable(id)),
   rest_request: optional(nullable((value, path, ctx) => restLink(value, path, ctx))),
   sns_name: optional(nullable(snsName)), sns_source: optional(nullable(snsSource)), sns_resolved_at: optional(nullable(iso)), // W3-S
+  payer: optional(nullable(payerInfo)), requester_handle: optional(nullable(handle)), // F1
 };
 function getRequestConsistent(value, path, ctx) {
+  payerNotRecipient(value, path, ctx); // F1
   // W3-S: a stored name always says which rule picked the wallet, and when.
   if (value.sns_name && (!value.sns_source || !value.sns_resolved_at)) ctx.errors.push(`${path}.sns_name: set without sns_source and sns_resolved_at`);
   payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
@@ -462,9 +479,10 @@ function getRequestConsistent(value, path, ctx) {
 export const shapes = {
   createGroupReq: object({
     recipient: pubkey, total: positiveAmount, token, title: string({ min: 1, max: 60 }),
-    people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount) }), { min: 2, max: 20 }),
+    people: array(object({ name: string({ min: 1, max: 40 }), amount: optional(positiveAmount), payer: optional(payerReq) }), { min: 2, max: 20 }), // F1: + payer
     requester_name: optional(string({ max: 40 })), source: oneOf("plugin", "web"),
     from_domain: optional(string({ min: 1, max: 253 })), expires_in_days: optional(expiresInDays),
+    requester_handle: optional(handleIn), // F1
   }, peopleFitTotal),
   groupRes: object({
     id: groupId, link: httpsUrl, title: untrusted(60), recipient: pubkey, token, total: positiveAmount,
@@ -476,9 +494,14 @@ export const shapes = {
       id, name: untrusted(40), amount: positiveAmount, status: oneOf("open", "paid", "underpaid", "cancelled", "expired"),
       link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, paid: nullable(paidInfo),
       from_domain: optional(nullable(domain)),
+      payer: optional(payerInfo), // F1
     }), { min: 2, max: 20 }),
     expires_at: optional(iso), // W3-C
-  }, groupConsistent),
+    requester_handle: optional(handle), // F1
+  }, (value, path, ctx) => {
+    groupConsistent(value, path, ctx);
+    value.shares.forEach((share, index) => { if (share.payer?.wallet === value.recipient) ctx.errors.push(`${path}.shares[${index}].payer.wallet: the group's own recipient`); });
+  }),
   createRequestReq: object({
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ max: 40 })), for: optional(string({ max: 80 })), note: optional(string({ max: 140 })),
@@ -486,13 +509,15 @@ export const shapes = {
     source: oneOf("plugin", "web"), from_domain: optional(string({ min: 1, max: 253 })),
     expires_in_days: optional(expiresInDays), // W3-C
     sns_name: optional(string({ min: 1, max: 140 })), // W3-S
-  }, decimalsFit("amount")),
+    payer: optional(payerReq), requester_handle: optional(handleIn), // F1
+  }, (value, path, ctx) => { decimalsFit("amount")(value, path, ctx); payerNotRecipient(value, path, ctx); }),
   createRequestRes: object({
     id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
     x402_url: optional(nullable(httpsUrl)), created_at: iso, flags: array(flag), from_domain: optional(nullable(domain)),
     expires_at: optional(nullable(iso)), // W3-C
     chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
     sns_name: optional(nullable(snsName)), sns_source: optional(nullable(snsSource)), // W3-S
+    payer: optional(nullable(payerInfo)), requester_handle: optional(nullable(handle)), // F1
   }, (value, path, ctx) => {
     payUrlIsSolanaPayUrl(value, path, ctx); // W3-B
     if (value.sns_name && !value.sns_source) ctx.errors.push(`${path}.sns_source: sns_name is set but sns_source is ${show(value.sns_source)}`); // W3-S
@@ -619,7 +644,8 @@ Object.assign(shapes, {
     due_date: invoiceDate, invoice_number: optional(string({ min: 1, max: 20 })), notes: optional(string({ min: 1, max: 280 })),
     from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
     expires_in_days: optional(expiresInDays), // W3-C
-  }, invoiceItemsFit),
+    payer: optional(payerReq), requester_handle: optional(handleIn), // F1: the client as a payer
+  }, (value, path, ctx) => { invoiceItemsFit(value, path, ctx); payerNotRecipient(value, path, ctx); }),
   invoiceRes: object({
     id, link: httpsUrl, request_link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
     x402_url: optional(nullable(httpsUrl)), recipient: pubkey, token,
@@ -631,7 +657,8 @@ Object.assign(shapes, {
     from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })),
     from_domain_verified_at: nullable(iso),
     expires_at: optional(iso), cancelled_at: optional(iso), // W3-C
-  }, invoiceConsistent),
+    payer: optional(payerInfo), requester_handle: optional(handle), // F1
+  }, (value, path, ctx) => { invoiceConsistent(value, path, ctx); payerNotRecipient(value, path, ctx); }),
 });
 
 Object.assign(fixtureShapes, {
@@ -704,7 +731,8 @@ Object.assign(shapes, {
     recipient: pubkey, amount: positiveAmount, token,
     payer_name: optional(string({ min: 1, max: 40 })), for: optional(string({ min: 1, max: 80 })), requester_name: optional(string({ min: 1, max: 40 })),
     day_of_month: dayOfMonth, months: optional(monthCount), from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"),
-  }, decimalsFit("amount")),
+    payer: optional(payerReq), requester_handle: optional(handleIn), // F1
+  }, (value, path, ctx) => { decimalsFit("amount")(value, path, ctx); payerNotRecipient(value, path, ctx); }),
   scheduleRes: object({
     id: scheduleId, recipient: pubkey, amount: positiveAmount, token,
     payer_name: untrusted(40), for: untrusted(80), requester_name: untrusted(40),
@@ -715,7 +743,9 @@ Object.assign(shapes, {
       period: month, id, link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
       x402_url: nullable(httpsUrl), created_at: iso, flags: array(flag), from_domain: nullable(domain),
     })),
+    payer: optional(payerInfo), requester_handle: optional(handle), // F1
   }, (value, path, ctx) => {
+    payerNotRecipient(value, path, ctx); // F1
     decimalsFit("amount")(value, path, ctx);
     if ((value.from_domain === null) !== (value.from_domain_verified_at === null)) ctx.errors.push(`${path}.from_domain: set without from_domain_verified_at, or the reverse`);
     if (value.first_period.length === 7 && value.created_at.slice(0, 7) > value.first_period) ctx.errors.push(`${path}.first_period: before the month it was created in`);
@@ -1055,4 +1085,126 @@ Object.assign(fixtureShapes, {
   "sns.create-request.req.json": "createRequestReq",
   "sns.create-request.res.json": "createRequestRes",
   "sns.get-request.res.json": "getRequestRes",
+});
+
+// ---------------------------------------------------------------------------------------------- F1: payer inbox
+// what_do_i_owe: POST /api/v1/inbox lists the open requests addressed to the wallet that signed
+// "Owed inbox access for <payer> at <ISO>" (checked for real here); POST /api/v1/inbox/block hides one requester
+// wallet ("Owed block <requester> for <payer> at <ISO>", or unblock). pay_all reads every request's terms at once
+// with GET /api/v1/requests?ids=, each in the getRequestRes shape. Fixtures: contract/inbox-fixtures.mjs.
+
+const INBOX_CAUTION_RE = /^Anyone can address a request to your wallet/;
+const anyWallet = string({ test: (t) => isPubkey(t) || EVM_ADDRESS_RE.test(t), label: "a base58 32-byte key or a 0x address (Base)" });
+
+function signedAs(lead, signer, value, path, ctx) {
+  if (!value.signed_message.startsWith(lead) || !LEDGER_ISO.test(value.signed_message.slice(lead.length))) {
+    return void ctx.errors.push(`${path}.signed_message: must read "${lead}<UTC time>"`);
+  }
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(value.signature) && !ed25519Verifies(value.signed_message, value.signature, signer)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${signer} over signed_message`);
+  }
+}
+
+const inboxEntry = object({
+  id, kind: oneOf("single", "split_share", "invoice"), link: httpsUrl, status: oneOf("open", "underpaid"),
+  amount: positiveAmount, amount_due: positiveAmount, token, chain: oneOf("solana", "base"), recipient: anyWallet,
+  requester_name: untrusted(40), requester_handle: nullable(handle), for: untrusted(80),
+  from_domain: nullable(domain), sns_name: nullable(snsName), created_at: iso, expires_at: nullable(iso),
+  due_date: nullable(invoiceDate), invoice_number: untrusted(20), group_title: untrusted(60),
+  addressed_as: object({ handle: nullable(handle), sns: nullable(snsName) }), first_time: oneOf(true, false), flags: array(flag, { max: 32 }),
+  fiat: optional(fiatQuote),
+}, (value, path, ctx) => {
+  decimalsFit("amount")(value, path, ctx);
+  const page = value.kind === "invoice" ? "i" : "r";
+  if (!new URL(value.link).pathname.endsWith(`/${page}/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /${page}/${value.id}`);
+  if ((value.kind === "invoice") !== (value.due_date !== null)) ctx.errors.push(`${path}.due_date: ${value.kind === "invoice" ? "missing" : "set"} for kind ${value.kind}`);
+  if (value.kind !== "invoice" && value.invoice_number !== null) ctx.errors.push(`${path}.invoice_number: set for kind ${value.kind}`);
+  if (value.kind !== "split_share" && value.group_title !== null) ctx.errors.push(`${path}.group_title: set for kind ${value.kind}`);
+  if (value.chain === "base" && (value.token !== "USDC" || !EVM_ADDRESS_RE.test(value.recipient))) ctx.errors.push(`${path}: a Base entry pays USDC to a 0x address`);
+  if (value.chain === "solana" && !isPubkey(value.recipient)) ctx.errors.push(`${path}.recipient: a Solana entry pays a base58 wallet`);
+  const decimals = TOKEN_DECIMALS[value.token];
+  try {
+    const amount = toAtomic(value.amount, decimals);
+    const due = toAtomic(value.amount_due, decimals);
+    if (value.status === "open" && due !== amount) ctx.errors.push(`${path}.amount_due: open but differs from amount`);
+    if (value.status === "underpaid" && due >= amount) ctx.errors.push(`${path}.amount_due: underpaid but not less than amount`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+});
+
+function inboxConsistent(value, path, ctx) {
+  value.owed.forEach((e, i) => { if (e.chain !== "solana") ctx.errors.push(`${path}.owed[${i}]: a ${e.chain} entry belongs in base`); });
+  value.base.forEach((e, i) => { if (e.chain !== "base") ctx.errors.push(`${path}.base[${i}]: a ${e.chain} entry belongs in owed`); });
+  const seen = new Set();
+  for (const t of value.totals) {
+    const k = `${t.chain}:${t.token}`;
+    if (seen.has(k)) ctx.errors.push(`${path}.totals: ${k} listed twice`);
+    seen.add(k);
+  }
+  const all = [...value.owed, ...value.base];
+  for (const e of all) if (!seen.has(`${e.chain}:${e.token}`)) ctx.errors.push(`${path}.totals: no total for ${e.chain} ${e.token}`);
+  if (value.truncated) return;
+  for (const t of value.totals) {
+    const mine = all.filter((e) => e.chain === t.chain && e.token === t.token);
+    const decimals = TOKEN_DECIMALS[t.token];
+    const sum = mine.reduce((n, e) => n + toAtomic(e.amount_due, decimals), 0n);
+    if (t.count !== mine.length) ctx.errors.push(`${path}.totals.${t.chain}:${t.token}.count: ${t.count}, ${mine.length} entries listed`);
+    if (toAtomic(t.amount_due, decimals) !== sum) ctx.errors.push(`${path}.totals.${t.chain}:${t.token}.amount_due: not the sum of amount_due`);
+  }
+  const ids = all.map((e) => e.id);
+  if (new Set(ids).size !== ids.length) ctx.errors.push(`${path}: an entry is listed twice`);
+}
+
+const inboxRes = object({
+  payer: pubkey, caution: string({ max: 400, pattern: INBOX_CAUTION_RE, label: "the inbox caution" }), generated_at: iso,
+  chain_checked: oneOf(true, false), owed: array(inboxEntry, { max: 100 }), base: array(inboxEntry, { max: 100 }),
+  totals: array(object({ token, chain: oneOf("solana", "base"), amount_due: amount, count: integer() }), { max: 3 }),
+  blocked_hidden: integer(), blocked_requesters: array(anyWallet, { max: 50 }), truncated: oneOf(true, false),
+}, inboxConsistent);
+
+Object.assign(shapes, {
+  inboxReq: object({ payer: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) },
+    (value, path, ctx) => signedAs(`Owed inbox access for ${value.payer} at `, value.payer, value, path, ctx)),
+  inboxRes,
+  inboxBlockReq: object({
+    payer: pubkey, requester: anyWallet, action: oneOf("block", "unblock"),
+    signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),
+  }, (value, path, ctx) => {
+    signedAs(`Owed ${value.action} ${value.requester} for ${value.payer} at `, value.payer, value, path, ctx);
+    if (value.requester === value.payer) ctx.errors.push(`${path}.requester: the payer's own wallet`);
+  }),
+  inboxBlockRes: object({
+    payer: pubkey, requester: anyWallet, action: oneOf("block", "unblock"), blocked: oneOf(true, false), changed: oneOf(true, false), inbox: inboxRes,
+  }, (value, path, ctx) => {
+    if (value.blocked !== (value.action === "block")) ctx.errors.push(`${path}.blocked: ${value.blocked} after ${value.action}`);
+    if (value.inbox.payer !== value.payer) ctx.errors.push(`${path}.inbox.payer: differs from payer`);
+    const listed = value.inbox.blocked_requesters.includes(value.requester);
+    if (listed !== value.blocked) ctx.errors.push(`${path}.inbox.blocked_requesters: ${listed ? "lists" : "misses"} the requester after ${value.action}`);
+    for (const e of [...value.inbox.owed, ...value.inbox.base]) if (value.blocked && e.recipient === value.requester) ctx.errors.push(`${path}.inbox: still lists ${e.id} from the blocked requester`);
+  }),
+  bulkRequestsRes: object({
+    requests: array(object(getRequestFields, getRequestConsistent), { max: 20 }), not_found: array(id, { max: 20 }),
+  }, (value, path, ctx) => {
+    const ids = [...value.requests.map((r) => r.id), ...value.not_found];
+    if (new Set(ids).size !== ids.length) ctx.errors.push(`${path}: an id is listed twice`);
+    if (ids.length > 20) ctx.errors.push(`${path}: more than 20 ids`);
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "payer.create-request.req.json": "createRequestReq",
+  "payer.create-request.res.json": "createRequestRes",
+  "payer.get-request.res.json": "getRequestRes",
+  "payer.groups.create.req.json": "createGroupReq",
+  "payer.groups.create.res.json": "groupRes",
+  "payer.invoices.create.req.json": "createInvoiceReq",
+  "payer.invoices.create.res.json": "invoiceRes",
+  "payer.schedules.create.req.json": "createScheduleReq",
+  "payer.schedules.create.res.json": "scheduleRes",
+  "inbox.req.json": "inboxReq",
+  "inbox.res.json": "inboxRes",
+  "inbox.block.req.json": "inboxBlockReq",
+  "inbox.block.res.json": "inboxBlockRes",
+  "requests.bulk.res.json": "bulkRequestsRes",
 });

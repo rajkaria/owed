@@ -194,6 +194,12 @@ export function makeDeps(overrides: Partial<Deps> & { routes?: Record<string, Ro
     },
     // No sanctions lookup unless a test asks for one (pass screenRecipient from src/screen.ts plus routes).
     screenRecipient: async () => ({ ok: true, screening: "clear" }),
+    // F1 pay_all: a sender with plenty of USDC and SOL, every recipient's USDC account open, unless a test says otherwise.
+    readBatchAccounts: async (_rpc, q) => ({
+      senderLamports: 10_000_000_000n, senderUsdc: 1_000_000_000n, senderUsdcFrozen: false,
+      usdcAccounts: new Map(q.usdcRecipients.map((r) => [r, { exists: true, frozen: false }])), newSolWallets: new Set<string>(), rentMinimum: null,
+    }),
+    planBatch: tx.planBatch,
     ...rest,
   };
   // Keep recording when a test overrides a chain double.

@@ -1,0 +1,62 @@
+{
+  "id": "JpHYNYKVoA4s",
+  "link": "https://www.getowed.xyz/g/JpHYNYKVoA4s",
+  "title": "Climbing gym",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "total": "0.3",
+  "requester_name": "Raj",
+  "created_at": "2026-10-18T08:30:00Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "share_count": 3,
+  "paid_count": 0,
+  "amount_received": "0",
+  "shares": [
+    {
+      "id": "5BUetRGQKBdg",
+      "name": "Sam",
+      "amount": "0.1",
+      "status": "open",
+      "link": "https://www.getowed.xyz/r/5BUetRGQKBdg",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.1&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=DVeD4CiQssuwDG7dzxxXEN1gSfA9nNkGaRBZJ4tAk4fE&label=Raj&message=Climbing%20gym&memo=owed%3A5BUetRGQKBdg",
+      "reference": "DVeD4CiQssuwDG7dzxxXEN1gSfA9nNkGaRBZJ4tAk4fE",
+      "paid": null,
+      "from_domain": null,
+      "payer": {
+        "wallet": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK",
+        "handle": "sam_ok",
+        "sns": null
+      }
+    },
+    {
+      "id": "iUjFfp2Pkrgo",
+      "name": "Ana",
+      "amount": "0.1",
+      "status": "open",
+      "link": "https://www.getowed.xyz/r/iUjFfp2Pkrgo",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.1&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=8TsrAij8mkkCexBTVguBKbQhHC8vShJ4q74HvUG5ALVB&label=Raj&message=Climbing%20gym&memo=owed%3AiUjFfp2Pkrgo",
+      "reference": "8TsrAij8mkkCexBTVguBKbQhHC8vShJ4q74HvUG5ALVB",
+      "paid": null,
+      "from_domain": null
+    },
+    {
+      "id": "h2oY5p1bhS4D",
+      "name": "Lee",
+      "amount": "0.1",
+      "status": "open",
+      "link": "https://www.getowed.xyz/r/h2oY5p1bhS4D",
+      "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=0.1&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=6sftmJ8vj9WCP5acDxzFSrLLm1Hr9zGrqDVhoifCj3zB&label=Raj&message=Climbing%20gym&memo=owed%3Ah2oY5p1bhS4D",
+      "reference": "6sftmJ8vj9WCP5acDxzFSrLLm1Hr9zGrqDVhoifCj3zB",
+      "paid": null,
+      "from_domain": null,
+      "payer": {
+        "wallet": "257mshQwTSffd2G9RoUJwb1nU4hjEtRgnZedk9ypRNfF",
+        "handle": null,
+        "sns": null
+      }
+    }
+  ],
+  "requester_handle": "rajkaria"
+}

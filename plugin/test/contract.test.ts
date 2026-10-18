@@ -12,6 +12,7 @@ import { ledgerReqSchema, ledgerResSchema } from "../src/contract.ts";
 import { cancelReqSchema, cancelResSchema } from "../src/contract.ts"; // W3-C
 import { createScheduleReqSchema, scheduleResSchema } from "../src/contract.ts"; // W3-D
 import { attributedReqSchema, attributedResSchema, matchReqSchema, matchResSchema, restReqSchema, restResSchema } from "../src/contract.ts"; // 0012
+import { bulkRequestsResSchema, inboxBlockReqSchema, inboxBlockResSchema, inboxReqSchema, inboxResSchema } from "../src/contract.ts"; // F1
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -68,6 +69,21 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "sns.create-request.req.json": createRequestReqSchema,
   "sns.create-request.res.json": createRequestResSchema,
   "sns.get-request.res.json": getRequestResSchema,
+  // F1 payer inbox
+  "payer.create-request.req.json": createRequestReqSchema,
+  "payer.create-request.res.json": createRequestResSchema,
+  "payer.get-request.res.json": getRequestResSchema,
+  "payer.groups.create.req.json": createGroupReqSchema,
+  "payer.groups.create.res.json": groupResSchema,
+  "payer.invoices.create.req.json": createInvoiceReqSchema,
+  "payer.invoices.create.res.json": invoiceResSchema,
+  "payer.schedules.create.req.json": createScheduleReqSchema,
+  "payer.schedules.create.res.json": scheduleResSchema,
+  "inbox.req.json": inboxReqSchema,
+  "inbox.res.json": inboxResSchema,
+  "inbox.block.req.json": inboxBlockReqSchema,
+  "inbox.block.res.json": inboxBlockResSchema,
+  "requests.bulk.res.json": bulkRequestsResSchema,
 };
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();

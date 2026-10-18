@@ -3,7 +3,8 @@ import { isoUtc, isUniqueViolation, sql, transaction, type Query, type Row } fro
 import { newReference, requestIdFor } from "./ids";
 import { AmountError, formatUnits, fromAtomic, toAtomic, TOKENS, type Token } from "./money";
 import { domainBrandFlags } from "./payee";
-import { chainCheckable, getRequest, settleFromChain, solanaPayUrl, toPublic, type RequestRow } from "./requests";
+import { chainCheckable, getRequest, settleFromChain, solanaPayUrl, toPublic, type PayerRecord, type RequestRow } from "./requests";
+import { handleFlags } from "./inbox-payer"; // F1
 import { brandFlags, sanitizeText, TEXT_LIMITS, withoutOwnBrandFlags } from "./safety";
 import type { RpcOptions } from "./solana";
 import type { PublicRequest, RequestStatus } from "./public-api";
@@ -238,6 +239,10 @@ export interface CreateInvoiceInput {
   /** Local-currency invoice: unit prices are in this currency; `rate` (required with it) locks the USDC total. */
   currency?: FiatCode | null;
   rate?: LockedRate | null;
+  /** F1: the client as a payer (lib/inbox-payer.ts requirePayer), so the invoice is in their inbox. Not in the id. */
+  payer?: PayerRecord | null;
+  /** F1: the requester's own X handle (lib/inbox-payer.ts parseHandle). */
+  requesterHandle?: string | null;
 }
 
 /** W3-C: an invoice that stops taking payments before it is due is a mistake; say how many days it needs. */
@@ -264,6 +269,7 @@ export function prepareInvoice(input: CreateInvoiceInput, now: number = Date.now
   const flags = withoutOwnBrandFlags([...new Set([
     ...brandFlags([input.businessName, input.clientName, input.invoiceNumber, input.notes, ...input.items.map((i) => i.description)]),
     ...domainBrandFlags(input.fromDomain), // W2-H (QA-02): a brand word in the verified domain flags the invoice too
+    ...handleFlags(input.requesterHandle), // F1: and so does one in the requester's handle
   ])], input.fromDomain); // W2-E: a brand word the verified domain owns is not a caution
   return {
     businessName,
@@ -350,6 +356,13 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
             params: [id, input.expiresInDays],
           }]
         : []),
+      // F1: who the invoice is addressed to and the requester's handle (last, so the expiry stays results[2]).
+      ...(input.payer || input.requesterHandle
+        ? [{
+            text: `update requests set payer_wallet = $2, payer_handle = $3, payer_sns = $4, requester_handle = $5 where id = $1`,
+            params: [id, input.payer?.wallet ?? null, input.payer?.handle ?? null, input.payer?.sns ?? null, input.requesterHandle ?? null],
+          }]
+        : []),
     ];
     try {
       const results = await transaction(queries);
@@ -382,6 +395,8 @@ export async function createInvoice(input: CreateInvoiceInput, now: number = Dat
         fromDomainVerifiedAt: invoice.fromDomainVerifiedAt,
         expiresAt: input.expiresInDays ? (results[2]?.[0]?.expires_at ?? null) : null, // W3-C
         fiat,
+        payer: input.payer ?? null, // F1
+        requesterHandle: input.requesterHandle ?? null,
       };
       return { invoice, request };
     } catch (e) {
@@ -472,6 +487,9 @@ export interface PublicInvoice {
   cancelled_at?: string;
   /** Local-currency invoice: items are in fiat.currency, fiat.amount is their sum, `total` the USDC locked. */
   fiat?: FiatQuote;
+  /** F1: who it is addressed to, and the requester's own X handle; only when set. */
+  payer?: PayerRecord;
+  requester_handle?: string;
 }
 
 export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: string): PublicInvoice {
@@ -510,6 +528,8 @@ export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: 
     ...(request.expiresAt && { expires_at: request.expiresAt }), // W3-C
     ...(request.cancelledAt && { cancelled_at: request.cancelledAt }),
     ...(request.fiat && { fiat: request.fiat }),
+    ...(request.payer && { payer: { wallet: request.payer.wallet, handle: request.payer.handle, sns: request.payer.sns } }), // F1
+    ...(request.requesterHandle && { requester_handle: request.requesterHandle }),
   };
 }
 

@@ -1,0 +1,137 @@
+{
+  "payer": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK",
+  "caution": "Anyone can address a request to your wallet; Owed doesn't check who sent it. Names, handles and reasons are the requester's own words, and Owed hasn't verified any handle.",
+  "generated_at": "2026-10-18T10:15:00Z",
+  "chain_checked": true,
+  "owed": [
+    {
+      "id": "N7eCeboUUtMc",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/N7eCeboUUtMc",
+      "status": "open",
+      "amount": "12",
+      "amount_due": "12",
+      "token": "USDC",
+      "chain": "solana",
+      "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+      "requester_name": "Raj",
+      "requester_handle": "rajkaria",
+      "for": "concert tickets",
+      "from_domain": null,
+      "sns_name": null,
+      "created_at": "2026-10-18T08:00:00Z",
+      "expires_at": null,
+      "due_date": null,
+      "invoice_number": null,
+      "group_title": null,
+      "addressed_as": {
+        "handle": "sam_ok",
+        "sns": null
+      },
+      "first_time": false,
+      "flags": []
+    },
+    {
+      "id": "5BUetRGQKBdg",
+      "kind": "split_share",
+      "link": "https://www.getowed.xyz/r/5BUetRGQKBdg",
+      "status": "open",
+      "amount": "0.1",
+      "amount_due": "0.1",
+      "token": "USDC",
+      "chain": "solana",
+      "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+      "requester_name": "Raj",
+      "requester_handle": "rajkaria",
+      "for": "Climbing gym",
+      "from_domain": null,
+      "sns_name": null,
+      "created_at": "2026-10-18T08:30:00Z",
+      "expires_at": null,
+      "due_date": null,
+      "invoice_number": null,
+      "group_title": "Climbing gym",
+      "addressed_as": {
+        "handle": "sam_ok",
+        "sns": null
+      },
+      "first_time": false,
+      "flags": []
+    },
+    {
+      "id": "kaYAf4uJoEKC",
+      "kind": "invoice",
+      "link": "https://www.getowed.xyz/i/kaYAf4uJoEKC",
+      "status": "open",
+      "amount": "1.25",
+      "amount_due": "1.25",
+      "token": "USDC",
+      "chain": "solana",
+      "recipient": "A8W3rchg1VLu4iztrYVf7xr7QjcMUqLjWG7rCGSyxeG4",
+      "requester_name": "Lena Studio",
+      "requester_handle": "lenastudio",
+      "for": "Invoice LS-31",
+      "from_domain": null,
+      "sns_name": null,
+      "created_at": "2026-10-18T09:00:00Z",
+      "expires_at": null,
+      "due_date": "2026-10-31",
+      "invoice_number": "LS-31",
+      "group_title": null,
+      "addressed_as": {
+        "handle": null,
+        "sns": null
+      },
+      "first_time": true,
+      "flags": []
+    }
+  ],
+  "base": [
+    {
+      "id": "Gq8NvZx3TkWp",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/Gq8NvZx3TkWp",
+      "status": "open",
+      "amount": "5",
+      "amount_due": "5",
+      "token": "USDC",
+      "chain": "base",
+      "recipient": "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+      "requester_name": "Priya",
+      "requester_handle": null,
+      "for": "coffee",
+      "from_domain": null,
+      "sns_name": null,
+      "created_at": "2026-10-18T09:45:00Z",
+      "expires_at": null,
+      "due_date": null,
+      "invoice_number": null,
+      "group_title": null,
+      "addressed_as": {
+        "handle": "sam_ok",
+        "sns": null
+      },
+      "first_time": true,
+      "flags": []
+    }
+  ],
+  "totals": [
+    {
+      "token": "USDC",
+      "chain": "solana",
+      "amount_due": "13.35",
+      "count": 3
+    },
+    {
+      "token": "USDC",
+      "chain": "base",
+      "amount_due": "5",
+      "count": 1
+    }
+  ],
+  "blocked_hidden": 1,
+  "blocked_requesters": [
+    "5q5mejti7Hnq6YcokKVkHbbxcPa9p7pTmKBHeC3Ma8na"
+  ],
+  "truncated": false
+}

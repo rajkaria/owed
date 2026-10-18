@@ -1,0 +1,14 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "12",
+  "token": "USDC",
+  "payer_name": "Sam",
+  "for": "concert tickets",
+  "requester_name": "Raj",
+  "source": "plugin",
+  "payer": {
+    "handle": "sam_ok",
+    "wallet": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK"
+  },
+  "requester_handle": "rajkaria"
+}

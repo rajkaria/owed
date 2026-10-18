@@ -5,7 +5,7 @@ import { isoUtc, sql } from "./db";
 import { ApiError } from "./http";
 import { fromAtomic, type Token } from "./money";
 import { requireVerifiedDomain } from "./payee";
-import { createRequest, type RequestRow } from "./requests";
+import { createRequest, type PayerRecord, type RequestRow } from "./requests";
 
 // Recurring requests (W3-D, ask_every_month): the same payer, amount and text on the same day of every
 // month. Months are calendar months in UTC and the day is 1–28, so every month has it. Each month's request
@@ -146,12 +146,16 @@ export interface ScheduleRow {
   lastError: string | null;
   lastErrorAt: string | null;
   createdAt: string;
+  /** F1 (0017): who every month's request is addressed to, and the requester's own X handle. Optional for rows built by hand. */
+  payer?: PayerRecord | null;
+  requesterHandle?: string | null;
 }
 
 const COLUMNS = `id, recipient, token, amount_atomic::text as amount_atomic, payer_name, for_text, requester_name,
   array_to_json(flags)::text as flags, day_of_month, first_period, max_requests, status, source,
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
-  last_error, ${isoUtc("last_error_at")} as last_error_at, ${isoUtc("created_at")} as created_at`;
+  last_error, ${isoUtc("last_error_at")} as last_error_at, ${isoUtc("created_at")} as created_at,
+  payer_wallet, payer_handle, payer_sns, requester_handle`;
 
 function fromRow(r: Record<string, string | null>): ScheduleRow {
   return {
@@ -173,6 +177,8 @@ function fromRow(r: Record<string, string | null>): ScheduleRow {
     lastError: r.last_error,
     lastErrorAt: r.last_error_at,
     createdAt: r.created_at!,
+    payer: r.payer_wallet ? { wallet: r.payer_wallet, handle: r.payer_handle ?? null, sns: r.payer_sns ?? null } : null, // F1
+    requesterHandle: r.requester_handle ?? null,
   };
 }
 
@@ -203,6 +209,10 @@ export interface NewSchedule {
   source: "plugin" | "web";
   /** Only a value returned by requireVerifiedDomain (lib/payee.ts). */
   fromDomain: string | null;
+  /** F1: only a value returned by requirePayer (lib/inbox-payer.ts); copied to every month's request. */
+  payer?: PayerRecord | null;
+  /** F1: a value returned by parseHandle (lib/inbox-payer.ts). */
+  requesterHandle?: string | null;
 }
 
 export interface OpenedRequest {
@@ -232,9 +242,11 @@ export async function createSchedule(input: NewSchedule, { now = Date.now(), ope
   for (let attempt = 0; attempt < 3 && !row; attempt++) {
     const rows = await sql(
       `insert into schedules (id, recipient, token, amount_atomic, payer_name, for_text, requester_name, flags,
-         day_of_month, first_period, max_requests, source, from_domain, from_domain_verified_at)
+         day_of_month, first_period, max_requests, source, from_domain, from_domain_verified_at,
+         payer_wallet, payer_handle, payer_sns, requester_handle)
        select $1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12,
-         $13, case when $13::text is null then null else now() end
+         $13, case when $13::text is null then null else now() end,
+         $15, $16, $17, $18
         where (select count(*) from schedules where recipient = $2 and status = 'active') < $14
        on conflict (id) do nothing
        returning ${COLUMNS}`,
@@ -242,6 +254,7 @@ export async function createSchedule(input: NewSchedule, { now = Date.now(), ope
         newScheduleId(), input.recipient, input.token, input.amountAtomic, input.payerName, input.forText,
         input.requesterName, input.flags, input.dayOfMonth, firstPeriod, input.maxRequests, input.source,
         input.fromDomain, SCHEDULE_LIMITS.activePerRecipient,
+        input.payer?.wallet ?? null, input.payer?.handle ?? null, input.payer?.sns ?? null, input.requesterHandle ?? null, // F1
       ],
     );
     if (rows.length) {
@@ -335,6 +348,8 @@ export async function openForPeriod(
       flags: s.flags,
       source: s.source,
       fromDomain,
+      payer: s.payer ?? null, // F1: every month's request is addressed to the schedule's payer
+      requesterHandle: s.requesterHandle ?? null,
     });
   } catch (e) {
     await release(s.id, period).catch(() => undefined);

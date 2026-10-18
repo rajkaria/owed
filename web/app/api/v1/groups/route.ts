@@ -10,6 +10,7 @@ import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { brandFlags, sanitizeText, withoutOwnBrandFlags } from "@/lib/safety";
 import { requireSolMinimum } from "@/lib/sol-minimum";
 import { fiatAsk, lockRate, quoteAt } from "@/lib/fx"; // local-currency splits
+import { handleFlags, parseHandle, requirePayer, requirePayerAskSlot } from "@/lib/inbox-payer"; // F1
 import type { FiatQuote } from "@/lib/fiat";
 
 export const runtime = "nodejs";
@@ -64,20 +65,28 @@ export async function POST(req: Request): Promise<Response> {
 
     const title = sanitizeText(body.title, GROUP_TEXT_LIMITS.title);
     const requesterName = sanitizeText(body.requester_name, GROUP_TEXT_LIMITS.requester_name);
+    const requesterHandle = parseHandle(body.requester_handle, "requester_handle"); // F1: a label, format checked
+    const handleFlagged = handleFlags(requesterHandle);
     // Brand flags read the raw text, so a brand hidden in a stripped link still flags.
     const shares = body.people.map((p, i) => ({
       name: sanitizeText(p.name, GROUP_TEXT_LIMITS.name),
       amountAtomic: amounts[i],
-      flags: brandFlags([p.name, body.title, body.requester_name]),
+      flags: [...new Set([...brandFlags([p.name, body.title, body.requester_name]), ...handleFlagged])],
       fiat: shareFiat?.[i] ?? null,
+      payer: null as Awaited<ReturnType<typeof requirePayer>>,
     }));
-    const flags = brandFlags([body.title, body.requester_name, ...body.people.map((p) => p.name)]);
+    const flags = [...new Set([...brandFlags([body.title, body.requester_name, ...body.people.map((p) => p.name)]), ...handleFlagged])];
 
     // W2-H verified payee: store a domain only if its DNS publishes this recipient right now.
     // createGroup stores it on the group and on every share.
     // W2-E: DNS lookups are capped per client IP and per domain.
     if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
-    const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
+    // F1: who each share is addressed to (any .sns names are resolved beside the DNS check).
+    const [fromDomain, payers] = await Promise.all([
+      body.from_domain == null ? null : requireVerifiedDomain(body.from_domain, body.recipient),
+      Promise.all(body.people.map((p, i) => requirePayer(p.payer, body.recipient, { field: `people.${i}.payer` }))),
+    ]);
+    payers.forEach((payer, i) => { shares[i].payer = payer; });
     // W2-H (QA-02): a brand word in the verified domain flags the group and every share, like one in the text.
     const domainFlags = domainBrandFlags(fromDomain);
     // W2-E: a brand word the verified domain owns isn't a caution.
@@ -85,6 +94,8 @@ export async function POST(req: Request): Promise<Response> {
 
     // Every share is a request, so every share counts against the recipient's hourly limit.
     for (let i = 0; i < shares.length; i++) await requireCreateSlot(req, body.recipient);
+    // F1: every addressed share lands in someone's inbox, so each also takes an addressed-request slot.
+    for (const payer of payers) if (payer) await requirePayerAskSlot(req, body.recipient, payer.wallet);
 
     const created = await createGroup({
       recipient: body.recipient,
@@ -97,6 +108,7 @@ export async function POST(req: Request): Promise<Response> {
       fromDomain,
       expiresInDays: body.expires_in_days ?? null, // W3-C
       fiat: groupFiat,
+      requesterHandle, // F1
     });
     const res: GroupResponse = toPublicGroup(created, baseUrl(req));
     return json(res, { status: 201 });

@@ -261,6 +261,9 @@ export async function askForRest(id: string, source: "plugin" | "web", rpc: RpcO
       source,
       chain: parent.chain ?? "solana",
       restOf: parent.id,
+      // F1: the rest is owed by the same payer, so it stays in their inbox (the parent leaves it once the rest is asked).
+      payer: parent.payer ?? null,
+      requesterHandle: parent.requesterHandle ?? null,
     });
     return { parent: (await getRequest(parent.id)) ?? parent, rest, already: false };
   } catch (e) {

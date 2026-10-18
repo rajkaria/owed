@@ -24,6 +24,8 @@ import { tokenSchema } from "../contract.js";
 import { looksLikeSnsName } from "../sns.js";
 import { resolveName, SNS_BUDGET_MS, snsBrandFlags, snsForPayment, snsLead, snsLines } from "../sns-payee.js";
 // W3-S SNS names end
+import type { PayerInfo } from "../contract.js"; // F1
+import { handleCheckLine, payerLabel } from "../payer.js"; // F1
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), the text of a payment QR code, or an SNS name (example.sns) with amount."), // W3-S: or an SNS name
@@ -65,9 +67,10 @@ const DESCRIPTION = [
   // W2-E sanctions screen end
   "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
   "To pay an SNS name (\"pay example.sns 2 USDC\"), pass the name as link with amount (and token for SOL): the tool resolves it on Solana itself and proposes a transfer to the wallet it names. A request made for an SNS name is paid only if the name still points to its wallet. .sol names are refused (SNS moved to .sns).", // W3-S
+  "If the request carries the requester's X handle, the text ends with a handle check: call PayBox resolve_username with that handle before approving, and don't approve if it resolves to a different wallet than the request pays. To pay several requests with one approval, use pay_all.", // F1
 ].join(" ");
 
-interface Resolved {
+export interface Resolved {
   /** The Owed request id, when the link is an Owed link (checked against its terms). */
   id?: string;
   request: TransferRequest;
@@ -88,6 +91,12 @@ interface Resolved {
   /** A name resolved in this call (link was a bare name): already verified. */
   snsResolved?: Extract<Awaited<ReturnType<typeof resolveName>>, { ok: true }>;
   // W3-S SNS names end
+  // F1 payer inbox start: labels from the server, never proof.
+  /** The requester's own X handle: the agent checks it with resolve_username before approving. */
+  requesterHandle?: string | null;
+  /** Who the request was addressed to. */
+  payer?: PayerInfo | null;
+  // F1 payer inbox end
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -273,6 +282,12 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     // W2-E sanctions screen start
     screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
     // W2-E sanctions screen end
+    // F1 payer inbox start
+    resolved.payer && resolved.payer.wallet !== args.sender
+      ? `This request was addressed to ${payerLabel(resolved.payer)} (wallet ${shortAddress(resolved.payer.wallet)}), not to this wallet. Anyone can pay a link, and this settles it; check the user means to pay someone else's request.`
+      : "",
+    resolved.requesterHandle ? handleCheckLine(resolved.requesterHandle, request.recipient) : "",
+    // F1 payer inbox end
   ].filter(Boolean).join("\n");
   // W2-H verified payee end
   return { content: [{ type: "text" as const, text }], structuredContent };
@@ -299,6 +314,16 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     }
     return `Owed couldn't load this request: ${errorText(error, "unknown error")}`;
   }
+  return checkOwedTerms(rq, id, ctx, deps);
+}
+
+/**
+ * Every check pay_link runs on an Owed request's terms as the server returned them (F1: pay_all runs the same on
+ * each request it pays): open, not expired, a Solana Pay URL that pays exactly the request, and an id that is the
+ * hash of those terms. A refusal sentence, a Base request (paid elsewhere), or what to pay.
+ */
+export function checkOwedTerms(rq: GetRequestRes, id: string, ctx: Pick<CallContext, "hosts">, deps: Pick<Deps, "now" | "parseLink" | "toAtomic">): Resolved | { baseRequest: GetRequestRes } | string {
+  if (id.length !== VERIFIED_ID_LENGTH) return REFUSE_UNVERIFIABLE;
   if (rq.status === "paid") return REFUSE_ALREADY_PAID;
   if (rq.status === "cancelled") return "This request was cancelled by the requester.";
   // W3-C: the server says expired once expires_at passes; the plugin's own clock refuses it too.
@@ -342,6 +367,8 @@ async function resolveOwed(id: string, ctx: CallContext, deps: Deps): Promise<Re
     fromDomain: rq.from_domain,
     // W2-H verified payee end
     snsName: rq.sns_name, // W3-S
+    requesterHandle: rq.requester_handle ?? null, // F1
+    payer: rq.payer ?? null,
   };
 }
 

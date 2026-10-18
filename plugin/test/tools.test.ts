@@ -20,6 +20,7 @@ test("index registers the Owed tools", () => {
     "cancel_request", // W3-C
     "ask_every_month", // W3-D
     "match_payments", // 0012
+    "what_do_i_owe", "pay_all", // F1
   ]);
 });
 
@@ -40,11 +41,14 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("ask_every_month")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
   // 0012: confirm records a match and ask_for_rest makes a request (not read-only); doing either twice changes nothing more.
   assert.deepEqual(seen.get("match_payments")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  // F1: the inbox needs a fresh signature each time and can block a requester; pay_all moves money like pay_link.
+  assert.deepEqual(seen.get("what_do_i_owe")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  assert.deepEqual(seen.get("pay_all")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month", "match_payments"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month", "match_payments", "what_do_i_owe", "pay_all"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);
@@ -62,6 +66,19 @@ test("schemas convert to strict JSON Schema; pay_link outputs the starter's Sola
   assert.equal(payOutput.safeParse({ ...solana, extra: 1 }).success, false);
   const askInput = z.toJSONSchema(seen.get("ask_for_money")!.config.inputSchema, { io: "input" }) as { required?: string[] };
   assert.deepEqual(askInput.required?.sort(), ["amount", "recipient"]);
+  // F1: pay_all proposes exactly the starter's Solana shape, nothing else.
+  const payAllOutput = seen.get("pay_all")!.config.outputSchema;
+  assert.deepEqual(payAllOutput.parse(solana), solanaOutputSchema.parse(solana));
+  assert.equal(payAllOutput.safeParse(x402).success, false);
+  assert.equal(payAllOutput.safeParse({ ...solana, remaining: [] }).success, false);
+  const payAllInput = z.toJSONSchema(seen.get("pay_all")!.config.inputSchema, { io: "input" }) as { required?: string[] };
+  assert.deepEqual(payAllInput.required?.sort(), ["ids", "max_total", "sender"]);
+  // Every asking tool takes payer and requester_handle, and says to resolve the handle with PayBox first.
+  for (const name of ["ask_for_money", "split_bill", "create_invoice", "ask_every_month"]) {
+    const input = JSON.stringify(z.toJSONSchema(seen.get(name)!.config.inputSchema, { io: "input" }));
+    assert.match(input, /resolve_username/, name);
+    assert.match(input, /requester_handle/, name);
+  }
 });
 
 test("registering tools touches no network and no clock", () => {

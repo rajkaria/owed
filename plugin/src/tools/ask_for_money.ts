@@ -27,8 +27,14 @@ import {
 // W3-S SNS names start
 import { snsSourceSchema, type FiatQuoteRes } from "../contract.js";
 import { looksLikeSnsName } from "../sns.js";
-import { resolveName, snsLead, snsLines, snsNameSchema } from "../sns-payee.js";
+import { resolveName, snsLead, snsLines, snsNameSchema, SNS_BUDGET_MS } from "../sns-payee.js";
 // W3-S SNS names end
+// F1 payer inbox start
+import {
+  ADDRESSED_LINE, normalizeHandle, OFFLINE_NOT_ADDRESSED, payerInput, payerOutput, REFUSE_PAYER_NOT_STORED, requesterHandleInput, resolvePayer,
+  samePayer, type PayerResolution,
+} from "../payer.js";
+// F1 payer inbox end
 
 export const inputSchema = z.object({
   recipient: z.union([addressSchema, evmAddressSchema, snsNameSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address. If the user names their wallet by an SNS name (\"pay to example.sns\"), pass the name: Owed resolves it on Solana itself and payers see it as verified on-chain."), // W3-B: 0x with chain base; W3-S: an SNS name
@@ -46,6 +52,8 @@ export const inputSchema = z.object({
   chain: chainSchema.default("solana").describe('"solana" (default) or "base": USDC on Base, paid from any Base wallet or over x402.'),
   // W3-B Base requests end
   currency: currencyInput.optional(), // local-currency asks
+  payer: payerInput.optional(), // F1
+  requester_handle: requesterHandleInput.optional(), // F1
 }).strict();
 
 export const outputSchema = z.object({
@@ -78,6 +86,8 @@ export const outputSchema = z.object({
   sns_name: z.string().optional().describe("The SNS name the recipient was given as; it pointed to recipient when the request was made. Absent offline."),
   sns_source: snsSourceSchema.optional().describe("Which SNS rule picked the wallet: the name's SOL record (v2 or signed v1), or its owner."),
   // W3-S SNS names end
+  payer: payerOutput.optional().describe("Who the request is addressed to: it is in their what_do_i_owe inbox. Absent offline."), // F1
+  requester_handle: z.string().optional().describe("The user's own X handle as payers see it (not verified by Owed)."), // F1
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -105,6 +115,7 @@ const DESCRIPTION = [
   "If the user asks in their own currency (\"ask Priya for ₹1,200 for dinner\", \"bill the team €45\"), pass currency (\"INR\", \"EUR\") with amount in that currency: Owed locks the USDC amount at a live rate, the payer pays that USDC, and the pay page shows both.", // local-currency asks
   BASE_DESCRIPTION, // W3-B
   "If the user gives their wallet as an SNS name (example.sns), pass it as recipient: Owed resolves it on Solana (the name's SOL record, else its owner), screens and pays that wallet, and the request shows the name as verified on-chain. Owed refuses .sol names (SNS moved to .sns; .sol isn't resolvable today), tokenized names and names with lookalike characters.", // W3-S
+  "To ask someone by X handle (\"ask @sam for 10 USDC\"), call PayBox resolve_username with the handle first, tell the user which handle resolved to which wallet, and pass payer {handle, wallet}: the request then shows up in their what_do_i_owe inbox. payer also takes {sns} or {wallet}. Pass requester_handle with the user's own X handle if they want payers to see it.", // F1
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
@@ -119,6 +130,12 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     args = { ...args, recipient: named.wallet };
   }
   // W3-S SNS names end
+  // F1 payer inbox start: the payer is checked (an .sns name resolved) beside the screen and DNS check below.
+  const requesterHandle = args.requester_handle === undefined ? null : normalizeHandle(args.requester_handle);
+  const payerCheck: Promise<PayerResolution | null> = args.payer === undefined
+    ? Promise.resolve(null)
+    : resolvePayer(args.payer, args.recipient, deps, Math.min(SNS_BUDGET_MS, Math.max(500, ASK_NAME_AND_DNS_BUDGET_MS - (deps.now() - started))));
+  // F1 payer inbox end
   // Local-currency asks start: `amount` is in `currency`; Owed's server locks the USDC (Solana USDC only).
   let ask: FiatAsk | undefined;
   if (args.currency !== undefined) {
@@ -129,7 +146,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   }
   // Local-currency asks end
   // W3-B Base requests start
-  if (args.chain === "base") return askForMoneyOnBase(args, deps);
+  if (args.chain === "base") return askForMoneyOnBase({ ...args, payerCheck, requesterHandle }, deps); // F1: + payer
   if (args.recipient.startsWith("0x")) return refusal('That is a Base (0x) address. To ask for USDC on Base, pass chain: "base"; for Solana, use the user\'s Solana wallet address.');
   // W3-B Base requests end
   if (!deps.isSolanaAddress(args.recipient)) return refusal("recipient must be a Solana wallet address (the user's own PayBox Solana wallet).");
@@ -155,13 +172,16 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   const solMinimum = token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null);
   // W2-E sanctions screen start
   // The screen (≤2.5 s) runs beside the DNS check (≤4 s), never before it, so the API keeps its 4 s of PayBox's 10 s.
-  const [screening, check] = await Promise.all([
+  const [screening, check, payerResult] = await Promise.all([
     deps.screenRecipient(args.recipient, deps),
     // W2-H verified payee start
     args.from_domain !== undefined ? checkFromDomain(args.from_domain, args.recipient, deps, Math.min(ASK_PAYEE_BUDGET_MS, ASK_NAME_AND_DNS_BUDGET_MS - (deps.now() - started))) : undefined, // W3-S: less after a name
     // W2-H verified payee end
+    payerCheck, // F1
   ]);
   if (!screening.ok) return refusal(screening.message);
+  if (payerResult && !payerResult.ok) return refusal(payerResult.message); // F1
+  const payer = payerResult?.ok ? payerResult : null;
   // W2-E sanctions screen end
 
   // W2-H verified payee start
@@ -196,6 +216,8 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     // W2-H verified payee end
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
     ...(sns && { sns_name: sns.name }), // W3-S
+    ...(payer && { payer: payer.body }), // F1: who it is addressed to (never part of the id)
+    ...(requesterHandle && { requester_handle: requesterHandle }),
   };
 
   let created: { id: string | null; mode: "hosted" | "offline"; link: string; solana_pay_url: string; qr_url: string | null; reference: string };
@@ -219,6 +241,8 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     if (sns && res.sns_name !== sns.name) {
       return refusal(`Owed's server didn't attach ${sns.name} to the request, so the link wasn't used. Try again, or ask with the wallet address.`);
     }
+    // F1: the server must have addressed it as asked, or the payer's inbox won't list it.
+    if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer));
     // W3-C: the server must have set the expiry that was asked for.
     const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
     if (expiry) return refusal(expiry);
@@ -253,6 +277,8 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
     ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
     ...(sns && created.mode === "hosted" && { sns_name: sns.name, sns_source: sns.source }), // W3-S
+    ...(payer && created.mode === "hosted" && { payer: payer.payer }), // F1
+    ...(requesterHandle && created.mode === "hosted" && { requester_handle: requesterHandle }),
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -274,6 +300,11 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   if (sns && created.mode === "hosted") lines.push(`Paid to ${snsLead(sns)}.`, ...snsLines(sns));
   if (sns && created.mode === "offline") lines.push(`Paid to ${sns.wallet}, which ${sns.name} points to. Offline links can't carry a name, so payers see the wallet address, not ${sns.name}.`);
   // W3-S SNS names end
+  // F1 payer inbox start
+  if (payer && created.mode === "hosted") lines.push(...payer.lines, ADDRESSED_LINE(payer.payer));
+  if (payer && created.mode === "offline") lines.push(OFFLINE_NOT_ADDRESSED(payer.payer));
+  if (requesterHandle && created.mode === "hosted") lines.push(`Payers see "@${requesterHandle}" as your handle, marked not verified by Owed; their agent checks it with PayBox resolve_username before paying.`);
+  // F1 payer inbox end
   // W2-E sanctions screen start
   if (screening.screening === "unavailable") lines.push(SCREENING_UNAVAILABLE_LINE);
   // W2-E sanctions screen end

@@ -22,6 +22,12 @@ import {
 } from "../local-currency.js";
 import type { FiatQuoteRes } from "../contract.js";
 // Local-currency splits end
+// F1 payer inbox start
+import {
+  normalizeHandle, payerInput, payerLabel, payerOutput, REFUSE_PAYER_NOT_STORED, requesterHandleInput, resolvePayer, samePayer, type PayerResolution,
+} from "../payer.js";
+import { SNS_BUDGET_MS } from "../sns-payee.js";
+// F1 payer inbox end
 
 const MIN_PEOPLE = 2;
 const LIMITS = { title: 60, name: 40, requester_name: 40 } as const;
@@ -44,11 +50,13 @@ export const inputSchema = z.object({
   people: z.array(z.object({
     name: z.string().min(1).max(LIMITS.name).describe("First name of a person who owes a share."),
     amount: decimalSchema.optional().describe("Only if this person owes a set amount; everyone without one splits the rest evenly."),
+    payer: payerInput.optional(), // F1: this person's handle + wallet (resolve_username first), .sns name or wallet
   }).strict()).min(MIN_PEOPLE).max(MAX_SPLIT).describe("2 to 20 people who owe money, not including the user."),
   requester_name: z.string().min(1).max(LIMITS.requester_name).optional().describe("The user's own first name, so people know who is asking."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls that publishes this wallet (verified payee)."),
   expires_in_days: expiresInDaysInput.optional(), // W3-C: every share expires together
   currency: currencyInput.optional(), // local-currency split: total and people's amounts are in this currency
+  requester_handle: requesterHandleInput.optional(), // F1
 }).strict();
 
 const shareOutput = z.object({
@@ -60,6 +68,7 @@ const shareOutput = z.object({
   reference: z.string(),
   share_text: z.string().describe("A ready-to-send message for this person."),
   fiat: fiatOutput.optional(), // local-currency split: this share in the bill's currency; amount is its USDC
+  payer: payerOutput.optional().describe("Who this share is addressed to: it is in their what_do_i_owe inbox."), // F1
 }).strict();
 
 export const outputSchema = z.object({
@@ -75,6 +84,7 @@ export const outputSchema = z.object({
   from_domain: z.string().optional().describe("The verified payee domain every share carries (checked over DNS by the plugin)."),
   expires_at: z.string().optional().describe("When every share stops taking payments (set by Owed's server)."), // W3-C
   fiat: fiatOutput.optional(), // local-currency split: the bill in its currency; total is the shares' USDC sum
+  requester_handle: z.string().optional().describe("The user's own X handle as payers see it (not verified by Owed)."), // F1
 }).strict();
 
 export type SplitInput = z.output<typeof inputSchema>;
@@ -87,6 +97,7 @@ const DESCRIPTION = [
   "total is what to collect from the listed people: leave the user out of people, and if the user also ate, leave their own share out of total. Give a person an amount only if they owe a set sum; the rest split evenly.",
   "recipient is the user's own PayBox Solana wallet address (from list_credentials); funds go straight from each payer to it, Owed never holds money.",
   "Show the user the board link and each person's link with its share_text so they can send them; later call check_payments with the share ids to see who has paid.",
+  "To put a share in someone's own agent inbox (what_do_i_owe), give that person a payer: for an X handle, call PayBox resolve_username first, tell the user which wallet it resolved to, and pass {handle, wallet}; or pass {sns} or {wallet}.", // F1
 ].join(" ");
 
 /** Group id = last 12 base58 chars of sha256 over its share ids in board order (web/lib/groups.ts computes the same). */
@@ -184,6 +195,7 @@ export async function splitBill(
   if (!title) return refusal("title needs some readable text, e.g. \"Pizza night\".");
   const names = args.people.map((p, i) => clean(p.name, LIMITS.name) || `Person ${i + 1}`);
   const requesterName = clean(args.requester_name, LIMITS.requester_name) || undefined;
+  const requesterHandle = args.requester_handle === undefined ? null : normalizeHandle(args.requester_handle); // F1
 
   let plan: Plan;
   try {
@@ -202,12 +214,18 @@ export async function splitBill(
   // The screen runs beside the DNS check, never before it: together with the API call they must fit 10 s.
   if (args.from_domain !== undefined && !checkDomain) return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Split the bill without from_domain.");
   const budget = Math.max(1500, CALL_BUDGET_MS - API_TIMEOUT_MS - (deps.now() - started));
-  const [screening, check] = await Promise.all([
+  const [screening, check, payerResults] = await Promise.all([
     screen(args.recipient),
     args.from_domain !== undefined && checkDomain ? checkDomain(args.from_domain, args.recipient, deps, budget) : undefined,
+    // F1: each person's payer, side by side (an .sns name resolves on Solana).
+    Promise.all(args.people.map((p, i): Promise<PayerResolution | null> =>
+      (p.payer ? resolvePayer(p.payer, args.recipient, deps, Math.min(SNS_BUDGET_MS, budget), names[i]) : Promise.resolve(null)))),
   ]);
   if (!screening.ok) return refusal(screening.message);
   // W2-E sanctions screen end
+  const refusedPayer = payerResults.find((r) => r && !r.ok);
+  if (refusedPayer && !refusedPayer.ok) return refusal(refusedPayer.message); // F1
+  const payers = payerResults.map((r) => (r?.ok ? r : null));
 
   let fromDomain: string | undefined;
   let domainLines: string[] = [];
@@ -232,8 +250,9 @@ export async function splitBill(
   const body: CreateGroupReq = {
     recipient: args.recipient, total, token, title,
     ...(code && { currency: code }), // local-currency split: total and amounts are in this currency
-    people: names.map((name, i) => ({ name, amount: amounts[i]! })),
+    people: names.map((name, i) => ({ name, amount: amounts[i]!, ...(payers[i] && { payer: payers[i]!.body }) })), // F1: + payer
     ...(requesterName && { requester_name: requesterName }),
+    ...(requesterHandle && { requester_handle: requesterHandle }), // F1
     source: "plugin",
     ...(fromDomain && { from_domain: fromDomain }),
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
@@ -260,6 +279,9 @@ export async function splitBill(
     if (fromDomain && (res.from_domain !== fromDomain || res.shares.some((s) => s.from_domain !== fromDomain))) {
       return refusal(`Owed's server didn't attach ${fromDomain} to every share, so the links weren't used. Try again, or split without from_domain.`);
     }
+    // F1: every addressed share must carry its payer, or that person's inbox won't list it.
+    const unaddressed = payers.findIndex((p, i) => p !== null && !samePayer(res.shares[i]?.payer, p.payer));
+    if (unaddressed !== -1) return refusal(REFUSE_PAYER_NOT_STORED(payers[unaddressed]!.payer));
     const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
     if (expiry) return refusal(expiry);
     if (args.expires_in_days !== undefined) expiresAt = res.expires_at;
@@ -285,6 +307,7 @@ export async function splitBill(
       ...(fiat && { fiat: fiatAmountText(fiat.shares[i]!) }), // local-currency split
     }),
     ...(fiat && { fiat: quoteOut(fiat.shares[i]!) }),
+    ...(payers[i] && created.mode === "hosted" && { payer: payers[i]!.payer }), // F1
   }));
   // The remainder is in the bill's own units: minor units of the currency in a local-currency split.
   const note = remainderNote({ ...plan, amounts: code ? plan.amounts.map((_, i) => toMinor(fiatAmounts![i]!, code)) : plan.amounts }, names, unit, fromUnits);
@@ -295,6 +318,7 @@ export async function splitBill(
     ...(fromDomain && created.mode === "hosted" && { from_domain: fromDomain }),
     ...(expiresAt && { expires_at: expiresAt }), // W3-C
     ...(fiat && { fiat: quoteOut(fiat.group) }),
+    ...(requesterHandle && created.mode === "hosted" && { requester_handle: requesterHandle }), // F1
   };
 
   const totalText = fiat ? fiatHeadline(fiat.group, total) : `${total} ${token}`;
@@ -307,6 +331,10 @@ export async function splitBill(
   if (note) lines.push(note);
   if (fiat) lines.push(fiatRateLine(fiat.group, total).replace("The payer pays", "Together they pay")); // local-currency split
   if (created.mode === "hosted") lines.push(...domainLines);
+  // F1: who sees their share in their own inbox.
+  const addressed = payers.map((p, i) => (p ? `${names[i]} as ${payerLabel(p.payer)}` : null)).filter(Boolean);
+  if (addressed.length && created.mode === "hosted") lines.push(`In their own agent's inbox (what_do_i_owe): ${addressed.join(", ")}. Handles are labels: Owed doesn't verify them.`);
+  if (addressed.length && created.mode === "offline") lines.push("These offline links aren't addressed to anyone, so no one's inbox lists them. Send each person their link.");
   if (expiresAt && args.expires_in_days !== undefined) lines.push(expiryLine(expiresAt, args.expires_in_days, "every share")); // W3-C
   if (created.mode === "offline" && args.expires_in_days !== undefined) lines.push(OFFLINE_NO_EXPIRY.replace("this one stays", "these stay"));
   lines.push("Send each person their own link (each share has a ready share_text). check_payments takes the share ids or links to see who has paid.");

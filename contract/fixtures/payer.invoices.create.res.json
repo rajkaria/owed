@@ -1,0 +1,44 @@
+{
+  "id": "kaYAf4uJoEKC",
+  "link": "https://www.getowed.xyz/i/kaYAf4uJoEKC",
+  "request_link": "https://www.getowed.xyz/r/kaYAf4uJoEKC",
+  "solana_pay_url": "solana:A8W3rchg1VLu4iztrYVf7xr7QjcMUqLjWG7rCGSyxeG4?amount=1.25&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=DU4CADUrFcUmoBo6hcJYSG2EdBEgjAoNTJMUveH8BJF8&label=Lena%20Studio&message=Invoice%20LS-31&memo=owed%3AkaYAf4uJoEKC",
+  "qr_url": "https://www.getowed.xyz/api/qr/kaYAf4uJoEKC.png",
+  "reference": "DU4CADUrFcUmoBo6hcJYSG2EdBEgjAoNTJMUveH8BJF8",
+  "x402_url": "https://www.getowed.xyz/x/kaYAf4uJoEKC",
+  "recipient": "A8W3rchg1VLu4iztrYVf7xr7QjcMUqLjWG7rCGSyxeG4",
+  "token": "USDC",
+  "business_name": "Lena Studio",
+  "client_name": "Bonfida",
+  "invoice_number": "LS-31",
+  "notes": null,
+  "issue_date": "2026-10-18",
+  "due_date": "2026-10-31",
+  "items": [
+    {
+      "description": "Poster design",
+      "quantity": "1",
+      "unit_price": "1",
+      "amount": "1"
+    },
+    {
+      "description": "Print files",
+      "quantity": "1",
+      "unit_price": "0.25",
+      "amount": "0.25"
+    }
+  ],
+  "total": "1.25",
+  "status": "open",
+  "paid": null,
+  "created_at": "2026-10-18T09:00:00Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "payer": {
+    "wallet": "Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v",
+    "handle": null,
+    "sns": "bonfida.sns"
+  },
+  "requester_handle": "lenastudio"
+}

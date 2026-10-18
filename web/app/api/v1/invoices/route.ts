@@ -9,6 +9,7 @@ import { requireCreateSlot, requireDnsSlot } from "@/lib/ratelimit";
 import { requireSolMinimum } from "@/lib/sol-minimum";
 import { fiatCurrency, FiatError, type FiatCode } from "@/lib/fiat"; // local-currency invoices
 import { lockRate } from "@/lib/fx";
+import { parseHandle, requirePayer, requirePayerAskSlot } from "@/lib/inbox-payer"; // F1
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,7 @@ export async function POST(req: Request): Promise<Response> {
       source: body.source,
       expiresInDays: body.expires_in_days ?? null, // W3-C
       currency,
+      requesterHandle: parseHandle(body.requester_handle, "requester_handle"), // F1: a label, format checked
     };
     const now = Date.now();
     let totalAtomic: bigint;
@@ -63,13 +65,18 @@ export async function POST(req: Request): Promise<Response> {
     // Verified payee (W2-H): the domain must publish this recipient in DNS now; stored on the invoice and its request.
     // W2-E: DNS lookups are capped per client IP and per domain.
     if (body.from_domain != null) await requireDnsSlot(req, body.from_domain);
-    const fromDomain = body.from_domain == null ? null : await requireVerifiedDomain(body.from_domain, body.recipient);
+    // F1: the client as a payer (an .sns name is resolved beside the DNS check).
+    const [fromDomain, payer] = await Promise.all([
+      body.from_domain == null ? null : requireVerifiedDomain(body.from_domain, body.recipient),
+      requirePayer(body.payer, body.recipient),
+    ]);
 
     await requireCreateSlot(req, body.recipient);
+    if (payer) await requirePayerAskSlot(req, body.recipient, payer.wallet);
 
     let created;
     try {
-      created = await createInvoice({ ...input, fromDomain, rate }, now);
+      created = await createInvoice({ ...input, fromDomain, rate, payer }, now);
     } catch (e) {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message); // the USDC total out of range
       throw e;

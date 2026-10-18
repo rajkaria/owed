@@ -5,6 +5,8 @@ import { PayView } from "@/components/pay-view";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
 import { SnsBadge } from "@/components/sns-badge"; // W3-S
+import { HandleBadge } from "@/components/handle-badge"; // F1
+import type { PublicRequestWithPayer } from "@/lib/requests"; // F1
 import { loadPublicRequest } from "@/lib/request-source";
 import { requestOrigin } from "@/lib/site";
 import { modelFromRequest, pageDescription, pageTitle } from "@/lib/view/request-view";
@@ -36,6 +38,7 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
     <>
       <VerifiedBadge domain={request.from_domain} verifiedAt={request.from_domain_verified_at} />
       <SnsBadge name={request.sns_name} recipient={request.recipient} source={request.sns_source} resolvedAt={request.sns_resolved_at} />
+      <HandleBadge handle={(request as PublicRequestWithPayer).requester_handle} />
     </>
   );
   // Pay by card (MoonPay): nothing unless MoonPay is configured; a note when the amount can't be bought by card.

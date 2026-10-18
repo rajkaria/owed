@@ -8,6 +8,7 @@ import {
   cancelResSchema, type CancelReq, type CancelRes,
   scheduleResSchema, type CreateScheduleReq, type ScheduleRes, // W3-D
   matchResSchema, restResSchema, attributedResSchema, type MatchReq, type MatchRes, type RestReq, type RestRes, type AttributedReq, type AttributedRes, // 0012
+  bulkRequestsResSchema, inboxBlockResSchema, inboxResSchema, type BulkRequestsRes, type InboxBlockReq, type InboxBlockRes, type InboxReq, type InboxRes, // F1
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -65,6 +66,12 @@ export interface ApiClient {
   askForRest(id: string, body: RestReq): Promise<RestRes>;
   /** 0012: which transactions already settle a request, which keys are Owed references. */
   attributed(body: AttributedReq): Promise<AttributedRes>;
+  /** F1: the open requests addressed to a payer, with the payer's signed message. */
+  inbox(body: InboxReq): Promise<InboxRes>;
+  /** F1: block or unblock a requester wallet for a payer, with the payer's signed message; answers with the inbox. */
+  inboxBlock(body: InboxBlockReq): Promise<InboxBlockRes>;
+  /** F1: up to 20 requests' terms in one call (pay_all). */
+  getRequests(ids: string[]): Promise<BulkRequestsRes>;
 }
 
 export interface ApiOptions {
@@ -129,5 +136,8 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     matchPayment: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/match`, matchResSchema, body), // 0012
     askForRest: (id, body) => call("POST", `/requests/${encodeURIComponent(id)}/rest`, restResSchema, body),
     attributed: (body) => call("POST", "/attributed", attributedResSchema, body),
+    inbox: (body) => call("POST", "/inbox", inboxResSchema, body), // F1
+    inboxBlock: (body) => call("POST", "/inbox/block", inboxBlockResSchema, body),
+    getRequests: (ids) => call("GET", `/requests?ids=${ids.map(encodeURIComponent).join(",")}`, bulkRequestsResSchema),
   };
 }

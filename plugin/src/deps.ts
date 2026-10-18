@@ -1,9 +1,9 @@
 import { makeApi, owedHosts, resolveBaseUrl, type ApiClient } from "./api.js";
-import { DEFAULT_RPC_URLS, findPayment, makeRpc, payerReadiness, type Rpc } from "./chain.js";
+import { DEFAULT_RPC_URLS, findPayment, makeRpc, payerReadiness, readBatchAccounts, type Rpc } from "./chain.js";
 import { fromAtomic, toAtomic } from "./money.js";
 import { screenRecipient } from "./screen.js";
 import { buildTransferUrl, isSolanaAddress, newReference, parseLink } from "./solana-pay.js";
-import { buildTransferTx } from "./tx.js";
+import { buildTransferTx, planBatch } from "./tx.js";
 
 /**
  * Everything a tool touches outside its own file. Production uses the real modules; tests pass doubles.
@@ -25,6 +25,9 @@ export interface Deps {
   payerReadiness: typeof payerReadiness;
   /** Sanctions screen (W2-E): OFAC SDN list lookup, local; injectable so tests can force a hit. */
   screenRecipient: typeof screenRecipient;
+  /** F1 pay_all: one account read for a whole batch, and the transaction that pays it (chunked at 1,232 bytes). */
+  readBatchAccounts: typeof readBatchAccounts;
+  planBatch: typeof planBatch;
 }
 
 export const defaultDeps: Deps = {
@@ -34,6 +37,7 @@ export const defaultDeps: Deps = {
   now: () => Date.now(),
   toAtomic, fromAtomic, parseLink, buildTransferUrl, newReference, isSolanaAddress, buildTransferTx, findPayment, payerReadiness,
   screenRecipient,
+  readBatchAccounts, planBatch, // F1
 };
 
 export interface CallContext {

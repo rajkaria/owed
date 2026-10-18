@@ -21,6 +21,7 @@ import { LedgerBody, LedgerResponse } from "@/lib/contract";
 import { CancelBody, CancelResponse } from "@/lib/contract"; // W3-C
 import { CreateScheduleBody, ScheduleResponse } from "@/lib/contract"; // W3-D
 import { AttributedBody, AttributedResponse, MatchBody, MatchResponse, RestBody, RestResponse } from "@/lib/contract"; // 0012
+import { BulkRequestsResponse, InboxBlockBody, InboxBlockResponse, InboxBody, InboxResponse } from "@/lib/contract"; // F1
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -78,6 +79,21 @@ const SCHEMAS: Record<string, ZodType> = {
   "sns.create-request.req.json": CreateRequestBody,
   "sns.create-request.res.json": CreateRequestResponse,
   "sns.get-request.res.json": GetRequestResponse,
+  // F1 payer inbox
+  "payer.create-request.req.json": CreateRequestBody,
+  "payer.create-request.res.json": CreateRequestResponse,
+  "payer.get-request.res.json": GetRequestResponse,
+  "payer.groups.create.req.json": CreateGroupBody,
+  "payer.groups.create.res.json": GroupResponse,
+  "payer.invoices.create.req.json": CreateInvoiceBody,
+  "payer.invoices.create.res.json": InvoiceResponse,
+  "payer.schedules.create.req.json": CreateScheduleBody,
+  "payer.schedules.create.res.json": ScheduleResponse,
+  "inbox.req.json": InboxBody,
+  "inbox.res.json": InboxResponse,
+  "inbox.block.req.json": InboxBlockBody,
+  "inbox.block.res.json": InboxBlockResponse,
+  "requests.bulk.res.json": BulkRequestsResponse,
 };
 
 test("every contract fixture has a schema", () => {

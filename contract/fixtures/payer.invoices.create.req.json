@@ -1,0 +1,26 @@
+{
+  "recipient": "A8W3rchg1VLu4iztrYVf7xr7QjcMUqLjWG7rCGSyxeG4",
+  "token": "USDC",
+  "business_name": "Lena Studio",
+  "client_name": "Bonfida",
+  "items": [
+    {
+      "description": "Poster design",
+      "quantity": "1",
+      "unit_price": "1"
+    },
+    {
+      "description": "Print files",
+      "quantity": "1",
+      "unit_price": "0.25"
+    }
+  ],
+  "due_date": "2026-10-31",
+  "invoice_number": "LS-31",
+  "source": "plugin",
+  "payer": {
+    "sns": "bonfida.sns",
+    "wallet": "Fw1ETanDZafof7xEULsnq9UY6o71Tpds89tNwPkWLb1v"
+  },
+  "requester_handle": "lenastudio"
+}

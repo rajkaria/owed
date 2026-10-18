@@ -8,6 +8,7 @@ import { solanaPayUrl } from "@/lib/requests";
 import { brandFlags, sanitizeText, TEXT_LIMITS } from "@/lib/safety";
 import { createSchedule, nextRequestOn } from "@/lib/schedules";
 import { x402UrlFor } from "@/lib/x402/url";
+import { handleFlags, parseHandle, requirePayer, requirePayerAskSlot } from "@/lib/inbox-payer"; // F1
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,8 @@ export async function POST(req: Request): Promise<Response> {
     const payerName = sanitizeText(body.payer_name, TEXT_LIMITS.payer_name);
     const forText = sanitizeText(body.for, TEXT_LIMITS.for);
     const requesterName = sanitizeText(body.requester_name, TEXT_LIMITS.requester_name);
-    const flags = brandFlags([body.payer_name, body.for, body.requester_name]);
+    const requesterHandle = parseHandle(body.requester_handle, "requester_handle"); // F1: a label, format checked
+    const flags = [...brandFlags([body.payer_name, body.for, body.requester_name]), ...handleFlags(requesterHandle)];
 
     const slot = await takeCreateSlot(body.recipient);
     if (!slot.allowed) {
@@ -54,7 +56,12 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     // Verified payee (W2-H): checked now and again before every month's request (lib/schedules.ts).
-    const fromDomain = body.from_domain ? await requireVerifiedDomain(body.from_domain, body.recipient) : null;
+    // F1: the payer every month's request is addressed to (an .sns name is resolved beside the DNS check).
+    const [fromDomain, payer] = await Promise.all([
+      body.from_domain ? requireVerifiedDomain(body.from_domain, body.recipient) : null,
+      requirePayer(body.payer, body.recipient),
+    ]);
+    if (payer) await requirePayerAskSlot(req, body.recipient, payer.wallet);
 
     const now = Date.now();
     const { schedule, first } = await createSchedule({
@@ -69,6 +76,8 @@ export async function POST(req: Request): Promise<Response> {
       maxRequests: body.months ?? null,
       source: body.source,
       fromDomain,
+      payer, // F1
+      requesterHandle,
     }, { now });
 
     const base = baseUrl(req);
@@ -101,6 +110,9 @@ export async function POST(req: Request): Promise<Response> {
         flags: first.request.flags,
         from_domain: first.request.fromDomain ?? null,
       },
+      // F1: only when set, so an unaddressed schedule's reply is exactly as before.
+      ...(schedule.payer && { payer: schedule.payer }),
+      ...(schedule.requesterHandle && { requester_handle: schedule.requesterHandle }),
     };
     return json(res, { status: 201 });
   } catch (e) {

@@ -1,8 +1,8 @@
 {
   "$comment": "Written by scripts/sync-mcp-bundle.mjs from the bundle next to it. Do not edit; re-run the script.",
   "file": "owed-plugin.mjs",
-  "bytes": 1258126,
-  "sha256": "95d86a9b139579d91b79c820e8fa3edc9e7091061f971d7bd7b469c9ef54d7d7",
+  "bytes": 1300441,
+  "sha256": "670f4351bd2fd5ea295c3bc6969af2708656a82a5a1ade9d2f6a56cc6e58dc5c",
   "protocolVersion": "2026-07-28",
   "server": {
     "name": "owed",
@@ -19,6 +19,8 @@
     "who_owes_me",
     "cancel_request",
     "ask_every_month",
-    "match_payments"
+    "match_payments",
+    "what_do_i_owe",
+    "pay_all"
   ]
 }

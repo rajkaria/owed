@@ -1,0 +1,15 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "450",
+  "token": "USDC",
+  "payer_name": "Sam",
+  "for": "rent",
+  "requester_name": "Raj",
+  "day_of_month": 1,
+  "source": "plugin",
+  "payer": {
+    "handle": "sam_ok",
+    "wallet": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK"
+  },
+  "requester_handle": "rajkaria"
+}

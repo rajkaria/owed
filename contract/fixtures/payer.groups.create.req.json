@@ -1,0 +1,30 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "total": "0.3",
+  "token": "USDC",
+  "title": "Climbing gym",
+  "people": [
+    {
+      "name": "Sam",
+      "amount": "0.1",
+      "payer": {
+        "handle": "sam_ok",
+        "wallet": "Edah8cvCZDBBpQdj7UaP8EreFAwL6ZURjdGtZSj2DDJK"
+      }
+    },
+    {
+      "name": "Ana",
+      "amount": "0.1"
+    },
+    {
+      "name": "Lee",
+      "amount": "0.1",
+      "payer": {
+        "wallet": "257mshQwTSffd2G9RoUJwb1nU4hjEtRgnZedk9ypRNfF"
+      }
+    }
+  ],
+  "requester_name": "Raj",
+  "source": "plugin",
+  "requester_handle": "rajkaria"
+}

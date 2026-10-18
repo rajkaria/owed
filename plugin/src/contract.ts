@@ -43,6 +43,19 @@ export const fiatQuoteSchema = z.object({
 });
 export const snsSourceSchema = z.enum(["sol_record_v2", "sol_record_v1", "owner"]); // W3-S
 
+// F1 payer inbox. A create body may say who it is addressed to: the payer's Solana wallet, with the X handle the agent
+// resolved it from (PayBox resolve_username) or an .sns name. Handles are labels, lower case without "@"; Owed never
+// verifies them. Replies echo what the server stored. The payer is never part of a request id.
+export const handleSchema = z.string().regex(/^[a-z0-9_]{1,15}$/);
+export const payerReqSchema = z.object({
+  wallet: addressSchema.optional(),
+  handle: handleSchema.optional(),
+  sns: z.string().min(1).max(140).optional(),
+}).strict();
+export const payerInfoSchema = z.object({ wallet: addressSchema, handle: handleSchema.nullable(), sns: z.string().max(140).nullable() });
+export type PayerReq = z.infer<typeof payerReqSchema>;
+export type PayerInfo = z.infer<typeof payerInfoSchema>;
+
 export const createRequestReqSchema = z.object({
   recipient: anyAddress, // W3-B: a 0x address with chain "base"
   amount: decimalSchema,
@@ -59,6 +72,8 @@ export const createRequestReqSchema = z.object({
   chain: chainSchema.optional(), // W3-B: absent = solana
   currency: currencySchema.optional(), // local-currency ask: `amount` is in this currency
   sns_name: z.string().min(1).max(140).optional(), // W3-S: the plugin resolved it to recipient first
+  payer: payerReqSchema.optional(), // F1
+  requester_handle: handleSchema.optional(),
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -78,6 +93,8 @@ export const createRequestResSchema = z.object({
   fiat: fiatQuoteSchema.optional(),
   sns_name: z.string().max(140).nullable().optional(), // W3-S: the name the server re-resolved to recipient
   sns_source: snsSourceSchema.nullable().optional(),
+  payer: payerInfoSchema.nullable().optional(), // F1
+  requester_handle: handleSchema.nullable().optional(),
 });
 
 export const paidInfoSchema = z.object({
@@ -139,6 +156,9 @@ export const getRequestResSchema = z.object({
   sns_name: z.string().max(140).nullable().optional(),
   sns_source: snsSourceSchema.nullable().optional(),
   sns_resolved_at: isoTime.nullable().optional(),
+  // F1: who it is addressed to, and the requester's own X handle (labels: pay_link asks the agent to check the handle).
+  payer: payerInfoSchema.nullable().optional(),
+  requester_handle: handleSchema.nullable().optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
@@ -202,12 +222,13 @@ export const createGroupReqSchema = z.object({
   total: decimalSchema,
   token: tokenSchema,
   title: z.string().min(1).max(60),
-  people: z.array(z.object({ name: z.string().min(1).max(40), amount: decimalSchema.optional() }).strict()).min(2).max(20),
+  people: z.array(z.object({ name: z.string().min(1).max(40), amount: decimalSchema.optional(), payer: payerReqSchema.optional() }).strict()).min(2).max(20), // F1: + payer
   requester_name: z.string().max(40).optional(),
   source: z.enum(["plugin", "web"]),
   from_domain: z.string().min(1).max(253).optional(),
   expires_in_days: expiresInDaysSchema.optional(), // W3-C
   currency: currencySchema.optional(), // local-currency split: total and people's amounts are in this currency
+  requester_handle: handleSchema.optional(), // F1
 }).strict();
 
 export const groupShareSchema = z.object({
@@ -222,6 +243,7 @@ export const groupShareSchema = z.object({
   paid: paidInfoSchema.nullable().optional(),
   from_domain: z.string().max(253).nullable().optional(), // W2-H: split_bill checks every share echoes the domain
   fiat: fiatQuoteSchema.optional(), // local-currency split: this share in the bill's currency
+  payer: payerInfoSchema.optional(), // F1
 });
 
 export const groupResSchema = z.object({
@@ -242,6 +264,7 @@ export const groupResSchema = z.object({
   shares: z.array(groupShareSchema).min(2).max(20),
   expires_at: isoTime.optional(), // W3-C
   fiat: fiatQuoteSchema.optional(), // local-currency split: the bill's total; `total` is the shares' USDC sum
+  requester_handle: handleSchema.optional(), // F1
 });
 
 export const errorResSchema = z.object({
@@ -273,6 +296,8 @@ export const createInvoiceReqSchema = z.object({
   source: z.enum(["plugin", "web"]),
   expires_in_days: expiresInDaysSchema.optional(), // W3-C
   currency: currencySchema.optional(), // local-currency invoice: every unit_price is in this currency
+  payer: payerReqSchema.optional(), // F1: the client as a payer
+  requester_handle: handleSchema.optional(),
 }).strict();
 
 export const invoiceResSchema = z.object({
@@ -308,6 +333,8 @@ export const invoiceResSchema = z.object({
   cancelled_at: isoTime.optional(),
   // Local-currency invoice: items are in fiat.currency, fiat.amount is their sum, `total` the USDC locked.
   fiat: fiatQuoteSchema.optional(),
+  payer: payerInfoSchema.optional(), // F1
+  requester_handle: handleSchema.optional(),
 });
 
 export type Token = z.infer<typeof tokenSchema>;
@@ -444,6 +471,8 @@ export const createScheduleReqSchema = z.object({
   months: z.number().int().min(1).max(120).optional(),
   from_domain: z.string().min(1).max(253).optional(),
   source: z.enum(["plugin", "web"]),
+  payer: payerReqSchema.optional(), // F1
+  requester_handle: handleSchema.optional(),
 }).strict();
 
 export const scheduleResSchema = z.object({
@@ -475,6 +504,8 @@ export const scheduleResSchema = z.object({
     flags: z.array(z.string().max(80)).max(32),
     from_domain: z.string().max(253).nullable().optional(),
   }).nullable(),
+  payer: payerInfoSchema.optional(), // F1
+  requester_handle: handleSchema.optional(),
 });
 
 export type CreateScheduleReq = z.infer<typeof createScheduleReqSchema>;
@@ -518,3 +549,81 @@ export type RestReq = z.infer<typeof restReqSchema>;
 export type RestRes = z.infer<typeof restResSchema>;
 export type AttributedReq = z.infer<typeof attributedReqSchema>;
 export type AttributedRes = z.infer<typeof attributedResSchema>;
+
+// ---- F1: the payer inbox (what_do_i_owe), blocking a requester, bulk terms for pay_all ----
+
+// POST /api/v1/inbox. The payer's wallet signs "Owed inbox access for <payer> at <ISO>"; the server accepts it once, within 5 minutes.
+export const inboxReqSchema = z.object({
+  payer: addressSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const inboxEntrySchema = z.object({
+  id: requestIdSchema,
+  kind: z.string().max(20),
+  link: httpsUrl,
+  status: z.enum(["open", "underpaid"]),
+  amount: decimalSchema,
+  amount_due: decimalSchema,
+  token: tokenSchema,
+  chain: chainSchema,
+  recipient: anyAddress,
+  requester_name: z.string().max(160).nullable(),
+  requester_handle: handleSchema.nullable(),
+  for: z.string().max(320).nullable(),
+  from_domain: z.string().max(253).nullable(),
+  sns_name: z.string().max(140).nullable(),
+  created_at: isoTime,
+  expires_at: isoTime.nullable(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  invoice_number: z.string().max(80).nullable(),
+  group_title: z.string().max(240).nullable(),
+  addressed_as: z.object({ handle: handleSchema.nullable(), sns: z.string().max(140).nullable() }),
+  first_time: z.boolean(),
+  flags: z.array(z.string().max(80)).max(32),
+  fiat: fiatQuoteSchema.optional(),
+});
+
+export const inboxResSchema = z.object({
+  payer: addressSchema,
+  caution: z.string().max(400),
+  generated_at: isoTime,
+  chain_checked: z.boolean(),
+  owed: z.array(inboxEntrySchema).max(100),
+  base: z.array(inboxEntrySchema).max(100),
+  totals: z.array(z.object({ token: tokenSchema, chain: chainSchema, amount_due: decimalSchema, count: z.number().int().nonnegative() })).max(3),
+  blocked_hidden: z.number().int().nonnegative(),
+  blocked_requesters: z.array(anyAddress).max(50),
+  truncated: z.boolean(),
+});
+
+// POST /api/v1/inbox/block. The payer's wallet signs "Owed block <requester> for <payer> at <ISO>" (or unblock); the reply carries the inbox after it.
+export const inboxBlockReqSchema = z.object({
+  payer: addressSchema,
+  requester: anyAddress,
+  action: z.enum(["block", "unblock"]),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export const inboxBlockResSchema = z.object({
+  payer: addressSchema,
+  requester: anyAddress,
+  action: z.enum(["block", "unblock"]),
+  blocked: z.boolean(),
+  changed: z.boolean(),
+  inbox: inboxResSchema,
+});
+
+// GET /api/v1/requests?ids=a,b,c: 1 to 20 requests, each as GET /api/v1/requests/<id> returns it; unknown ids apart.
+export const bulkRequestsResSchema = z.object({
+  requests: z.array(getRequestResSchema).max(20),
+  not_found: z.array(z.string().max(20)).max(20),
+});
+
+export type InboxReq = z.infer<typeof inboxReqSchema>;
+export type InboxRes = z.infer<typeof inboxResSchema>;
+export type InboxEntry = z.infer<typeof inboxEntrySchema>;
+export type InboxBlockReq = z.infer<typeof inboxBlockReqSchema>;
+export type InboxBlockRes = z.infer<typeof inboxBlockResSchema>;
+export type BulkRequestsRes = z.infer<typeof bulkRequestsResSchema>;

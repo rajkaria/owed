@@ -313,7 +313,11 @@ export async function runE2E(options) {
   if (options.expectNoProposal && hasProposal) fail("expected no PayBox proposal, but the tool returned one");
   if (hasProposal) {
     const expected = await expectedPayment(args, options.baseUrl ?? DEFAULT_BASE_URL, warn);
-    const inspection = inspectProposal(result.structuredContent, { sender: options.sender ?? args.sender, expected, ataFor: plugin.ataFor() });
+    // F1 pay_all: several requests in one transaction, each checked against its own terms.
+    const inspection = inspectProposal(result.structuredContent, {
+      sender: options.sender ?? args.sender, ataFor: plugin.ataFor(),
+      ...(Array.isArray(expected?.many) ? { expectedMany: expected.many } : Array.isArray(args.ids) ? { multi: true } : { expected }),
+    });
     call.proposal = { ...inspection.summary, expectedFrom: expected?.source ?? null };
     for (const error of inspection.errors) fail(`proposal: ${error}`);
     for (const warning of inspection.warnings) warn(`proposal: ${warning}`);
@@ -344,8 +348,31 @@ function finish(report) {
   return report;
 }
 
+/** pay_all's ids → their terms from GET /api/v1/requests?ids= (each request's own solana: URL). */
+async function expectedBatch(args, baseUrl, warn) {
+  const ids = args.ids.map((entry) => String(entry).match(/(?:^|\/[ri]\/)([1-9A-HJ-NP-Za-km-z]{12})(?:[/?#]|$)/)?.[1]).filter(Boolean);
+  if (ids.length === 0) return null;
+  const origin = new URL(baseUrl).origin;
+  try {
+    const res = await fetch(`${origin}/api/v1/requests?ids=${ids.join(",")}`, { signal: AbortSignal.timeout(5000), headers: { "user-agent": "owed-plugin-e2e/1" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { requests } = await res.json();
+    const many = requests.map((r) => {
+      const parsed = parseSolanaPayUrl(r.solana_pay_url ?? "");
+      return parsed.ok && parsed.kind === "transfer"
+        ? { id: r.id, recipient: parsed.recipient, amount: parsed.amount, token: parsed.token, splToken: parsed.splToken, references: parsed.references }
+        : null;
+    }).filter(Boolean);
+    return { source: `GET ${origin}/api/v1/requests?ids=`, many };
+  } catch (error) {
+    warn(`could not resolve the pay_all ids to cross-check the proposal: ${error.message}`);
+    return null;
+  }
+}
+
 /** What the paid link asks for: parsed from a solana: URL, or fetched from the Owed API for an Owed link/id. */
 async function expectedPayment(args, baseUrl, warn) {
+  if (Array.isArray(args.ids)) return expectedBatch(args, baseUrl, warn); // F1 pay_all
   const link = typeof args.link === "string" ? args.link.trim() : null;
   if (!link) return null;
   const fromUrl = (url, source) => {
@@ -461,7 +488,8 @@ function formatReport(report) {
     if (call.proposal) {
       const proposal = call.proposal;
       out.push(`  proposal ${proposal.bytes} bytes · fee payer ${proposal.feePayer} · ${proposal.instructions?.join(" → ")}`);
-      if (proposal.transfer) out.push(`    pays ${proposal.transfer.amount} ${proposal.transfer.token} (${proposal.transfer.atomic} atomic) to ${proposal.transfer.destination}${proposal.transfer.destinationOwner ? ` (owner ${proposal.transfer.destinationOwner})` : ""} · ${proposal.transfer.references.length} reference(s)${proposal.memo ? ` · memo ${JSON.stringify(proposal.memo)}` : ""}`);
+      for (const t of proposal.transfers ?? (proposal.transfer ? [proposal.transfer] : [])) out.push(`    pays ${t.amount} ${t.token} (${t.atomic} atomic) to ${t.destination}${t.destinationOwner ? ` (owner ${t.destinationOwner})` : ""} · ${t.references.length} reference(s)`);
+      if (proposal.memo) out.push(`    memo ${JSON.stringify(proposal.memo)}`);
       if (proposal.expectedFrom) out.push(`    matched against ${proposal.expectedFrom}`);
     }
     if (call.stdoutBytes !== undefined) out.push(`  limits: ${call.ms}/${LIMITS.budgetMs} ms · stdout ${kib(call.stdoutBytes)}/${kib(LIMITS.stdoutBytes)}${call.isError ? " · isError" : ""}`);

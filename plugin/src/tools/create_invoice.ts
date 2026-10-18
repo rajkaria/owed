@@ -20,6 +20,12 @@ import {
 } from "../local-currency.js";
 import type { FiatQuoteRes } from "../contract.js";
 // Local-currency invoices end
+// F1 payer inbox start
+import {
+  ADDRESSED_LINE, normalizeHandle, payerInput, payerOutput, REFUSE_PAYER_NOT_STORED, requesterHandleInput, resolvePayer, samePayer, type PayerResolution,
+} from "../payer.js";
+import { SNS_BUDGET_MS } from "../sns-payee.js";
+// F1 payer inbox end
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -58,6 +64,8 @@ export const inputSchema = z.object({
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls whose _owed TXT record publishes this wallet (verified payee)."),
   expires_in_days: expiresInDaysInput.optional().describe("Optional: the invoice stops taking payments after this many days (1 to 90, reaching at least the due date). Owed's server sets the exact time."), // W3-C
   currency: currencyInput.optional(), // local-currency invoice: every unit_price is in this currency
+  payer: payerInput.optional().describe("Optional: the client as a payer, so the invoice shows up in their own agent's inbox (what_do_i_owe). For an X handle, call PayBox resolve_username first, tell the user which wallet it resolved to, and pass {handle, wallet}; or pass {sns} or {wallet}. A handle is a label: Owed doesn't verify it."), // F1
+  requester_handle: requesterHandleInput.optional(), // F1
 }).strict();
 
 const itemOutput = z.object({
@@ -87,6 +95,8 @@ export const outputSchema = z.object({
   status: z.literal("open"),
   expires_at: z.string().optional().describe("When the invoice stops taking payments (set by Owed's server)."), // W3-C
   fiat: fiatOutput.optional(), // local-currency invoice: items are in fiat.currency, total is the USDC locked
+  payer: payerOutput.optional().describe("The client the invoice is addressed to: it is in their what_do_i_owe inbox."), // F1
+  requester_handle: z.string().optional().describe("The user's own X handle as the client sees it (not verified by Owed)."), // F1
 }).strict();
 
 export type InvoiceInput = z.output<typeof inputSchema>;
@@ -274,13 +284,18 @@ export async function createInvoice(
     return refusal("This Owed build can't verify from_domain yet, so it wasn't used. Create the invoice without from_domain.");
   }
   const domainBudget = Math.max(0, budgetLeft() - API_TIMEOUT_MS - 500);
-  const [screening, domain, minimum] = await Promise.all([
+  const requesterHandle = args.requester_handle === undefined ? null : normalizeHandle(args.requester_handle); // F1
+  const [screening, domain, minimum, payerResult] = await Promise.all([
     screen(args.recipient),
     args.from_domain !== undefined && checkDomain ? checkDomain(args.from_domain, args.recipient, deps, domainBudget) : Promise.resolve(null),
     // QA-18: a SOL invoice to a never-used wallet must reach Solana's minimum.
     token === "SOL" ? newWalletMinimum(deps.rpc(), args.recipient) : Promise.resolve(null),
+    // F1: the client as a payer (an .sns name resolves on Solana).
+    args.payer ? resolvePayer(args.payer, args.recipient, deps, Math.min(SNS_BUDGET_MS, Math.max(500, domainBudget)), "the client") : Promise.resolve(null as PayerResolution | null),
   ]);
   if (!screening.ok) return refusal(screening.message);
+  if (payerResult && !payerResult.ok) return refusal(payerResult.message); // F1
+  const payer = payerResult?.ok ? payerResult : null;
   if (domain && !domain.ok) return refusal(domain.message);
   if (minimum !== null && priced.totalAtomic < minimum) {
     return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${total} SOL invoice`));
@@ -303,6 +318,8 @@ export async function createInvoice(
     source: "plugin",
     ...(args.expires_in_days !== undefined && { expires_in_days: args.expires_in_days }), // W3-C
     ...(code && { currency: code }), // local-currency invoice
+    ...(payer && { payer: payer.body }), // F1
+    ...(requesterHandle && { requester_handle: requesterHandle }),
   };
 
   // The API client gives up after API_TIMEOUT_MS; `within` also keeps a slow screening + DNS step from pushing past 10 s.
@@ -330,6 +347,7 @@ export async function createInvoice(
   }
   const mismatch = checkInvoice(res, body, priced, ctx, deps, code ? { code, payAtomic } : undefined);
   if (mismatch) return refusal(mismatch);
+  if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer).replace("the request", "the invoice")); // F1
   const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
   if (expiry) return refusal(expiry);
 
@@ -365,6 +383,8 @@ export async function createInvoice(
     status: "open",
     ...(args.expires_in_days !== undefined && res.expires_at && { expires_at: res.expires_at }), // W3-C
     ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
+    ...(payer && { payer: payer.payer }), // F1
+    ...(requesterHandle && { requester_handle: requesterHandle }),
   };
 
   const count = res.items.length;
@@ -374,6 +394,7 @@ export async function createInvoice(
   ];
   if (fiat) lines.push(fiatRateLine(fiat, total).replace("The payer pays", "The client pays")); // local-currency invoice
   if (domain?.ok) lines.push(...domain.lines);
+  if (payer) lines.push(...payer.lines, ADDRESSED_LINE(payer.payer)); // F1
   if (output.expires_at && args.expires_in_days !== undefined) lines.push(expiryLine(output.expires_at, args.expires_in_days, "the invoice")); // W3-C
   const caution = cautionLine(res.flags);
   if (caution) lines.push(caution.replace("this request", "this invoice"));
