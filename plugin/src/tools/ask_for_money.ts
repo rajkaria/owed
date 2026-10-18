@@ -76,7 +76,7 @@ export const outputSchema = z.object({
   from_domain: z.string().optional().describe("The verified domain payers see on the request (lower-case ASCII). Absent offline: offline links carry no domain."),
   // W2-H verified payee end
   // W2-E sanctions screen start
-  screening: z.enum(["clear", "unavailable", "skipped"]).describe("Recipient sanctions screen (Chainalysis): clear = on no sanctions list; unavailable = the screen couldn't be reached, so the address wasn't screened."),
+  screening: z.enum(["clear", "unavailable", "skipped"]).describe("Recipient sanctions screen against the U.S. Treasury's OFAC SDN list (a copy built into Owed, checked with no network): clear = not on the list. A listed address is refused, so it never gets here. unavailable and skipped stay in the schema for compatibility; this build never returns them."),
   // W2-E sanctions screen end
   expires_at: z.string().optional().describe("When the link stops taking payments (set by Owed's server). Absent offline or without expires_in_days."), // W3-C
   // W3-B Base requests start
@@ -112,7 +112,7 @@ const DESCRIPTION = [
   "If the user has a domain that publishes their wallet in DNS (_owed.<domain> TXT owed-pay=<wallet>), pass it as from_domain: Owed checks it first and payers see the request as verified from that domain.",
   // W2-H verified payee end
   // W2-E sanctions screen start
-  "The recipient is screened against sanctions lists (Chainalysis) first: a listed address is refused, and if the screen can't be reached the request is still made and says so.",
+  "The recipient is checked first against the U.S. Treasury's OFAC sanctions list (SDN): the list is built into Owed, so the check needs no network and always runs. A listed address is refused and nothing is created.",
   // W2-E sanctions screen end
   "If the user wants the link to stop working after a while (\"expires in 3 days\"), pass expires_in_days; cancel_request ends it at any time.", // W3-C
   "If the user asks in their own currency (\"ask Priya for ₹1,200 for dinner\", \"bill the team €45\"), pass currency (\"INR\", \"EUR\") with amount in that currency: Owed locks the USDC amount at a live rate, the payer pays that USDC, and the pay page shows both.", // local-currency asks
