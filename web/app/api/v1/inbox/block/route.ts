@@ -2,6 +2,7 @@ import { InboxBlockBody, type InboxBlockResponse } from "@/lib/contract";
 import { baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { BLOCK_PURPOSE, blockPrefix, getInbox, parseRequester, setBlocked } from "@/lib/inbox";
 import { verifySignedMessage } from "@/lib/verify-signature";
+import { withAutopay } from "@/lib/autopay"; // F5 autopay
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ export async function POST(req: Request): Promise<Response> {
     const outcome = await setBlocked(body.payer, requester, body.action);
     const res: InboxBlockResponse = {
       payer: body.payer, requester, action: body.action, ...outcome,
-      inbox: await getInbox(body.payer, { base: baseUrl(req) }),
+      inbox: await withAutopay(await getInbox(body.payer, { base: baseUrl(req) })), // F5 autopay
     };
     return json(res);
   } catch (e) {

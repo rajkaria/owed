@@ -33,6 +33,7 @@ function result(row: RequestRow): StatusResult {
   if (row.match) out.matched = { signature: row.match.signature, covers: row.match.covers, amount: fromAtomic(row.match.amountAtomic, row.token), confirmed_at: row.match.confirmedAt };
   if (row.restOf) out.rest_of = row.restOf;
   if (row.restRequest) out.rest_request = row.restRequest.id;
+  if (row.depositUrl) out.deposit_link = true; // F3 deposit link: check_payments hints at match_payments while it is open
   return out;
 }
 

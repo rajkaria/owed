@@ -70,6 +70,8 @@ export interface LedgerEntry {
   rest_request?: string;
   /** Local-currency asks: the quote that locked `amount` (display only). */
   fiat?: FiatQuote;
+  /** F3 deposit link: the request carries a PayBox Deposit link (a payment through it counts after match_payments). */
+  deposit_link?: boolean;
 }
 
 export interface LedgerTotal {
@@ -205,6 +207,7 @@ function entry(row: RequestRow, listed: Listed, base: string): LedgerEntry {
   if (row.match) out.matched = { signature: row.match.signature, covers: row.match.covers, amount: fromAtomic(row.match.amountAtomic, row.token), confirmed_at: row.match.confirmedAt };
   if (row.restOf) out.rest_of = row.restOf;
   if (row.restRequest) out.rest_request = row.restRequest.id;
+  if (row.depositUrl) out.deposit_link = true; // F3 deposit link
   return out;
 }
 

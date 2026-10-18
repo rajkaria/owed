@@ -16,6 +16,7 @@ import { createInvoiceWithTerms, getPublicInvoiceWithTerms, hasTerms, planTerms,
 import { isoDay } from "@/lib/invoice-terms-core";
 import { payAtomicFor } from "@/lib/invoices";
 // F8 invoices end
+import { parseDepositUrl, storeDepositUrl } from "@/lib/deposit-link"; // F3 deposit link
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,11 @@ export async function POST(req: Request): Promise<Response> {
 
     if (!PublicKey.isOnCurve(new PublicKey(body.recipient).toBytes())) {
       throw new ApiError("invalid_input", "recipient must be a wallet address, not a token account or program address");
+    }
+    // F3 deposit link: plain USDC invoices only (the link's amount is the invoice total); checked before any network call.
+    const depositUrl = parseDepositUrl(body.deposit_url, { token: body.token, chain: "solana", currency: body.currency, what: "invoice" });
+    if (depositUrl && (body.installments != null || body.early_discount != null)) {
+      throw new ApiError("invalid_input", "deposit_url: an invoice with installments or an early-pay price asks a different amount first; add a PayBox Deposit link to a plain invoice only");
     }
 
     // Local-currency invoice: unit prices are in `currency`; the total locks a USDC amount at a live rate.
@@ -111,15 +117,18 @@ export async function POST(req: Request): Promise<Response> {
       if (e instanceof AmountError) throw new ApiError("invalid_input", e.message); // the USDC total out of range
       throw e;
     }
+    const deposited = depositUrl ? await storeDepositUrl(created.created.request.id, depositUrl) : null; // F3 deposit link
     const base = baseUrl(req);
     if (!created.planned) {
       const res: InvoiceResponse = toPublicInvoice(created.created, base);
+      if (deposited?.depositUrl) res.deposit_url = deposited.depositUrl; // F3 deposit link
       return json(res, { status: 201 });
     }
     // F8 invoices: the invoice as GET /invoices/:id shows it, plan included (stored state, no chain read).
     const withTerms = await getPublicInvoiceWithTerms(created.created.invoice.id, base, null);
     if (!withTerms) throw new ApiError("upstream_unavailable", "the invoice was created but couldn't be read back; get it with GET /api/v1/invoices/<id>");
     const res: InvoiceTermsResponse = withTerms;
+    if (deposited?.depositUrl) res.deposit_url = deposited.depositUrl; // F3 deposit link
     return json(res, { status: 201 });
   } catch (e) {
     return toErrorResponse(e);

@@ -16,6 +16,7 @@ import { fiatAsk, lockRate, quoteAt } from "@/lib/fx"; // local-currency asks
 import type { FiatQuote } from "@/lib/fiat";
 import { requireSnsName } from "@/lib/sns"; // W3-S
 import type { BulkRequestsResponse } from "@/lib/contract";
+import { parseDepositUrl, storeDepositUrl } from "@/lib/deposit-link"; // F3 deposit link
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,8 @@ export async function POST(req: Request): Promise<Response> {
     // W3-B Base requests end
 
     requireNotSanctioned(body.recipient); // W2-E: OFAC SDN list (Solana and EVM), 403 blocked
+    // F3 deposit link: checked before any network call or rate-limit slot; stored beside the request, never in its id.
+    const depositUrl = parseDepositUrl(body.deposit_url, { token: body.token, chain: body.chain, currency: body.currency });
 
     // An off-curve recipient is usually a token account pasted by mistake; wallets would
     // derive a second token account from it and the money would be stuck.
@@ -105,6 +108,7 @@ export async function POST(req: Request): Promise<Response> {
       payer, // F1
       requesterHandle,
     });
+    const deposited = depositUrl ? await storeDepositUrl(row.id, depositUrl) : null; // F3 deposit link
 
     const base = baseUrl(req);
     const res: CreateRequestResponse = {
@@ -128,6 +132,7 @@ export async function POST(req: Request): Promise<Response> {
       // F1: only when set, so an unaddressed request's reply is exactly as before.
       ...(row.payer && { payer: row.payer }),
       ...(row.requesterHandle && { requester_handle: row.requesterHandle }),
+      ...(deposited?.depositUrl && { deposit_url: deposited.depositUrl }), // F3 deposit link: only when asked for
     };
     return json(res, { status: 201 });
   } catch (e) {

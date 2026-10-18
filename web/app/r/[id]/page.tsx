@@ -8,6 +8,8 @@ import { SnsBadge } from "@/components/sns-badge"; // W3-S
 import { HandleBadge } from "@/components/handle-badge"; // F1
 import { RequestTermsNotes } from "@/app/i/request-notes"; // F8 invoices
 import type { PublicRequestWithPayer } from "@/lib/requests"; // F1
+import { DepositPay } from "@/components/deposit-pay"; // F3 deposit link
+import { depositOffer } from "@/lib/deposit-link"; // F3 deposit link
 import { loadPublicRequest } from "@/lib/request-source";
 import { requestOrigin } from "@/lib/site";
 import { modelFromRequest, pageDescription, pageTitle } from "@/lib/view/request-view";
@@ -47,5 +49,8 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
   // Pay by card (MoonPay): nothing unless MoonPay is configured; a note when the amount can't be bought by card.
   const offer = await cardOffer(request, "r");
   const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
-  return <PayView model={model} badge={badge} card={card} />;
+  // F3 deposit link: "Pay with PayBox Deposit" beside the card option, only while lib/deposit-link.ts depositOffer allows it.
+  const deposit = depositOffer(request as PublicRequestWithPayer);
+  const payWith = deposit ? <>{card}<DepositPay offer={deposit} /></> : card;
+  return <PayView model={model} badge={badge} card={payWith} />;
 }

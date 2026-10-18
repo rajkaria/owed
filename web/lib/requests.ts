@@ -74,6 +74,9 @@ export interface RequestRow {
   requesterHandle?: string | null;
   /** Which transfer instruction paid it (lib/validate.ts Credit.instruction); null = the whole transaction. */
   paidInstruction?: number | null;
+  // F3 deposit link (0022): the requester's PayBox Open Deposit URL (lib/deposit-link.ts). Never part of the id.
+  depositUrl?: string | null;
+  depositUrlAddedAt?: string | null;
 }
 
 /** F1: who a request is addressed to. `handle` and `sns` are how the requester found `wallet`; labels, never proof. */
@@ -119,6 +122,7 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS},
   fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at,
   sns_name, sns_source, ${isoUtc("sns_resolved_at")} as sns_resolved_at,
+  deposit_url, ${isoUtc("deposit_url_added_at")} as deposit_url_added_at,
   payer_wallet, payer_handle, payer_sns, requester_handle, paid_instruction`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*; W3-S: sns_*; F1: payer_*
 
 export function fromRow(r: Row): RequestRow {
@@ -162,6 +166,8 @@ export function fromRow(r: Row): RequestRow {
     payer: r.payer_wallet ? { wallet: r.payer_wallet, handle: r.payer_handle ?? null, sns: r.payer_sns ?? null } : null, // F1
     requesterHandle: r.requester_handle ?? null,
     paidInstruction: r.paid_instruction == null ? null : Number(r.paid_instruction),
+    depositUrl: r.deposit_url ?? null, // F3 deposit link
+    depositUrlAddedAt: r.deposit_url_added_at ?? null,
   };
 }
 
@@ -225,6 +231,8 @@ export function payUrl(row: RequestRow): string {
 export type PublicRequestWithPayer = PublicRequest & {
   payer?: { wallet: string; handle: string | null; sns: string | null };
   requester_handle?: string;
+  deposit_url?: string; // F3 deposit link
+  deposit_url_added_at?: string;
 };
 
 /** `base` is the public origin for links; without it the x402 URL is left out. */
@@ -275,6 +283,8 @@ export function toPublic(row: RequestRow, base?: string): PublicRequestWithPayer
     // F1: only on requests that carry them, so every older shape is unchanged.
     ...(row.payer && { payer: { wallet: row.payer.wallet, handle: row.payer.handle, sns: row.payer.sns } }),
     ...(row.requesterHandle && { requester_handle: row.requesterHandle }),
+    // F3 deposit link: only on requests that carry one, so every older shape is unchanged.
+    ...(row.depositUrl && row.depositUrlAddedAt && { deposit_url: row.depositUrl, deposit_url_added_at: row.depositUrlAddedAt }),
   };
 }
 

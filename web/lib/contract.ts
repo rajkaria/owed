@@ -82,6 +82,7 @@ export const CreateRequestBody = z.object({
   sns_name: z.string().min(1).max(140).nullish(), // W3-S: re-resolved to recipient before the request is created (lib/sns.ts)
   payer: PayerBody.nullish(), // F1: who it is addressed to (never part of the id)
   requester_handle: requesterHandleBody, // F1: the requester's own X handle, a label
+  deposit_url: z.string().max(2048).nullish(), // F3 deposit link: PayBox get_deposit_link's URL, checked in lib/deposit-link.ts
 }).superRefine((b, ctx) => {
   // W3-B: a Solana request keeps its base58 rule and message; a Base request takes a 0x address.
   const schema = b.chain === "base" ? evmAddress : base58Key;
@@ -109,6 +110,7 @@ export const CreateRequestResponse = z.object({
   sns_source: snsSource.nullable().optional(),
   payer: PayerInfo.nullable().optional(), // F1
   requester_handle: handle.nullable().optional(),
+  deposit_url: z.url().optional(), // F3 deposit link: as stored (only when the body carried one)
 });
 export type CreateRequestResponse = z.infer<typeof CreateRequestResponse>;
 
@@ -172,6 +174,9 @@ export const GetRequestResponse = z.object({
   // F1: who it is addressed to, and the requester's own X handle (labels, not verified by Owed).
   payer: PayerInfo.nullable().optional(),
   requester_handle: handle.nullable().optional(),
+  // F3 deposit link: the requester's PayBox Open Deposit URL and when it was added (PayBox reuses an unpaid link for 24 h).
+  deposit_url: z.url().optional(),
+  deposit_url_added_at: isoTime.optional(),
 });
 export type GetRequestResponse = z.infer<typeof GetRequestResponse>;
 
@@ -201,6 +206,7 @@ export const StatusResult = z.object({
   rest_of: requestId.optional(),
   rest_request: requestId.optional(),
   fiat: FiatQuote.optional(), // local-currency asks
+  deposit_link: z.boolean().optional(), // F3 deposit link: the request carries a PayBox Deposit link (match_payments counts such a payment)
 });
 export type StatusResult = z.infer<typeof StatusResult>;
 
@@ -304,6 +310,7 @@ export const CreateInvoiceBody = z.object({
   currency, // local-currency invoice: every unit_price is in this currency
   payer: PayerBody.nullish(), // F1: the client, as a payer the inbox lists it for
   requester_handle: requesterHandleBody,
+  deposit_url: z.string().max(2048).nullish(), // F3 deposit link: plain USDC invoices only (lib/deposit-link.ts)
 });
 export type CreateInvoiceBody = z.infer<typeof CreateInvoiceBody>;
 
@@ -349,6 +356,7 @@ export const InvoiceResponse = z.object({
   fiat: FiatQuote.optional(),
   payer: PayerInfo.optional(), // F1
   requester_handle: handle.optional(),
+  deposit_url: z.url().optional(), // F3 deposit link: on the invoice's own request
 });
 export type InvoiceResponse = z.infer<typeof InvoiceResponse>;
 
@@ -397,6 +405,7 @@ const LedgerEntry = z.object({
   rest_of: requestId.optional(),
   rest_request: requestId.optional(),
   fiat: FiatQuote.optional(), // local-currency asks
+  deposit_link: z.boolean().optional(), // F3 deposit link: carries a PayBox Deposit link (match_payments counts such a payment)
 });
 
 export const LedgerResponse = z.object({
@@ -587,6 +596,7 @@ export const InboxEntry = z.object({
   first_time: z.boolean(),
   flags: z.array(z.string()),
   fiat: FiatQuote.optional(),
+  autopay: z.lazy(() => AutopayVerdict).optional(), // F5 autopay: only when the payer has a rule (shapes at the end)
 });
 export type InboxEntry = z.infer<typeof InboxEntry>;
 
@@ -601,6 +611,7 @@ export const InboxResponse = z.object({
   blocked_hidden: z.number().int().nonnegative(),
   blocked_requesters: z.array(anyAddress),
   truncated: z.boolean(),
+  autopay_rules: z.array(z.lazy(() => AutopayRule)).max(20).optional(), // F5 autopay: the payer's live rules
 });
 export type InboxResponse = z.infer<typeof InboxResponse>;
 
@@ -974,3 +985,74 @@ export const StatementResponse = z.object({
 });
 export type StatementResponse = z.infer<typeof StatementResponse>;
 // ---- F8 invoices end ----
+
+// ---- F5 autopay start: payer rules (migration 0022, lib/autopay.ts) ----
+// POST /api/v1/autopay stores a payer's rule; the payer's wallet signs, once and within 5 minutes,
+//   "Owed autopay for <payer>: pay <requester> up to <max> USDC per request and <max_month> USDC per month until <YYYY-MM-DD> (at <ISO>)"
+// with the amounts written as fromAtomic writes them ("1500", "0.5"). POST /api/v1/autopay/revoke ends one:
+//   "Owed autopay revoke <rule id> for <payer> at <ISO>".
+// The rule matches the requester's wallet only; handle and sns are labels. The signed inbox carries the payer's live rules
+// (autopay_rules) and a verdict per line (autopay). Owed never pays: what_do_i_owe hands the agent PayBox pay_x402 calls.
+const ruleId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed autopay rule id");
+
+export const AutopayRequesterBody = z.object({
+  wallet: z.string().max(64),
+  handle: z.string().max(32).nullish(),
+  sns: z.string().min(1).max(140).nullish(),
+}).strict();
+
+export const AutopayCreateBody = z.object({
+  payer: base58Key,
+  requester: AutopayRequesterBody,
+  token: z.literal("USDC").default("USDC"),
+  max_per_request: z.string().max(40),
+  max_per_month: z.string().max(40),
+  ends: z.string().max(10),
+  signed_message: z.string().min(1).max(300),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type AutopayCreateBody = z.infer<typeof AutopayCreateBody>;
+
+export const AutopayRevokeBody = z.object({
+  payer: base58Key,
+  rule_id: ruleId,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type AutopayRevokeBody = z.infer<typeof AutopayRevokeBody>;
+
+export const AutopayRule = z.object({
+  id: ruleId,
+  payer: base58Key,
+  requester: z.object({ wallet: base58Key, handle: handle.nullable(), sns: z.string().max(140).nullable() }),
+  token: z.literal("USDC"),
+  max_per_request: decimal,
+  max_per_month: decimal,
+  /** The rule's last day (UTC); it stops at ends_at, the start of the next day. */
+  ends: isoDate,
+  ends_at: isoTime,
+  created_at: isoTime,
+  status: z.enum(["active", "ended", "revoked"]),
+  revoked_at: isoTime.nullable(),
+  replaced_by: ruleId.nullable(),
+  /** The UTC month used_this_month counts (YYYY-MM): paid to the requester since the month began and the rule was made. */
+  month: period,
+  used_this_month: decimal,
+  signed_message: z.string().max(300),
+  signature: z.string().max(200),
+});
+export type AutopayRule = z.infer<typeof AutopayRule>;
+
+export const AutopayCreateResponse = z.object({ rule: AutopayRule, replaced: ruleId.nullable() });
+export type AutopayCreateResponse = z.infer<typeof AutopayCreateResponse>;
+
+export const AutopayRevokeResponse = z.object({ rule: AutopayRule, already_revoked: z.boolean() });
+export type AutopayRevokeResponse = z.infer<typeof AutopayRevokeResponse>;
+
+export const AutopayVerdict = z.object({
+  status: z.enum(["eligible", "over_limit", "not_covered"]),
+  rule_id: ruleId.optional(),
+  reason: z.string().max(300),
+});
+export type AutopayVerdict = z.infer<typeof AutopayVerdict>;
+// ---- F5 autopay end ----
