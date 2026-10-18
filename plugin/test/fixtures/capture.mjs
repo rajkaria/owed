@@ -85,6 +85,18 @@ const CASES = {
     accounts: (fresh) => [SOL_PAYER, fresh],
     rentExemption: true,
   },
+  // F2 funding plan: a wallet holding SOL paying a USDC request it can't cover in USDC (the "swap SOL for USDC" case).
+  // SOL_PAYER holds SOL; whatever USDC it holds, tests ask for more than that.
+  "readiness-usdc-sol-only-sender": {
+    note: "A wallet holding SOL paying the team wallet's existing USDC account (F2: USDC short, SOL above the fee reserve).",
+    accounts: () => [SOL_PAYER, ata(SOL_PAYER), ata(TEAM_WALLET)],
+  },
+  // F2: Pyth's sponsored SOL/USD price account (PriceUpdateV2, owned by the Pyth Solana Receiver), read the way
+  // src/chain.ts readSolUsdPrice reads it. It sizes a SOL→USDC swap in a funding plan.
+  "pyth-sol-usd": {
+    note: "Pyth SOL/USD price update account (feed ef0d8b6f…b56d), base64.",
+    account: { key: "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE", opts: { encoding: "base64", commitment: "confirmed" } },
+  },
 };
 
 let id = 0;
@@ -113,6 +125,9 @@ async function capture(name, c) {
     for (const s of sigs.result) {
       if (!s.err) calls.push(await call("getTransaction", [s.signature, TX_OPTS]));
     }
+  } else if (c.account) {
+    query = { account: c.account.key };
+    calls.push(await call("getAccountInfo", [c.account.key, c.account.opts]));
   } else if (c.transaction) {
     query = { signature: c.transaction };
     calls.push(await call("getTransaction", [c.transaction, TX_OPTS]));

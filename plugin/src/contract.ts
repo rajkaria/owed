@@ -627,3 +627,371 @@ export type InboxEntry = z.infer<typeof inboxEntrySchema>;
 export type InboxBlockReq = z.infer<typeof inboxBlockReqSchema>;
 export type InboxBlockRes = z.infer<typeof inboxBlockResSchema>;
 export type BulkRequestsRes = z.infer<typeof bulkRequestsResSchema>;
+
+// ---- F2: funding plans (pay_link / pay_all when the sender's wallet is short) ----
+// The plugin can't call PayBox tools, so when a payment can't be covered it returns the exact PayBox calls that fix it
+// (a swap, a bridge from Base, a MoonPay buy link), as text plus this machine-readable funding_plan. Owed's server
+// records each plan it is offered (POST /api/v1/plans) so it can count offered vs used vs paid; the final pay_link /
+// pay_all echoes plan_id (POST /api/v1/plans/<id>/used). The server never sees balances, only the shortfall.
+
+export const PLAN_OPTION_KINDS = ["swap_sol", "bridge_base_usdc", "swap_other", "buy_usdc", "x402", "swap_usdc_for_sol", "buy_sol"] as const;
+export const planOptionKindSchema = z.enum(PLAN_OPTION_KINDS);
+export type PlanOptionKind = z.infer<typeof planOptionKindSchema>;
+export const planIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+const positiveAtomic = z.string().regex(/^[1-9][0-9]{0,30}$/);
+const anyAtomic = z.string().regex(/^(0|[1-9][0-9]{0,30})$/);
+
+// POST /api/v1/plans: a plan was offered. request_ids is empty for a link that isn't an Owed request.
+export const createPlanReqSchema = z.object({
+  tool: z.enum(["pay_link", "pay_all"]),
+  sender: anyAddress,
+  request_ids: z.array(requestIdSchema).max(20),
+  shortfall: z.object({ token: tokenSchema, atomic: positiveAtomic }).strict(),
+  options: z.array(planOptionKindSchema).min(1).max(8),
+}).strict();
+export const createPlanResSchema = z.object({ plan_id: planIdSchema, created_at: isoTime });
+
+// POST /api/v1/plans/<id>/used: the plan's final pay_link / pay_all returned a payment proposal for the same sender.
+export const planUsedReqSchema = z.object({ sender: anyAddress }).strict();
+export const planUsedResSchema = z.object({ plan_id: planIdSchema, used_at: isoTime, already_used: z.boolean() });
+
+// GET /api/v1/plans/stats: plans offered, used (a proposal followed) and paid (every request in it paid by its sender after the offer).
+export const planStatsResSchema = z.object({
+  offered: z.number().int().nonnegative(),
+  used: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative(),
+  since: isoTime,
+});
+
+// The funding_plan the tools return (inside a ```json block of their text: pay_link's output schema is PayBox's
+// strict proposal envelope, so a plan can't be structuredContent). Steps name the exact arguments, except
+// credential_id: `credential_of` says whose PayBox credential to add (a wallet address, or "base_wallet" for the
+// user's PayBox Base wallet); `via: "owed"` steps are Owed tools called through PayBox use_plugin, with
+// `credential_of` as use_plugin.wallet_id. `missing` lists arguments only the agent can fill in (e.g. a request_id
+// PayBox returns, or the token the user picks).
+const planAmountSchema = z.object({ token: tokenSchema, atomic: anyAtomic, display: z.string().max(60) }).strict();
+export const planStepSchema = z.object({
+  via: z.enum(["paybox", "owed"]),
+  tool: z.string().min(1).max(40),
+  args: z.record(z.string(), z.unknown()),
+  credential_of: z.string().max(64).nullable(),
+  missing: z.array(z.string().max(40)).max(8).optional(),
+  why: z.string().max(800),
+}).strict();
+export const planOptionSchema = planStepSchema.extend({
+  kind: planOptionKindSchema,
+  check: planStepSchema.optional(),
+  then: z.array(planStepSchema).max(4),
+}).strict();
+export const fundingPlanSchema = z.object({
+  plan_id: planIdSchema.nullable(),
+  pay_tool: z.enum(["pay_link", "pay_all"]),
+  request_ids: z.array(requestIdSchema).max(20),
+  sender: anyAddress,
+  shortfall: planAmountSchema,
+  have: z.array(planAmountSchema).max(2),
+  need: z.array(planAmountSchema).max(2),
+  options: z.array(planOptionSchema).min(1).max(8),
+}).strict();
+
+export type CreatePlanReq = z.infer<typeof createPlanReqSchema>;
+export type CreatePlanRes = z.infer<typeof createPlanResSchema>;
+export type PlanUsedReq = z.infer<typeof planUsedReqSchema>;
+export type PlanUsedRes = z.infer<typeof planUsedResSchema>;
+export type PlanStatsRes = z.infer<typeof planStatsResSchema>;
+export type PlanAmount = z.infer<typeof planAmountSchema>;
+export type PlanStep = z.infer<typeof planStepSchema>;
+export type PlanOption = z.infer<typeof planOptionSchema>;
+export type FundingPlan = z.infer<typeof fundingPlanSchema>;
+/** The ```json block a plan travels in: {"funding_plan": …}. */
+export const fundingPlanDocSchema = z.object({ funding_plan: fundingPlanSchema }).strict();
+
+// ---- F6 ledger: group ledgers and settle-up (start_ledger, add_expense, ledger_balances, settle_up) ----
+// POST /api/v1/ledgers, GET /api/v1/ledgers/<id>, POST /api/v1/ledgers/<id>/expenses and /settle. Writes are signed by
+// a wallet named in the ledger, once, within 5 minutes (src/ledger-math.ts expensePrefix / settlePrefix). Members are
+// positions (0 = the owner); amounts are decimal strings in the expense's currency except the USDC `amount`s; net and
+// to_settle may be negative. Responses are not strict, so an additive server change never breaks this plugin.
+export const groupLedgerIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+const glMemberSchema = z.number().int().min(0).max(19);
+const glSignedDecimal = z.string().max(41).regex(/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/);
+export const glSplitSchema = z.enum(["even", "shares", "exact", "items"]);
+const glCurrencySchema = z.string().regex(/^(USDC|[A-Z]{3})$/);
+
+export const createGroupLedgerReqSchema = z.object({
+  title: z.string().min(1).max(60),
+  owner: addressSchema,
+  owner_name: z.string().min(1).max(40),
+  members: z.array(z.object({ name: z.string().min(1).max(40), payer: payerReqSchema.optional() }).strict()).min(1).max(19),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const addExpenseReqSchema = z.object({
+  signer: addressSchema,
+  description: z.string().min(1).max(80).optional(),
+  paid_by: glMemberSchema,
+  amount: decimalSchema,
+  currency: glCurrencySchema.optional(),
+  split: glSplitSchema,
+  among: z.array(glMemberSchema).min(1).max(20).optional(),
+  shares: z.array(z.object({ member: glMemberSchema, shares: decimalSchema }).strict()).min(1).max(20).optional(),
+  amounts: z.array(z.object({ member: glMemberSchema, amount: decimalSchema }).strict()).min(1).max(20).optional(),
+  items: z.array(z.object({ description: z.string().min(1).max(60).optional(), amount: decimalSchema, members: z.array(glMemberSchema).min(1).max(20) }).strict()).min(1).max(30).optional(),
+  tax: decimalSchema.optional(),
+  tip: decimalSchema.optional(),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const settleUpReqSchema = z.object({
+  signer: addressSchema,
+  version: z.number().int().min(0),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+export const groupLedgerExpenseSchema = z.object({
+  position: z.number().int().min(0).max(99),
+  description: z.string().max(320).nullable(),
+  paid_by: glMemberSchema,
+  split: glSplitSchema,
+  currency: glCurrencySchema,
+  total: decimalSchema,
+  amount: decimalSchema,
+  tax: decimalSchema.nullable(),
+  tip: decimalSchema.nullable(),
+  fiat: fiatQuoteSchema.nullable(),
+  items: z.array(z.object({ description: z.string().max(240).nullable(), amount: decimalSchema, members: z.array(glMemberSchema).min(1).max(20) })).max(30).nullable(),
+  shares: z.array(z.object({ member: glMemberSchema, weight: decimalSchema.nullable(), share: decimalSchema, amount: decimalSchema })).min(1).max(20),
+  recorded_by: addressSchema,
+  recorded_at: isoTime,
+  signed_message: z.string().max(200),
+  signature: z.string().max(200),
+  flags: z.array(z.string().max(80)).max(32),
+});
+
+export const groupLedgerTransferSchema = z.object({
+  position: z.number().int().min(0).max(18),
+  from: glMemberSchema,
+  to: glMemberSchema,
+  amount: decimalSchema,
+  request_id: requestIdSchema,
+  link: httpsUrl,
+  status: z.enum(["open", "paid", "underpaid", "cancelled", "expired"]),
+  paid: paidInfoSchema.nullable(),
+  addressed: z.boolean(),
+});
+
+export const groupLedgerResSchema = z.object({
+  id: groupLedgerIdSchema,
+  link: httpsUrl,
+  title: z.string().max(240),
+  owner: addressSchema,
+  created_at: isoTime,
+  version: z.number().int().min(0),
+  flags: z.array(z.string().max(80)).max(32),
+  caution: z.string().max(400),
+  members: z.array(z.object({
+    position: glMemberSchema, name: z.string().max(160), wallet: addressSchema.nullable(), handle: handleSchema.nullable(), sns: z.string().max(140).nullable(),
+  })).min(2).max(20),
+  expenses: z.array(groupLedgerExpenseSchema).max(100),
+  balances: z.array(z.object({
+    member: glMemberSchema, paid: decimalSchema, share: decimalSchema, sent: decimalSchema, received: decimalSchema, net: glSignedDecimal,
+    pending_out: decimalSchema, pending_in: decimalSchema, to_settle: glSignedDecimal,
+  })).min(2).max(20),
+  plan: z.array(z.object({ from: glMemberSchema, to: glMemberSchema, amount: decimalSchema, payable: z.boolean() })).max(19),
+  settlements: z.array(z.object({
+    round: z.number().int().min(0), recorded_by: addressSchema, recorded_at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200),
+    transfers: z.array(groupLedgerTransferSchema).min(1).max(19),
+  })).max(50),
+  totals: z.object({ spent: decimalSchema, expense_count: z.number().int().min(0).max(100), open_requests: z.number().int().nonnegative() }),
+  fiat_beside: z.object({ currency: currencySchema, rate: decimalSchema, rate_source: z.string().min(1).max(120), quoted_at: isoTime }).nullable(),
+  settled: z.boolean(),
+  chain_checked: z.boolean(),
+});
+
+export const addExpenseResSchema = z.object({ added: z.number().int().min(0).max(99), ledger: groupLedgerResSchema });
+
+export const settleUpResSchema = z.object({
+  round: z.number().int().min(0),
+  created: z.array(z.object({
+    position: z.number().int().min(0).max(18), from: glMemberSchema, to: glMemberSchema, amount: decimalSchema,
+    request: z.object({
+      id: requestIdSchema, link: httpsUrl, solana_pay_url: solanaPayUrl, reference: addressSchema, recipient: addressSchema,
+      payer: payerInfoSchema.nullable(), payer_name: z.string().max(160).nullable(), for: z.string().max(320).nullable(),
+      note: z.string().max(560).nullable(), requester_name: z.string().max(160).nullable(), requester_handle: handleSchema.nullable(), created_at: isoTime,
+    }),
+  })).min(1).max(19),
+  unpayable: z.array(z.object({ from: glMemberSchema, to: glMemberSchema, amount: decimalSchema, reason: z.literal("no_wallet") })).max(19),
+  ledger: groupLedgerResSchema,
+});
+
+export type CreateGroupLedgerReq = z.infer<typeof createGroupLedgerReqSchema>;
+export type AddExpenseReq = z.infer<typeof addExpenseReqSchema>;
+export type SettleUpReq = z.infer<typeof settleUpReqSchema>;
+export type GroupLedgerRes = z.infer<typeof groupLedgerResSchema>;
+export type GroupLedgerExpense = z.infer<typeof groupLedgerExpenseSchema>;
+export type AddExpenseRes = z.infer<typeof addExpenseResSchema>;
+export type SettleUpRes = z.infer<typeof settleUpResSchema>;
+// ---- F6 ledger end ----
+
+// ---- F8 invoices start: invoice terms, refunds, statements ----
+// POST /api/v1/invoices takes optional terms; GET /api/v1/invoices/:id adds `terms` (the invoice as a whole), `term_of`
+// (an invoice a plan opened) and refunds. A request id commits to its exact amount, so every term that changes what is
+// owed opens a new request (a whole invoice of its own); the invoice's own request asks for installment 1 or the early price.
+const f8PercentSchema = z.string().regex(/^(0|[1-9][0-9]{0,2})(\.[0-9]{1,2})?$/);
+export const f8IntervalSchema = z.union([z.literal("monthly"), z.number().int().min(7).max(365)]);
+export const f8ChaseSchema = z.union([z.literal(false), z.object({ days: z.array(z.number().int().min(1).max(90)).min(1).max(3) }).strict()]);
+const f8RoleSchema = z.enum(["installment", "early_price", "full_price", "late_fee"]);
+export const refundIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+
+export const createInvoiceTermsReqSchema = createInvoiceReqSchema.extend({
+  installments: z.object({ count: z.number().int().min(2).max(12), interval: f8IntervalSchema.optional(), first_due: isoDateSchema.optional() }).strict().optional(),
+  early_discount: z.object({ amount: decimalSchema.optional(), percent: f8PercentSchema.optional(), until: isoDateSchema }).strict().optional(),
+  late_fee: z.object({ amount: decimalSchema.optional(), percent: f8PercentSchema.optional() }).strict().optional(),
+  chase: f8ChaseSchema.optional(),
+}).strict();
+
+export const termRequestSchema = z.object({
+  role: f8RoleSchema,
+  seq: z.number().int().min(1).max(12),
+  amount: decimalSchema,
+  fiat_amount: decimalSchema.optional(),
+  due_date: isoDateSchema,
+  opens_on: isoDateSchema,
+  status: z.enum(["open", "paid", "underpaid", "cancelled", "expired", "scheduled", "skipped"]),
+  id: requestIdSchema.nullable(),
+  link: httpsUrl.nullable(),
+  skip_reason: z.string().max(200).nullable(),
+  paid: z.object({ amount: decimalSchema, at: isoTime, signature: signatureSchema, on_time: z.boolean() }).optional(),
+  superseded_by: requestIdSchema.optional(),
+});
+
+export const invoiceTermsSchema = z.object({
+  status: requestStatusSchema,
+  paid_so_far: decimalSchema,
+  remaining: decimalSchema,
+  pay_now: z.object({
+    id: requestIdSchema, link: httpsUrl, amount: decimalSchema, due_date: isoDateSchema.nullable(),
+    role: z.enum(["installment", "early_price", "full_price", "late_fee", "invoice"]), seq: z.number().int().min(1).max(12).nullable(),
+  }).nullable(),
+  installments: z.object({ count: z.number().int().min(2).max(12), interval: f8IntervalSchema, interval_label: z.string().max(40), plan: z.array(termRequestSchema).min(2).max(12) }).nullable(),
+  early_discount: z.object({
+    early_price: decimalSchema, full_price: decimalSchema, discount: decimalSchema, percent: z.string().max(6).nullable(), until: isoDateSchema,
+    early: termRequestSchema, full: termRequestSchema, paid_with: z.enum(["early", "full"]).nullable(),
+  }).nullable(),
+  late_fee: z.object({ amount: decimalSchema, percent: z.string().max(6).nullable(), applies_after: isoDateSchema, request: termRequestSchema }).nullable(),
+  chase: z.object({ days: z.array(z.number().int().min(1).max(90)).min(1).max(3) }).nullable(),
+  refunded: decimalSchema,
+});
+
+export const termOfSchema = z.object({
+  invoice_id: requestIdSchema, link: httpsUrl, role: f8RoleSchema, seq: z.number().int().min(1).max(12), count: z.number().int().min(2).max(12).nullable(), label: z.string().max(40),
+});
+
+export const invoiceTermsResSchema = invoiceResSchema.extend({
+  terms: invoiceTermsSchema.optional(),
+  term_of: termOfSchema.optional(),
+  superseded_by: requestIdSchema.optional(),
+  refunded: decimalSchema.optional(),
+  refunds: z.array(z.object({
+    id: refundIdSchema, request_id: requestIdSchema, amount: decimalSchema, status: z.enum(["pending", "confirmed", "lapsed"]),
+    confirmed_at: isoTime.optional(), signature: signatureSchema.optional(),
+  })).max(100).optional(),
+});
+
+// POST /api/v1/refunds. The recipient's wallet signs "Owed refund <amount> <token> of <request> to <payer> for <recipient> at <ISO>".
+export const createRefundReqSchema = z.object({
+  request: requestIdSchema,
+  recipient: addressSchema,
+  amount: decimalSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+
+const refundConfirmedSchema = z.object({ signature: signatureSchema, amount: decimalSchema, at: isoTime });
+export const refundResSchema = z.object({
+  id: refundIdSchema,
+  request_id: requestIdSchema,
+  request_link: httpsUrl,
+  recipient: addressSchema,
+  payer: addressSchema,
+  token: tokenSchema,
+  amount: decimalSchema,
+  reference: addressSchema,
+  memo: z.string().regex(/^owed-refund:[1-9A-HJ-NP-Za-km-z]{12}$/),
+  status: z.enum(["pending", "confirmed", "lapsed"]),
+  created_at: isoTime,
+  signed_message: z.string().max(200),
+  signature: z.string().max(200),
+  confirmed: refundConfirmedSchema.nullable(),
+});
+export const createRefundResSchema = refundResSchema.extend({ paid: decimalSchema, refunded: decimalSchema, pending: decimalSchema, refundable: decimalSchema });
+
+export const refundSummarySchema = z.object({
+  request_id: requestIdSchema,
+  token: tokenSchema,
+  paid: decimalSchema.nullable(),
+  refunded: decimalSchema,
+  pending: decimalSchema,
+  refundable: decimalSchema,
+  refunds: z.array(z.object({ id: refundIdSchema, amount: decimalSchema, status: z.enum(["pending", "confirmed", "lapsed"]), created_at: isoTime, confirmed: refundConfirmedSchema.nullable() })).max(100),
+});
+// GET /api/v1/refunds?requests=a,b,c (1 to 20).
+export const refundsLookupResSchema = z.object({
+  requests: z.array(refundSummarySchema).max(20),
+  not_found: z.array(z.string().max(20)).max(20),
+  chain_checked: z.boolean(),
+});
+
+// GET /api/v1/statements?recipient&client&month&signed_message&signature (the recipient's signed ledger message).
+const f8SignedDecimal = z.string().max(41).regex(/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/);
+export const statementResSchema = z.object({
+  recipient: addressSchema,
+  client: z.string().min(1).max(64),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  from: isoTime,
+  to: isoTime,
+  generated_at: isoTime,
+  caution: z.string().max(400),
+  chain_checked: z.boolean(),
+  invoices: z.array(z.object({
+    id: requestIdSchema, invoice_number: z.string().max(80).nullable(), issue_date: isoDateSchema, due_date: isoDateSchema, total: decimalSchema, token: tokenSchema,
+    status: requestStatusSchema, link: httpsUrl,
+  })).max(200),
+  lines: z.array(z.object({
+    at: isoTime, kind: z.enum(["invoiced", "cancelled", "expired", "paid", "refunded"]), request_id: requestIdSchema, invoice_id: requestIdSchema.nullable(),
+    invoice_number: z.string().max(80).nullable(), description: z.string().max(160), token: tokenSchema, amount: decimalSchema, signature: signatureSchema.nullable(), link: httpsUrl,
+  })).max(5000),
+  totals: z.array(z.object({
+    token: tokenSchema, opening: f8SignedDecimal, invoiced: decimalSchema, cancelled: decimalSchema, paid: decimalSchema, refunded: decimalSchema, closing: f8SignedDecimal,
+  })).max(2),
+  truncated: z.boolean(),
+  csv: z.object({ url: httpsUrl, expires_at: isoTime }).nullable(),
+  page: z.object({ url: httpsUrl, expires_at: isoTime }).nullable(),
+});
+
+// POST /api/v1/ledger with F8's optional fields on each entry (lib/invoice-terms.ts withInvoiceTerms): chase days when an
+// invoice chases on other days (or not: null), the reminder due today, and confirmed refunds.
+export const ledgerEntryF8Schema = ledgerEntrySchema.extend({
+  chase: z.object({ days: z.array(z.number().int().min(1).max(90)).min(1).max(3) }).nullable().optional(),
+  reminder: z.object({ tone: z.enum(["polite", "firm", "formal"]), days_overdue: z.number().int().nonnegative() }).optional(),
+  refunded: decimalSchema.optional(),
+});
+export const ledgerResF8Schema = ledgerResSchema.extend({
+  open: z.array(ledgerEntryF8Schema).max(100),
+  paid_recently: z.array(ledgerEntryF8Schema).max(100),
+});
+
+export type CreateInvoiceTermsReq = z.infer<typeof createInvoiceTermsReqSchema>;
+export type InvoiceTermsRes = z.infer<typeof invoiceTermsResSchema>;
+export type InvoiceTerms = z.infer<typeof invoiceTermsSchema>;
+export type TermRequest = z.infer<typeof termRequestSchema>;
+export type CreateRefundReq = z.infer<typeof createRefundReqSchema>;
+export type RefundRes = z.infer<typeof refundResSchema>;
+export type CreateRefundRes = z.infer<typeof createRefundResSchema>;
+export type RefundSummary = z.infer<typeof refundSummarySchema>;
+export type RefundsLookupRes = z.infer<typeof refundsLookupResSchema>;
+export type StatementRes = z.infer<typeof statementResSchema>;
+export type LedgerEntryF8 = z.infer<typeof ledgerEntryF8Schema>;
+export type LedgerResF8 = z.infer<typeof ledgerResF8Schema>;
+// ---- F8 invoices end ----

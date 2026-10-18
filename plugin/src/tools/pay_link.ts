@@ -25,7 +25,12 @@ import { looksLikeSnsName } from "../sns.js";
 import { resolveName, SNS_BUDGET_MS, snsBrandFlags, snsForPayment, snsLead, snsLines } from "../sns-payee.js";
 // W3-S SNS names end
 import type { PayerInfo } from "../contract.js"; // F1
-import { handleCheckLine, payerLabel } from "../payer.js"; // F1
+import { handleCheckBeforeFunding, handleCheckLine, payerLabel } from "../payer.js"; // F1
+// F2 funding plan start
+import { planIdSchema } from "../contract.js";
+import { FEE_RESERVE_LAMPORTS } from "../chain.js";
+import { markPlanUsed, planFunding, planResult, PLAN_RECORD_BUDGET_MS, PLAN_USED_BUDGET_MS, PRICE_BUDGET_MS, readUsablePrice, recordPlan } from "../funding.js";
+// F2 funding plan end
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), the text of a payment QR code, or an SNS name (example.sns) with amount."), // W3-S: or an SNS name
@@ -37,6 +42,7 @@ export const inputSchema = z.object({
   allow_unverified: z.boolean().optional().describe("Only when the user explicitly accepts it: pay a request that names a domain even though DNS can't be checked right now. Never pays a domain that doesn't publish the wallet."),
   // W2-H verified payee end
   token: tokenSchema.optional().describe("Only when link is an SNS name: the token to send, \"USDC\" (default) or \"SOL\"."), // W3-S
+  plan_id: planIdSchema.optional().describe("Only when a funding plan from pay_link or pay_all says so: its plan_id, passed on the pay_link call that ends the plan, so Owed can count plans that led to a payment."), // F2
 }).strict();
 
 const PROPOSAL_KEY = "io.paybox/transactionProposal";
@@ -68,6 +74,7 @@ const DESCRIPTION = [
   "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
   "To pay an SNS name (\"pay example.sns 2 USDC\"), pass the name as link with amount (and token for SOL): the tool resolves it on Solana itself and proposes a transfer to the wallet it names. A request made for an SNS name is paid only if the name still points to its wallet. .sol names are refused (SNS moved to .sns).", // W3-S
   "If the request carries the requester's X handle, the text ends with a handle check: call PayBox resolve_username with that handle before approving, and don't approve if it resolves to a different wallet than the request pays. To pay several requests with one approval, use pay_all.", // F1
+  "If the wallet can't cover the payment, nothing is proposed: the text gives a funding plan instead, the exact PayBox calls that fix it, best first (swap SOL for USDC, bring USDC over from Base, swap another token, buy with MoonPay through get_buy_link, or pay over x402 when only the network fee is short), each ending with pay_link again with the plan's plan_id. Show the user the options and run only the one they pick, one approval at a time, with PayBox check_operation_readiness before each step. A refused request (paid, cancelled, expired, tampered, sanctioned, a payee that doesn't check out) never gets a plan.", // F2
 ].join(" ");
 
 export interface Resolved {
@@ -234,7 +241,62 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   if (!readiness) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   // Over x402 the facilitator pays the network fee, so a wallet without SOL can still pay.
   const feeOnly = x402 && readiness.reason !== undefined && FEE_SHORTFALL.test(readiness.reason);
-  if (!readiness.ok && !feeOnly) return refusal(readiness.reason ?? "Your wallet can't cover this payment and its fees.");
+
+  // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
+  // W2-E: a brand word is cleared only by a domain this call just verified over DNS (payee.lead is set only then).
+  const caution = cautionLine(withoutOwnBrandFlags(
+    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain), ...snsBrandFlags(named?.name ?? resolved.snsName)])], // W3-S: + brand words in the name
+    payee.lead !== null ? resolved.fromDomain : null,
+  ));
+  // W2-H verified payee end
+  const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
+  const name = quote(resolved.name, 40);
+  const payeeLines = [...payee.lines.filter((l) => !(snsLead_ && l.startsWith("Payee not verified: no domain"))), ...snsText, // W3-S
+    // W2-E sanctions screen start
+    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
+    // W2-E sanctions screen end
+    // F1 payer inbox start
+    resolved.payer && resolved.payer.wallet !== args.sender
+      ? `This request was addressed to ${payerLabel(resolved.payer)} (wallet ${shortAddress(resolved.payer.wallet)}), not to this wallet. Anyone can pay a link, and this settles it; check the user means to pay someone else's request.`
+      : "",
+    // F1 payer inbox end
+  ];
+  const lead = `${amount} ${token} to ${payee.lead ?? snsLead_ ?? shortAddress(request.recipient)}`;
+
+  if (!readiness.ok && !feeOnly) {
+    const reason = readiness.reason ?? "Your wallet can't cover this payment and its fees.";
+    // F2 funding plan start: only a balance shortfall gets a plan (a frozen account or a below-rent first SOL payment
+    // can't be funded away, and a double without balances can't be planned). Every refusal above came first.
+    if (readiness.blocker !== "funds" || !readiness.funds) return refusal(reason);
+    // The plan's last step pays over x402, so what would refuse x402 refuses now, before anyone funds anything.
+    if (x402 && !readiness.recipientAtaExists) return refusal(REFUSE_X402_NO_ACCOUNT);
+    if (x402) {
+      const challenge = await challengeCheck!;
+      if (challenge !== true) return refusal(challenge);
+    }
+    const price = await readUsablePrice(deps, Math.min(PRICE_BUDGET_MS, remaining() - 1000));
+    const { plan_id: planIdIn, ...again } = args;
+    const plan0 = planFunding({
+      payTool: "pay_link", payArgs: again, requestIds: resolved.id ? [resolved.id] : [], sender: args.sender,
+      sendUsdc: token === "USDC" ? amountAtomic : 0n, sendLamports: token === "SOL" ? amountAtomic : 0n, feeLamports: FEE_RESERVE_LAMPORTS,
+      funds: readiness.funds, x402Rail: x402,
+      x402Possible: token === "USDC" && resolved.id !== undefined && readiness.recipientAtaExists,
+      price,
+    });
+    if (!plan0) return refusal(reason);
+    const plan = await recordPlan(plan0, ctx, planIdIn, Math.min(PLAN_RECORD_BUDGET_MS, remaining() - 300));
+    const what = [
+      `Paying ${lead}${x402 ? " over x402" : ""}.`,
+      resolved.fiatLine ? `Asked as ${resolved.fiatLine}; a quote, not a guarantee. The USDC amount is what is paid.` : "",
+      notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
+      name ? `Requester's name, unverified: ${name}.` : "",
+    ].filter(Boolean).join(" ");
+    return planResult(plan, again,
+      [caution, payee.caution, `${reason} Nothing was sent.`],
+      resolved.requesterHandle ? [handleCheckBeforeFunding(resolved.requesterHandle, request.recipient)] : [],
+      [what, `Recipient: ${request.recipient}`, ...payeeLines]);
+    // F2 funding plan end
+  }
 
   const createRecipientAta = token === "USDC" && !readiness.recipientAtaExists;
   let structuredContent;
@@ -257,18 +319,9 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     }
   }
 
-  // W2-H verified payee start: a brand word in the claimed domain is a caution, as in the requester's text (QA-02)
-  // W2-E: a brand word is cleared only by a domain this call just verified over DNS (payee.lead is set only then).
-  const caution = cautionLine(withoutOwnBrandFlags(
-    [...new Set([...resolved.flags, ...brandFlags(resolved.name, ...resolved.notes), ...domainBrandFlags(resolved.fromDomain), ...snsBrandFlags(named?.name ?? resolved.snsName)])], // W3-S: + brand words in the name
-    payee.lead !== null ? resolved.fromDomain : null,
-  ));
-  // W2-H verified payee end
-  const notes = resolved.notes.map((n) => quote(n, 140)).filter(Boolean);
-  const name = quote(resolved.name, 40);
   const preview = [
     // W2-H verified payee start
-    `Pay ${amount} ${token} to ${payee.lead ?? snsLead_ ?? shortAddress(request.recipient)}${x402 ? " over x402" : ""}.`, // W3-S: or the verified SNS name
+    `Pay ${lead}${x402 ? " over x402" : ""}.`, // W3-S: or the verified SNS name
     // W2-H verified payee end
     resolved.fiatLine ? `Asked as ${resolved.fiatLine}; a quote, not a guarantee. The USDC amount is what is paid.` : "", // local-currency asks
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
@@ -278,18 +331,12 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
   // W2-H verified payee start
-  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payee.lines.filter((l) => !(snsLead_ && l.startsWith("Payee not verified: no domain"))), ...snsText, // W3-S
-    // W2-E sanctions screen start
-    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
-    // W2-E sanctions screen end
-    // F1 payer inbox start
-    resolved.payer && resolved.payer.wallet !== args.sender
-      ? `This request was addressed to ${payerLabel(resolved.payer)} (wallet ${shortAddress(resolved.payer.wallet)}), not to this wallet. Anyone can pay a link, and this settles it; check the user means to pay someone else's request.`
-      : "",
-    resolved.requesterHandle ? handleCheckLine(resolved.requesterHandle, request.recipient) : "",
-    // F1 payer inbox end
+  const text = [caution, payee.caution, preview, `Recipient: ${request.recipient}`, ...payeeLines,
+    resolved.requesterHandle ? handleCheckLine(resolved.requesterHandle, request.recipient) : "", // F1
   ].filter(Boolean).join("\n");
   // W2-H verified payee end
+  // F2: the call that ends a funding plan tells Owed's server (best effort, inside the budget).
+  await markPlanUsed(args.plan_id, args.sender, ctx, Math.min(PLAN_USED_BUDGET_MS, remaining() - 200));
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
 

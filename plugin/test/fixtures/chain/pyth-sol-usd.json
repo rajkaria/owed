@@ -1,0 +1,12 @@
+{
+ "name": "pyth-sol-usd",
+ "note": "Pyth SOL/USD price update account (feed ef0d8b6f…b56d), base64.",
+ "rpc": "https://solana-rpc.publicnode.com",
+ "captured_at": "2026-10-18T08:05:21.907Z",
+ "query": {
+  "account": "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE"
+ },
+ "calls": [
+{"method":"getAccountInfo","params":["7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE",{"encoding":"base64","commitment":"confirmed"}],"result":{"context":{"apiVersion":"4.3.2","slot":458361941},"value":{"data":["IvEjY51+9M1gMUcENA3t3zcf1CRyFI8kjp0abRpesqw6zYt/1dayQwHvDYtv2izrpB2hXUCV0do5Kg0vjtDGx7wPTPrIwoC1bYKpgGYCAAAAAGoyAAAAAAD4////kn3UagAAAACRfdRqAAAAAB7+KGgCAAAAHiQwAAAAAACAC1IbAAAAAAA=","base64"],"executable":false,"lamports":1825031,"owner":"rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ","rentEpoch":18446744073709552000,"space":134}}}
+ ]
+}

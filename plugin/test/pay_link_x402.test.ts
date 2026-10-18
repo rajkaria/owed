@@ -142,7 +142,7 @@ test("v1-only and v2-only challenges that match are accepted", async () => {
   }
 });
 
-test("x402 needs no SOL: a fee-only shortfall still proposes, Solana Pay still refuses", async () => {
+test("x402 needs no SOL: a fee-only shortfall still proposes; Solana Pay refuses (a readiness double without balances gets no funding plan)", async () => {
   const fees = async () => ({ ok: false, reason: "Your wallet needs about 0.003 SOL for fees; it has 0 SOL.", recipientAtaExists: true });
   const x = await payLink(input(), makeDeps({ routes: routes(), payerReadiness: fees }).deps);
   assert.ok(!("isError" in x), textOf(x));
@@ -196,5 +196,12 @@ test("the fee-only exemption matches the real payerReadiness wording, and nothin
   const noSol = await payLink(input(), makeDeps({ routes: routes(), rpc: () => rpcFor(0, AMOUNT), payerReadiness }).deps);
   assert.ok(!("isError" in noSol), textOf(noSol));
   const short = await payLink(input(), makeDeps({ routes: routes(), rpc: () => rpcFor(0, "14999999"), payerReadiness }).deps);
-  assert.equal(refusalText(short), "Your wallet has 14.999999 USDC; this request is 15 USDC.");
+  // F2: short of USDC over x402 is a funding plan (still a refusal: nothing proposed), whose last step stays on x402.
+  const lines = refusalText(short).split("\n");
+  assert.equal(lines[0], "Your wallet has 14.999999 USDC; this request is 15 USDC. Nothing was sent.");
+  const { fundingPlanFromText } = await import("../src/funding.ts");
+  const plan = fundingPlanFromText(textOf(short))!;
+  assert.deepEqual(plan.shortfall, { token: "USDC", atomic: "1", display: "0.000001 USDC" });
+  assert.deepEqual(plan.need, [{ token: "USDC", atomic: "15000000", display: "15 USDC" }], "no SOL needed over x402");
+  assert.equal(plan.options.at(-1)!.then.at(-1)!.args.rail, "x402");
 });

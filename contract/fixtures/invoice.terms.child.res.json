@@ -1,0 +1,40 @@
+{
+  "id": "438EhamrPRUD",
+  "link": "https://www.getowed.xyz/i/438EhamrPRUD",
+  "request_link": "https://www.getowed.xyz/r/438EhamrPRUD",
+  "solana_pay_url": "solana:39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5?amount=100&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=5bSycGCw9WnwDEAorNerzMvGSUYvgBHGUEqx6WTXwcnG&label=Northwind%20Translation&message=Invoice%20NT-2026-020%202%2F3%20%C2%B7%202%20of%203&memo=owed%3A438EhamrPRUD",
+  "qr_url": "https://www.getowed.xyz/api/qr/438EhamrPRUD.png",
+  "reference": "5bSycGCw9WnwDEAorNerzMvGSUYvgBHGUEqx6WTXwcnG",
+  "x402_url": null,
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "invoice_number": "NT-2026-020 2/3",
+  "notes": "Three monthly installments, thank you.",
+  "issue_date": "2026-10-18",
+  "due_date": "2026-12-01",
+  "items": [
+    {
+      "description": "Installment 2 of 3",
+      "quantity": "1",
+      "unit_price": "100",
+      "amount": "100"
+    }
+  ],
+  "total": "100",
+  "status": "open",
+  "paid": null,
+  "created_at": "2026-10-18T09:22:27Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "term_of": {
+    "invoice_id": "hbTRHzm9Y1x7",
+    "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7",
+    "role": "installment",
+    "seq": 2,
+    "count": 3,
+    "label": "Installment 2 of 3"
+  }
+}

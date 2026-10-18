@@ -1,7 +1,8 @@
 // Test doubles for the tools. W1-A/W1-B functions use the real module once it is implemented
 // (the stubs throw "not implemented: ..."), so these tests rerun against real code after those merges.
 // API replies come from contract/fixtures (the canonical shapes); addresses are real mainnet keys.
-import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import bs58 from "bs58";
 import type { Rpc } from "../src/chain.ts";
@@ -21,6 +22,18 @@ export const BASE = "https://owed-omega.vercel.app";
 const fixturesDir = fileURLToPath(new URL("../../contract/fixtures/", import.meta.url));
 export function fixture<T = any>(name: string): T {
   return JSON.parse(readFileSync(`${fixturesDir}${name}`, "utf8")) as T;
+}
+
+/**
+ * F2: a contract fixture that IS the plugin's output (a funding plan, the body it posts). OWED_WRITE_PLAN_FIXTURES=1
+ * writes it from the real code; otherwise the output must equal the committed file, so the fixture can't drift.
+ */
+export function pinnedFixture(name: string, value: unknown): void {
+  if (process.env.OWED_WRITE_PLAN_FIXTURES === "1") {
+    writeFileSync(`${fixturesDir}${name}`, `${JSON.stringify(value, null, 2)}\n`);
+    return;
+  }
+  assert.deepEqual(value, fixture(name), `contract/fixtures/${name} drifted from the code: rerun with OWED_WRITE_PLAN_FIXTURES=1 and review the diff`);
 }
 
 function implemented(probe: () => unknown): boolean {
@@ -200,6 +213,8 @@ export function makeDeps(overrides: Partial<Deps> & { routes?: Record<string, Ro
       usdcAccounts: new Map(q.usdcRecipients.map((r) => [r, { exists: true, frozen: false }])), newSolWallets: new Set<string>(), rentMinimum: null,
     }),
     planBatch: tx.planBatch,
+    // F2: no SOL price unless a test passes one (a funding plan then leaves swap sizes to the agent).
+    solUsdPrice: async () => { throw new Error("price double: no SOL price in this test"); },
     ...rest,
   };
   // Keep recording when a test overrides a chain double.

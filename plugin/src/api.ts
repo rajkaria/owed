@@ -9,6 +9,10 @@ import {
   scheduleResSchema, type CreateScheduleReq, type ScheduleRes, // W3-D
   matchResSchema, restResSchema, attributedResSchema, type MatchReq, type MatchRes, type RestReq, type RestRes, type AttributedReq, type AttributedRes, // 0012
   bulkRequestsResSchema, inboxBlockResSchema, inboxResSchema, type BulkRequestsRes, type InboxBlockReq, type InboxBlockRes, type InboxReq, type InboxRes, // F1
+  createPlanResSchema, planUsedResSchema, type CreatePlanReq, type CreatePlanRes, type PlanUsedReq, type PlanUsedRes, // F2
+  addExpenseResSchema, groupLedgerResSchema, settleUpResSchema, type AddExpenseReq, type AddExpenseRes, type CreateGroupLedgerReq, type GroupLedgerRes, type SettleUpReq, type SettleUpRes, // F6 ledger
+  invoiceTermsResSchema, createRefundResSchema, refundResSchema, refundsLookupResSchema, statementResSchema, ledgerResF8Schema, // F8 invoices
+  type CreateInvoiceTermsReq, type InvoiceTermsRes, type CreateRefundReq, type CreateRefundRes, type RefundRes, type RefundsLookupRes, type StatementRes, type LedgerResF8, // F8 invoices
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -72,6 +76,30 @@ export interface ApiClient {
   inboxBlock(body: InboxBlockReq): Promise<InboxBlockRes>;
   /** F1: up to 20 requests' terms in one call (pay_all). */
   getRequests(ids: string[]): Promise<BulkRequestsRes>;
+  /** F2: record a funding plan offered to a sender; answers with its plan_id. */
+  createPlan(body: CreatePlanReq): Promise<CreatePlanRes>;
+  /** F2: a plan's final pay_link / pay_all returned a payment proposal. */
+  planUsed(id: string, body: PlanUsedReq): Promise<PlanUsedRes>;
+  /** F6 ledger: start a group ledger; GET one (chain: false skips the server's chain check); a signed expense; a signed settle-up. */
+  createLedger(body: CreateGroupLedgerReq): Promise<GroupLedgerRes>;
+  getLedger(id: string, options?: { chain?: boolean }): Promise<GroupLedgerRes>;
+  addExpense(id: string, body: AddExpenseReq): Promise<AddExpenseRes>;
+  settleLedger(id: string, body: SettleUpReq): Promise<SettleUpRes>;
+  // F8 invoices start
+  /** An invoice with optional terms (installments, early-pay discount, late fee, chase days); the reply carries `terms`. */
+  createInvoiceTerms(body: CreateInvoiceTermsReq): Promise<InvoiceTermsRes>;
+  /** An invoice with its terms, the plan that opened it, and its refunds. */
+  getInvoiceTerms(id: string): Promise<InvoiceTermsRes>;
+  /** A refund of a paid request, with the recipient's signed message; answers with the pending refund and its fresh reference. */
+  createRefund(body: CreateRefundReq): Promise<CreateRefundRes>;
+  getRefund(id: string): Promise<RefundRes>;
+  /** Up to 20 requests' refunds (what was paid, refunded, pending, still refundable). */
+  refundsFor(ids: string[]): Promise<RefundsLookupRes>;
+  /** A client's statement for a month, with the recipient's signed ledger message. */
+  statement(query: { recipient: string; client: string; month?: string; signed_message: string; signature: string }): Promise<StatementRes>;
+  /** The ledger with F8's optional fields on each entry (chase days, the reminder due, refunds). */
+  ledgerF8(body: LedgerReq): Promise<LedgerResF8>;
+  // F8 invoices end
 }
 
 export interface ApiOptions {
@@ -139,5 +167,20 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     inbox: (body) => call("POST", "/inbox", inboxResSchema, body), // F1
     inboxBlock: (body) => call("POST", "/inbox/block", inboxBlockResSchema, body),
     getRequests: (ids) => call("GET", `/requests?ids=${ids.map(encodeURIComponent).join(",")}`, bulkRequestsResSchema),
+    createPlan: (body) => call("POST", "/plans", createPlanResSchema, body), // F2
+    planUsed: (id, body) => call("POST", `/plans/${encodeURIComponent(id)}/used`, planUsedResSchema, body),
+    createLedger: (body) => call("POST", "/ledgers", groupLedgerResSchema, body), // F6 ledger
+    getLedger: (id, options) => call("GET", `/ledgers/${encodeURIComponent(id)}${options?.chain === false ? "?chain=0" : ""}`, groupLedgerResSchema),
+    addExpense: (id, body) => call("POST", `/ledgers/${encodeURIComponent(id)}/expenses`, addExpenseResSchema, body),
+    settleLedger: (id, body) => call("POST", `/ledgers/${encodeURIComponent(id)}/settle`, settleUpResSchema, body),
+    // F8 invoices start
+    createInvoiceTerms: (body) => call("POST", "/invoices", invoiceTermsResSchema, body),
+    getInvoiceTerms: (id) => call("GET", `/invoices/${encodeURIComponent(id)}`, invoiceTermsResSchema),
+    createRefund: (body) => call("POST", "/refunds", createRefundResSchema, body),
+    getRefund: (id) => call("GET", `/refunds/${encodeURIComponent(id)}`, refundResSchema),
+    refundsFor: (ids) => call("GET", `/refunds?requests=${ids.map(encodeURIComponent).join(",")}`, refundsLookupResSchema),
+    statement: (q) => call("GET", `/statements?${new URLSearchParams({ recipient: q.recipient, client: q.client, ...(q.month && { month: q.month }), signed_message: q.signed_message, signature: q.signature })}`, statementResSchema),
+    ledgerF8: (body) => call("POST", "/ledger", ledgerResF8Schema, body),
+    // F8 invoices end
   };
 }

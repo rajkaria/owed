@@ -22,8 +22,9 @@ test("owed ids and links: one batched status call, SPEC-style summary and a line
   const { deps, rec } = makeDeps({ routes: { "POST /api/v1/status": () => json(200, statusFixture) } });
   const result = await checkPayments({ requests: ["JArQ6g9JvoWr", " https://owed.link/r/Bq3wL8mNc2 ", "JArQ6g9JvoWr"] }, deps);
   const o = out(result);
-  assert.equal(rec.calls.length, 1);
-  assert.deepEqual(rec.calls[0]!.body, { ids: ["JArQ6g9JvoWr", "Bq3wL8mNc2"] });
+  // One batched status call, and (F8) one refunds lookup beside it; an older server without refunds just answers 404.
+  assert.deepEqual(rec.calls.map((c) => `${c.method} ${c.url.replace(/^https:\/\/[^/]+/, "")}`).sort(), ["GET /api/v1/refunds?requests=JArQ6g9JvoWr,Bq3wL8mNc2", "POST /api/v1/status"]);
+  assert.deepEqual(rec.calls.find((c) => c.method === "POST")!.body, { ids: ["JArQ6g9JvoWr", "Bq3wL8mNc2"] });
   assert.deepEqual(o.results[0], {
     input: "JArQ6g9JvoWr", id: "JArQ6g9JvoWr", status: "paid", amount_requested: "15", token: "USDC",
     amount_paid: "15", payer: PAID.payer, signature: SIGNATURE, paid_at: PAID.paid_at, explorer_url: `https://solscan.io/tx/${SIGNATURE}`,

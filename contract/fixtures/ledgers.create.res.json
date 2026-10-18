@@ -1,0 +1,97 @@
+{
+  "id": "U5zGc9TXGvE9",
+  "link": "https://www.getowed.xyz/l/U5zGc9TXGvE9",
+  "title": "Lisbon trip",
+  "owner": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+  "created_at": "2026-10-18T09:00:00Z",
+  "version": 0,
+  "flags": [],
+  "caution": "Names, descriptions and amounts are written by whoever recorded them; Owed doesn't check them. Each expense and settle-up is signed by a wallet named in the ledger, and handles are labels Owed doesn't verify.",
+  "members": [
+    {
+      "position": 0,
+      "name": "Raj",
+      "wallet": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+      "handle": null,
+      "sns": null
+    },
+    {
+      "position": 1,
+      "name": "Priya",
+      "wallet": "7n34Kk1J2VoXKnzwhjBAQWqnTzE2qUBTcnKTtvPSjvW7",
+      "handle": "priya_p",
+      "sns": null
+    },
+    {
+      "position": 2,
+      "name": "Sam",
+      "wallet": "6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X",
+      "handle": null,
+      "sns": null
+    },
+    {
+      "position": 3,
+      "name": "Alex",
+      "wallet": null,
+      "handle": null,
+      "sns": null
+    }
+  ],
+  "expenses": [],
+  "balances": [
+    {
+      "member": 0,
+      "paid": "0",
+      "share": "0",
+      "sent": "0",
+      "received": "0",
+      "net": "0",
+      "pending_out": "0",
+      "pending_in": "0",
+      "to_settle": "0"
+    },
+    {
+      "member": 1,
+      "paid": "0",
+      "share": "0",
+      "sent": "0",
+      "received": "0",
+      "net": "0",
+      "pending_out": "0",
+      "pending_in": "0",
+      "to_settle": "0"
+    },
+    {
+      "member": 2,
+      "paid": "0",
+      "share": "0",
+      "sent": "0",
+      "received": "0",
+      "net": "0",
+      "pending_out": "0",
+      "pending_in": "0",
+      "to_settle": "0"
+    },
+    {
+      "member": 3,
+      "paid": "0",
+      "share": "0",
+      "sent": "0",
+      "received": "0",
+      "net": "0",
+      "pending_out": "0",
+      "pending_in": "0",
+      "to_settle": "0"
+    }
+  ],
+  "plan": [],
+  "settlements": [],
+  "totals": {
+    "spent": "0",
+    "expense_count": 0,
+    "open_requests": 0
+  },
+  "fiat_beside": null,
+  "settled": false,
+  "chain_checked": true
+}

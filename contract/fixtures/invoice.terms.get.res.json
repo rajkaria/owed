@@ -1,0 +1,105 @@
+{
+  "id": "EEU272MXZqGY",
+  "link": "https://www.getowed.xyz/i/EEU272MXZqGY",
+  "request_link": "https://www.getowed.xyz/r/EEU272MXZqGY",
+  "solana_pay_url": "solana:39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5?amount=190&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=7uKMtZ3cPAYvnfH4EAfknT6uvrhWxu4PLtbNW3FBYRHs&label=Northwind%20Translation&message=Invoice%20NT-2026-021%20%C2%B7%20early%20price&memo=owed%3AEEU272MXZqGY",
+  "qr_url": "https://www.getowed.xyz/api/qr/EEU272MXZqGY.png",
+  "reference": "7uKMtZ3cPAYvnfH4EAfknT6uvrhWxu4PLtbNW3FBYRHs",
+  "x402_url": null,
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "invoice_number": "NT-2026-021",
+  "notes": null,
+  "issue_date": "2026-10-18",
+  "due_date": "2026-11-17",
+  "items": [
+    {
+      "description": "Logo design",
+      "quantity": "1",
+      "unit_price": "200",
+      "amount": "200"
+    }
+  ],
+  "total": "200",
+  "status": "paid",
+  "paid": {
+    "signature": "3ZYhT7Bjnaaj42zyRs4TMRvQCAwNGWrvP7qL7RqzMQYX33s2UPeDiKfTZZsAMZvaLngzQBDREj4k6HBoRb4ByQKV",
+    "payer": "BoNfFwfKqvqi9fncG5DeGAipH1meAcHBSabMinvfq2gB",
+    "amount": "190",
+    "at": "2026-10-18T09:20:27Z",
+    "rail": "solana_pay"
+  },
+  "created_at": "2026-10-18T09:22:27Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "terms": {
+    "status": "paid",
+    "paid_so_far": "190",
+    "remaining": "0",
+    "pay_now": null,
+    "installments": null,
+    "early_discount": {
+      "early_price": "190",
+      "full_price": "200",
+      "discount": "10",
+      "percent": "5",
+      "until": "2026-10-28",
+      "early": {
+        "role": "early_price",
+        "seq": 1,
+        "amount": "190",
+        "due_date": "2026-10-28",
+        "opens_on": "2026-10-18",
+        "status": "paid",
+        "id": "EEU272MXZqGY",
+        "link": "https://www.getowed.xyz/i/EEU272MXZqGY",
+        "skip_reason": null,
+        "paid": {
+          "amount": "190",
+          "at": "2026-10-18T09:20:27Z",
+          "signature": "3ZYhT7Bjnaaj42zyRs4TMRvQCAwNGWrvP7qL7RqzMQYX33s2UPeDiKfTZZsAMZvaLngzQBDREj4k6HBoRb4ByQKV",
+          "on_time": true
+        }
+      },
+      "full": {
+        "role": "full_price",
+        "seq": 1,
+        "amount": "200",
+        "due_date": "2026-11-17",
+        "opens_on": "2026-10-29",
+        "status": "skipped",
+        "id": null,
+        "link": null,
+        "skip_reason": "the early price was paid"
+      },
+      "paid_with": "early"
+    },
+    "late_fee": {
+      "amount": "10",
+      "percent": null,
+      "applies_after": "2026-11-17",
+      "request": {
+        "role": "late_fee",
+        "seq": 1,
+        "amount": "10",
+        "due_date": "2026-11-17",
+        "opens_on": "2026-11-18",
+        "status": "scheduled",
+        "id": null,
+        "link": null,
+        "skip_reason": null
+      }
+    },
+    "chase": {
+      "days": [
+        3,
+        7,
+        14
+      ]
+    },
+    "refunded": "0"
+  }
+}

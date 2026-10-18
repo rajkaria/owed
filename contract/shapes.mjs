@@ -1208,3 +1208,763 @@ Object.assign(fixtureShapes, {
   "inbox.block.res.json": "inboxBlockRes",
   "requests.bulk.res.json": "bulkRequestsRes",
 });
+
+// ---------------------------------------------------------------------------------------------- F2: funding plans
+// When a sender's wallet can't cover a payment, pay_link / pay_all return a funding plan: the exact PayBox calls that
+// fix it, in the tool's text as a ```json block ({"funding_plan": …}, shape fundingPlanDoc). POST /api/v1/plans
+// records that a plan was offered (no balances), POST /api/v1/plans/<id>/used that its final call proposed the payment,
+// GET /api/v1/plans/stats counts offered / used / paid. Fixtures: plugin/test (pay_link_f2, pay_all_f2) write the
+// funding-plan.* files from the real planner (OWED_WRITE_PLAN_FIXTURES=1) and fail when they drift.
+
+export const PLAN_OPTION_KINDS = ["swap_sol", "bridge_base_usdc", "swap_other", "buy_usdc", "x402", "swap_usdc_for_sol", "buy_sol"];
+export const MOONPAY_MIN_USD = 4.99;
+const planId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 plan id" });
+const planKind = oneOf(...PLAN_OPTION_KINDS);
+const positiveAtomic = string({ max: 31, pattern: /^[1-9][0-9]*$/, label: "a positive whole number of atomic units" });
+const anyAtomicText = string({ max: 31, pattern: /^(0|[1-9][0-9]*)$/, label: "a whole number of atomic units" });
+const PLAN_TOOL = oneOf("pay_link", "pay_all");
+const unique = (key) => (value, path, ctx) => {
+  if (new Set(value[key]).size !== value[key].length) ctx.errors.push(`${path}.${key}: lists an entry twice`);
+};
+
+const planAmount = object({ token, atomic: anyAtomicText, display: string({ max: 60 }) }, (value, path, ctx) => {
+  const want = `${fromAtomic(BigInt(value.atomic), TOKEN_DECIMALS[value.token])} ${value.token}`;
+  if (value.display !== want) ctx.errors.push(`${path}.display: ${show(value.display)} is not ${show(want)}`);
+});
+const planStepFields = {
+  via: oneOf("paybox", "owed"), tool: string({ min: 1, max: 40 }),
+  args: (value, path, ctx) => { if (kind(value) !== "object") ctx.errors.push(`${path}: expected object, got ${kind(value)}`); },
+  credential_of: nullable(string({ max: 64 })), missing: optional(array(string({ max: 40 }), { max: 8 })), why: string({ min: 1, max: 800 }),
+};
+const planStep = object(planStepFields);
+const planOption = object({ ...planStepFields, kind: planKind, check: optional(planStep), then: array(planStep, { max: 4 }) });
+
+/** Which PayBox (or Owed) tool each kind of option starts with. */
+const KIND_TOOL = { swap_sol: "request_swap", bridge_base_usdc: "request_swap", swap_other: "get_portfolio", buy_usdc: "get_buy_link", swap_usdc_for_sol: "request_swap", buy_sol: "get_buy_link" };
+
+function planConsistent(plan, path, ctx) {
+  const err = (where, message) => ctx.errors.push(`${path}${where}: ${message}`);
+  const kinds = plan.options.map((o) => o.kind);
+  if (new Set(kinds).size !== kinds.length) err(".options", "lists a kind twice");
+  if (plan.pay_tool === "pay_all" && plan.request_ids.length === 0) err(".request_ids", "a pay_all plan names its requests");
+  if (new Set(plan.request_ids).size !== plan.request_ids.length) err(".request_ids", "lists an id twice");
+  if (BigInt(plan.shortfall.atomic) === 0n) err(".shortfall.atomic", "a plan is for something short");
+  const need = plan.need.find((n) => n.token === plan.shortfall.token);
+  if (!need || BigInt(need.atomic) < BigInt(plan.shortfall.atomic)) err(".need", `doesn't cover the ${plan.shortfall.token} shortfall`);
+  plan.options.forEach((o, i) => {
+    const at = `.options[${i}]`;
+    const expectTool = o.kind === "x402" ? plan.pay_tool : KIND_TOOL[o.kind];
+    if (o.tool !== expectTool) err(`${at}.tool`, `${show(o.tool)} for kind ${o.kind}, expected ${expectTool}`);
+    if ((o.via === "owed") !== (o.kind === "x402")) err(`${at}.via`, `${o.via} for kind ${o.kind}`);
+    // Every option ends with the pay call again, for this sender, carrying the plan's id.
+    const last = o.then.length ? o.then[o.then.length - 1] : o;
+    if (last.via !== "owed" || last.tool !== plan.pay_tool) err(at, `doesn't end with ${plan.pay_tool}`);
+    else {
+      if (last.args.sender !== plan.sender) err(at, "its pay step pays from another wallet");
+      if (plan.plan_id !== null && last.args.plan_id !== plan.plan_id) err(at, "its pay step doesn't carry the plan_id");
+      if (plan.pay_tool === "pay_all" && last.args.rail !== undefined) err(at, "pay_all has no rail");
+    }
+    for (const s of [o, ...o.then]) if (s.via === "owed" && s.tool !== plan.pay_tool) err(at, `calls Owed's ${s.tool}`);
+    const a = o.args;
+    const swapArgs = (want) => {
+      for (const [k, v] of Object.entries(want)) if (a[k] !== v) err(`${at}.args.${k}`, `${show(a[k])}, expected ${show(v)}`);
+      if (a.amount === undefined ? !(o.missing ?? []).includes("amount") : !/^[1-9][0-9]*$/.test(a.amount)) err(`${at}.args.amount`, "a positive atomic amount, or listed in missing");
+    };
+    if (o.kind === "swap_sol") swapArgs({ src_chain: "solana:mainnet", src_token: "native", dst_token: USDC_MINT });
+    if (o.kind === "swap_usdc_for_sol") swapArgs({ src_chain: "solana:mainnet", src_token: USDC_MINT, dst_token: "native" });
+    if (o.kind === "bridge_base_usdc") {
+      swapArgs({ src_chain: "eip155:8453", src_token: BASE_USDC, dst_chain: "solana:mainnet", dst_token: USDC_MINT, recipient: plan.sender });
+      if (o.credential_of !== "base_wallet") err(`${at}.credential_of`, "a bridge spends from the user's Base wallet");
+      if (o.check?.tool !== "get_portfolio") err(`${at}.check`, "Owed can't read Base: get_portfolio checks first");
+    }
+    if (o.kind === "buy_usdc" || o.kind === "buy_sol") {
+      if (o.kind === "buy_usdc" && a.currency_code !== "usdc_sol") err(`${at}.args.currency_code`, `${show(a.currency_code)}, expected "usdc_sol"`);
+      if (o.kind === "buy_sol" && a.currency_code !== undefined) err(`${at}.args.currency_code`, "native SOL takes no currency_code");
+      if (a.amount_usd === undefined) {
+        if (!(o.missing ?? []).includes("amount_usd")) err(`${at}.args.amount_usd`, "missing and not listed in missing");
+      } else if (typeof a.amount_usd !== "number" || !/^\d+(\.\d{1,2})?$/.test(String(a.amount_usd)) || a.amount_usd < MOONPAY_MIN_USD) {
+        err(`${at}.args.amount_usd`, `${show(a.amount_usd)} is not whole cents of at least ${MOONPAY_MIN_USD} (MoonPay's minimum)`);
+      }
+    }
+    if (o.kind === "x402") {
+      if (plan.pay_tool !== "pay_link") err(at, "only pay_link pays over x402");
+      if (a.rail !== "x402") err(`${at}.args.rail`, "the x402 option pays with rail x402");
+      if (plan.shortfall.token !== "SOL") err(at, "x402 only fixes a SOL (fee) shortfall");
+    }
+  });
+}
+
+const fundingPlan = object({
+  plan_id: nullable(planId), pay_tool: PLAN_TOOL, request_ids: array(id, { max: 20 }), sender: anyWallet,
+  shortfall: planAmount, have: array(planAmount, { max: 2 }), need: array(planAmount, { max: 2 }), options: array(planOption, { min: 1, max: 8 }),
+}, planConsistent);
+
+Object.assign(shapes, {
+  createPlanReq: object({
+    tool: PLAN_TOOL, sender: anyWallet, request_ids: array(id, { max: 20 }),
+    shortfall: object({ token, atomic: positiveAtomic }), options: array(planKind, { min: 1, max: 8 }),
+  }, (value, path, ctx) => {
+    unique("request_ids")(value, path, ctx);
+    unique("options")(value, path, ctx);
+    if (value.tool === "pay_all" && value.request_ids.length === 0) ctx.errors.push(`${path}.request_ids: a pay_all plan names its requests`);
+  }),
+  createPlanRes: object({ plan_id: planId, created_at: iso }),
+  planUsedReq: object({ sender: anyWallet }),
+  planUsedRes: object({ plan_id: planId, used_at: iso, already_used: oneOf(true, false) }),
+  planStatsRes: object({ offered: integer(), used: integer(), paid: integer(), since: iso }, (value, path, ctx) => {
+    if (value.used > value.offered) ctx.errors.push(`${path}.used: more than offered`);
+    if (value.paid > value.offered) ctx.errors.push(`${path}.paid: more than offered`);
+  }),
+  fundingPlanDoc: object({ funding_plan: fundingPlan }),
+});
+
+Object.assign(fixtureShapes, {
+  "plans.create.req.json": "createPlanReq",
+  "plans.create.res.json": "createPlanRes",
+  "plans.used.req.json": "planUsedReq",
+  "plans.used.res.json": "planUsedRes",
+  "plans.stats.res.json": "planStatsRes",
+  "funding-plan.swap.json": "fundingPlanDoc",
+  "funding-plan.buy.json": "fundingPlanDoc",
+  "funding-plan.fee.json": "fundingPlanDoc",
+  "funding-plan.pay-all.json": "fundingPlanDoc",
+});
+
+// ---------------------------------------------------------------------------------------------- F6 ledger
+// Group ledgers: POST /api/v1/ledgers, GET /api/v1/ledgers/<id>, POST .../expenses, POST .../settle. Every write is
+// signed by a wallet named in the ledger, over "Owed add expense <digest> (<total> <currency>) to ledger <id> by
+// <signer> at <ISO>" or "Owed settle up ledger <id> v<version>: <n> requests, <total> USDC by <signer> at <ISO>".
+// These shapes re-derive everything a ledger reply claims, with their own code: each expense's digest (a third copy
+// of plugin/src/ledger-math.ts expenseDigest) and signature, its split adding up (USDC shares rounded up from a
+// local currency at the one rate), every balance from the expenses and the live statuses of the settle-up requests,
+// and the greedy plan. Fixtures: contract/ledger-fixtures.mjs.
+
+const glId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 ledger id" });
+const glMember = (value, path, ctx) => {
+  if (!Number.isInteger(value) || value < 0 || value > 19) ctx.errors.push(`${path}: expected a member position 0..19, got ${show(value)}`);
+};
+const glSigned = string({ max: 41, pattern: /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/, test: (t) => t !== "-0", label: "a signed decimal amount" });
+const glCurrency = string({ pattern: /^(USDC|[A-Z]{3})$/, test: (t) => t !== "USD", label: "USDC or an ISO 4217 code other than USD" });
+const glSplit = oneOf("even", "shares", "exact", "items");
+const GL_ZERO_DECIMAL = new Set(["CLP", "JPY", "KRW", "VND", "XOF"]);
+const glDecimals = (currency) => (currency === "USDC" ? 6 : GL_ZERO_DECIMAL.has(currency) ? 0 : 2);
+const glUnits = (amount, decimals) => toAtomic(amount, decimals);
+const glText = (max) => nullable(string({ min: 1, max, test: (t) => !/[\u0000-\u001f\u007f-\u009f"<>[\]{}`\\@]/.test(t) && !/(:\/\/|www\.)/i.test(t), label: "cleaned text" }));
+const GL_SIGNED_ISO = "(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,3})?Z)";
+
+/** 16 hex characters of sha256 over an expense in the fixed order plugin/src/ledger-math.ts expenseDigest uses. */
+export function groupLedgerExpenseDigest(ledgerId, e) {
+  const canonical = JSON.stringify([
+    "owed-ledger-expense:v1", ledgerId, e.description, e.paidBy, e.currency, String(e.totalUnits), e.split,
+    e.among ?? null,
+    e.shares ? e.shares.map((s) => [s.member, String(s.weight)]) : null,
+    e.amounts ? e.amounts.map((a) => [a.member, String(a.units)]) : null,
+    e.items ? e.items.map((i) => [i.description, String(i.units), i.members]) : null,
+    e.taxUnits == null ? null : String(e.taxUnits), e.tipUnits == null ? null : String(e.tipUnits),
+  ]);
+  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
+}
+
+/** Greedy settle-up: largest debtor pays largest creditor, ties to the earlier member (lib/ledgers-math.ts planSettlement). */
+export function groupLedgerPlan(toSettle) {
+  const left = [...toSettle];
+  const out = [];
+  const pick = (sign) => {
+    let best = -1;
+    for (let i = 0; i < left.length; i++) if (left[i] * sign > 0n && (best === -1 || left[i] * sign > left[best] * sign)) best = i;
+    return best;
+  };
+  for (;;) {
+    const d = pick(-1n);
+    const c = pick(1n);
+    if (d === -1 || c === -1) return out;
+    const amount = -left[d] < left[c] ? -left[d] : left[c];
+    out.push({ from: d, to: c, amountAtomic: amount });
+    left[d] += amount;
+    left[c] -= amount;
+  }
+}
+
+const glSignedStr = (atomic) => (atomic < 0n ? `-${fromAtomic(-atomic, 6)}` : fromAtomic(atomic, 6));
+const glPlain = (atomic) => fromAtomic(atomic, 6);
+
+function glExpenseConsistent(ledger, e, path, ctx) {
+  const n = ledger.members.length;
+  const d = glDecimals(e.currency);
+  if (e.paid_by >= n) ctx.errors.push(`${path}.paid_by: no member ${e.paid_by}`);
+  const members = e.shares.map((s) => s.member);
+  if (members.some((m, i) => m >= n || (i > 0 && m <= members[i - 1]))) ctx.errors.push(`${path}.shares: members must be ascending ledger positions`);
+  if ((e.currency === "USDC") !== (e.fiat === null)) ctx.errors.push(`${path}.fiat: ${e.currency === "USDC" ? "set on a USDC expense" : "missing on a local-currency expense"}`);
+  if (e.fiat && (e.fiat.currency !== e.currency || e.fiat.amount !== e.total)) ctx.errors.push(`${path}.fiat: not this expense's currency and total`);
+  if ((e.split === "items") !== (e.items !== null)) ctx.errors.push(`${path}.items: ${e.split === "items" ? "missing" : "set"} for split ${e.split}`);
+  if (e.split !== "items" && (e.tax !== null || e.tip !== null)) ctx.errors.push(`${path}: tax and tip go with split items only`);
+  if ((e.split === "shares") !== e.shares.every((s) => s.weight !== null)) ctx.errors.push(`${path}.shares: weights are ${e.split === "shares" ? "missing" : "set"} for split ${e.split}`);
+  try {
+    const total = glUnits(e.total, d);
+    let shareSum = 0n;
+    let usdcSum = 0n;
+    for (const [i, s] of e.shares.entries()) {
+      const units = glUnits(s.share, d);
+      const atomic = toAtomic(s.amount, 6);
+      shareSum += units;
+      usdcSum += atomic;
+      const expected = e.currency === "USDC" ? units : units === 0n ? 0n : usdcAtomicForQuote({ amount: s.share, rate: e.fiat?.rate ?? "1" });
+      if (atomic !== expected) ctx.errors.push(`${path}.shares[${i}].amount: ${s.amount} USDC, but ${s.share} ${e.currency} gives ${glPlain(expected)}`);
+    }
+    if (shareSum !== total) ctx.errors.push(`${path}.shares: add up to ${fromAtomic(shareSum, d)} ${e.currency}, not the total ${e.total}`);
+    if (usdcSum !== toAtomic(e.amount, 6)) ctx.errors.push(`${path}.amount: ${e.amount} USDC, but the shares add up to ${glPlain(usdcSum)}`);
+    if (e.split === "items") {
+      const items = e.items.reduce((a, i) => a + glUnits(i.amount, d), 0n);
+      const extras = (e.tax === null ? 0n : glUnits(e.tax, d)) + (e.tip === null ? 0n : glUnits(e.tip, d));
+      if (items + extras !== total) ctx.errors.push(`${path}.items: plus tax and tip add up to ${fromAtomic(items + extras, d)}, not ${e.total}`);
+    }
+    const digest = groupLedgerExpenseDigest(ledger.id, {
+      description: e.description, paidBy: e.paid_by, currency: e.currency, totalUnits: total, split: e.split,
+      among: e.split === "even" ? members : null,
+      shares: e.split === "shares" ? e.shares.map((s) => ({ member: s.member, weight: toAtomic(s.weight, 4) })) : null,
+      amounts: e.split === "exact" ? e.shares.map((s) => ({ member: s.member, units: glUnits(s.share, d) })) : null,
+      items: e.items ? e.items.map((i) => ({ description: i.description, units: glUnits(i.amount, d), members: i.members })) : null,
+      taxUnits: e.tax === null ? null : glUnits(e.tax, d), tipUnits: e.tip === null ? null : glUnits(e.tip, d),
+    });
+    if (!ledger.members.some((m) => m.wallet === e.recorded_by)) ctx.errors.push(`${path}.recorded_by: not a wallet in this ledger`);
+    signedAs(`Owed add expense ${digest} (${e.total} ${e.currency}) to ledger ${ledger.id} by ${e.recorded_by} at `, e.recorded_by, e, path, ctx);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+}
+
+function glConsistent(value, path, ctx) {
+  const n = value.members.length;
+  if (!new URL(value.link).pathname.endsWith(`/l/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /l/${value.id}`);
+  value.members.forEach((m, i) => {
+    if (m.position !== i) ctx.errors.push(`${path}.members[${i}].position: ${m.position}`);
+    if (m.wallet === null && (m.handle !== null || m.sns !== null)) ctx.errors.push(`${path}.members[${i}]: a handle or SNS name without its wallet`);
+  });
+  if (value.members[0]?.wallet !== value.owner) ctx.errors.push(`${path}.members[0].wallet: is not the owner`);
+  const wallets = value.members.map((m) => m.wallet).filter(Boolean);
+  if (new Set(wallets).size !== wallets.length) ctx.errors.push(`${path}.members: a wallet is listed twice`);
+  value.expenses.forEach((e, i) => {
+    if (e.position !== i) ctx.errors.push(`${path}.expenses[${i}].position: ${e.position}`);
+    glExpenseConsistent(value, e, `${path}.expenses[${i}]`, ctx);
+  });
+  if (ctx.errors.length) return;
+  // Balances, from the expenses and the settle-up requests' statuses.
+  const b = value.members.map(() => ({ paid: 0n, share: 0n, sent: 0n, received: 0n, pendingOut: 0n, pendingIn: 0n }));
+  let spent = 0n;
+  for (const e of value.expenses) {
+    const amount = toAtomic(e.amount, 6);
+    spent += amount;
+    b[e.paid_by].paid += amount;
+    for (const s of e.shares) b[s.member].share += toAtomic(s.amount, 6);
+  }
+  let open = 0;
+  const seen = new Set();
+  for (const [r, s] of value.settlements.entries()) {
+    const at = `${path}.settlements[${r}]`;
+    let total = 0n;
+    for (const [i, t] of s.transfers.entries()) {
+      const amount = toAtomic(t.amount, 6);
+      total += amount;
+      if (t.from === t.to || t.from >= n || t.to >= n) ctx.errors.push(`${at}.transfers[${i}]: from ${t.from} to ${t.to}`);
+      if (seen.has(t.request_id)) ctx.errors.push(`${at}.transfers[${i}].request_id: listed twice`);
+      seen.add(t.request_id);
+      if (!new URL(t.link).pathname.endsWith(`/r/${t.request_id}`)) ctx.errors.push(`${at}.transfers[${i}].link: does not end in /r/${t.request_id}`);
+      if (t.addressed && value.members[t.from]?.wallet === null) ctx.errors.push(`${at}.transfers[${i}].addressed: the debtor has no wallet`);
+      if ((t.paid !== null) !== (t.status === "paid" || t.status === "underpaid")) ctx.errors.push(`${at}.transfers[${i}].paid: ${t.paid ? "set" : "missing"} for status ${t.status}`);
+      const moved = t.status === "paid" ? amount : t.status === "underpaid" ? toAtomic(t.paid.amount, 6) : 0n;
+      const pending = t.status === "open" ? amount : 0n;
+      if (pending > 0n) open += 1;
+      b[t.from].sent += moved;
+      b[t.to].received += moved;
+      b[t.from].pendingOut += pending;
+      b[t.to].pendingIn += pending;
+    }
+    if (!value.members.some((m) => m.wallet === s.recorded_by)) ctx.errors.push(`${at}.recorded_by: not a wallet in this ledger`);
+    const k = s.transfers.length;
+    signedAs(`Owed settle up ledger ${value.id} v${s.round}: ${k} ${k === 1 ? "request" : "requests"}, ${glPlain(total)} USDC by ${s.recorded_by} at `, s.recorded_by, s, at, ctx);
+    if (r > 0 && s.round <= value.settlements[r - 1].round) ctx.errors.push(`${at}.round: not after the previous settle-up`);
+  }
+  const toSettle = [];
+  let netSum = 0n;
+  value.balances.forEach((x, i) => {
+    const at = `${path}.balances[${i}]`;
+    if (x.member !== i) return void ctx.errors.push(`${at}.member: ${x.member}`);
+    const want = b[i];
+    const net = want.paid - want.share + want.sent - want.received;
+    const settle = net + want.pendingOut - want.pendingIn;
+    netSum += net;
+    toSettle.push(settle);
+    const got = { paid: x.paid, share: x.share, sent: x.sent, received: x.received, pending_out: x.pending_out, pending_in: x.pending_in, net: x.net, to_settle: x.to_settle };
+    const expected = {
+      paid: glPlain(want.paid), share: glPlain(want.share), sent: glPlain(want.sent), received: glPlain(want.received),
+      pending_out: glPlain(want.pendingOut), pending_in: glPlain(want.pendingIn), net: glSignedStr(net), to_settle: glSignedStr(settle),
+    };
+    for (const k of Object.keys(expected)) if (got[k] !== expected[k]) ctx.errors.push(`${at}.${k}: ${got[k]}, the expenses and requests give ${expected[k]}`);
+  });
+  if (value.balances.length !== n) ctx.errors.push(`${path}.balances: ${value.balances.length} for ${n} members`);
+  if (netSum !== 0n) ctx.errors.push(`${path}.balances: nets add up to ${glSignedStr(netSum)}, not 0`);
+  const plan = groupLedgerPlan(toSettle).map((t) => ({ from: t.from, to: t.to, amount: glPlain(t.amountAtomic), payable: value.members[t.to].wallet !== null }));
+  if (JSON.stringify(plan) !== JSON.stringify(value.plan)) ctx.errors.push(`${path}.plan: ${JSON.stringify(value.plan)}, the balances give ${JSON.stringify(plan)}`);
+  if (plan.length > Math.max(0, n - 1)) ctx.errors.push(`${path}.plan: more than n - 1 transfers`);
+  if (value.totals.spent !== glPlain(spent)) ctx.errors.push(`${path}.totals.spent: ${value.totals.spent}, the expenses add up to ${glPlain(spent)}`);
+  if (value.totals.expense_count !== value.expenses.length) ctx.errors.push(`${path}.totals.expense_count: ${value.totals.expense_count}`);
+  if (value.totals.open_requests !== open) ctx.errors.push(`${path}.totals.open_requests: ${value.totals.open_requests}, ${open} are open`);
+  const latest = [...value.expenses].reverse().find((e) => e.fiat);
+  const beside = latest ? { currency: latest.fiat.currency, rate: latest.fiat.rate, rate_source: latest.fiat.rate_source, quoted_at: latest.fiat.quoted_at } : null;
+  if (JSON.stringify(beside) !== JSON.stringify(value.fiat_beside)) ctx.errors.push(`${path}.fiat_beside: not the latest local-currency expense's quote`);
+  const square = value.expenses.length > 0 && b.every((x, i) => x.pendingIn === 0n && x.pendingOut === 0n && toSettle[i] === 0n);
+  if (value.settled !== square) ctx.errors.push(`${path}.settled: ${value.settled}`);
+}
+
+const glPaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") });
+const glRes = object({
+  id: glId, link: httpsUrl, title: string({ min: 1, max: 240 }), owner: pubkey, created_at: iso, version: integer(), flags: array(flag, { max: 32 }),
+  caution: string({ max: 400, pattern: /^Names, descriptions and amounts are written by whoever recorded them/, label: "the ledger caution" }),
+  members: array(object({ position: glMember, name: string({ min: 1, max: 160 }), wallet: nullable(pubkey), handle: nullable(handle), sns: nullable(snsName) }), { min: 2, max: 20 }),
+  expenses: array(object({
+    position: integer(), description: glText(320), paid_by: glMember, split: glSplit, currency: glCurrency, total: positiveAmount, amount: positiveAmount,
+    tax: nullable(positiveAmount), tip: nullable(positiveAmount), fiat: nullable(fiatQuote),
+    items: nullable(array(object({ description: glText(240), amount: positiveAmount, members: array(glMember, { min: 1, max: 20 }) }), { min: 1, max: 30 })),
+    shares: array(object({ member: glMember, weight: nullable(positiveAmount), share: amount, amount }), { min: 1, max: 20 }),
+    recorded_by: pubkey, recorded_at: iso, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }), flags: array(flag, { max: 32 }),
+  }), { max: 100 }),
+  balances: array(object({
+    member: glMember, paid: amount, share: amount, sent: amount, received: amount, net: glSigned, pending_out: amount, pending_in: amount, to_settle: glSigned,
+  }), { min: 2, max: 20 }),
+  plan: array(object({ from: glMember, to: glMember, amount: positiveAmount, payable: oneOf(true, false) }), { max: 19 }),
+  settlements: array(object({
+    round: integer(), recorded_by: pubkey, recorded_at: iso, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),
+    transfers: array(object({
+      position: integer(), from: glMember, to: glMember, amount: positiveAmount, request_id: id, link: httpsUrl,
+      status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), paid: nullable(glPaid), addressed: oneOf(true, false),
+    }), { min: 1, max: 19 }),
+  }), { max: 50 }),
+  totals: object({ spent: amount, expense_count: integer(), open_requests: integer() }),
+  fiat_beside: nullable(object({ currency: fiatCode, rate: positiveAmount, rate_source: string({ min: 1, max: 120 }), quoted_at: iso })),
+  settled: oneOf(true, false), chain_checked: oneOf(true, false),
+}, glConsistent);
+
+/** An expense body's digest, recomputed from the body (its text must already be clean) and the ledger id it signs for. */
+function glExpenseSigned(value, path, ctx) {
+  const m = new RegExp(`^Owed add expense ([0-9a-f]{16}) \\((\\S+) (\\S+)\\) to ledger ([1-9A-HJ-NP-Za-km-z]{12}) by (\\S+) at ${GL_SIGNED_ISO}$`).exec(value.signed_message);
+  if (!m) return void ctx.errors.push(`${path}.signed_message: must read "Owed add expense <digest> (<total> <currency>) to ledger <id> by <signer> at <UTC time>"`);
+  const [, digest, total, currency, ledgerId, by] = m;
+  const code = value.currency ?? "USDC";
+  const d = glDecimals(code);
+  try {
+    if (by !== value.signer) ctx.errors.push(`${path}.signed_message: signed for ${by}, not the signer`);
+    if (currency !== code || toAtomic(total, d) !== glUnits(value.amount, d)) ctx.errors.push(`${path}.signed_message: names ${total} ${currency}, not the body's ${value.amount} ${code}`);
+    const n = 1 + Math.max(value.paid_by, ...(value.among ?? []), ...(value.shares ?? []).map((s) => s.member), ...(value.amounts ?? []).map((a) => a.member), ...(value.items ?? []).flatMap((i) => i.members));
+    const want = groupLedgerExpenseDigest(ledgerId, {
+      description: value.description ?? null, paidBy: value.paid_by, currency: code, totalUnits: glUnits(value.amount, d), split: value.split,
+      among: value.split === "even" ? (value.among ?? Array.from({ length: n }, (_, i) => i)) : null,
+      shares: value.shares ? value.shares.map((s) => ({ member: s.member, weight: toAtomic(s.shares, 4) })) : null,
+      amounts: value.amounts ? value.amounts.map((a) => ({ member: a.member, units: glUnits(a.amount, d) })) : null,
+      items: value.items ? value.items.map((i) => ({ description: i.description ?? null, units: glUnits(i.amount, d), members: i.members })) : null,
+      taxUnits: value.tax ? glUnits(value.tax, d) : null, tipUnits: value.tip ? glUnits(value.tip, d) : null,
+    });
+    // An even split over everyone names no `among`; the digest then lists every member, which a body alone can't
+    // count when the highest position isn't named. Only a body that names its members is checked here.
+    if ((value.split !== "even" || value.among) && want !== digest) ctx.errors.push(`${path}.signed_message: digest ${digest}, the body gives ${want}`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+  signedAs(value.signed_message.slice(0, value.signed_message.lastIndexOf(" at ") + 4), value.signer, value, path, ctx);
+}
+
+Object.assign(shapes, {
+  groupLedgerCreateReq: object({
+    title: string({ min: 1, max: 240 }), owner: pubkey, owner_name: string({ min: 1, max: 160 }),
+    members: array(object({ name: string({ min: 1, max: 160 }), payer: optional(payerReq) }), { min: 1, max: 19 }), source: oneOf("plugin", "web"),
+  }),
+  groupLedgerRes: glRes,
+  groupLedgerExpenseReq: object({
+    signer: pubkey, description: optional(string({ min: 1, max: 320 })), paid_by: glMember, amount: positiveAmount, currency: optional(glCurrency), split: glSplit,
+    among: optional(array(glMember, { min: 1, max: 20 })),
+    shares: optional(array(object({ member: glMember, shares: positiveAmount }), { min: 1, max: 20 })),
+    amounts: optional(array(object({ member: glMember, amount: positiveAmount }), { min: 1, max: 20 })),
+    items: optional(array(object({ description: optional(string({ min: 1, max: 240 })), amount: positiveAmount, members: array(glMember, { min: 1, max: 20 }) }), { min: 1, max: 30 })),
+    tax: optional(positiveAmount), tip: optional(positiveAmount), signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),
+  }, glExpenseSigned),
+  groupLedgerExpenseRes: object({ added: integer(), ledger: glRes }, (value, path, ctx) => {
+    if (value.added !== value.ledger.expenses.length - 1) ctx.errors.push(`${path}.added: ${value.added}, but the ledger's last expense is ${value.ledger.expenses.length - 1}`);
+  }),
+  groupLedgerSettleReq: object({ signer: pubkey, version: integer(), signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) }, (value, path, ctx) => {
+    const m = new RegExp(`^Owed settle up ledger [1-9A-HJ-NP-Za-km-z]{12} v(\\d+): (\\d+) requests?, (\\S+) USDC by (\\S+) at ${GL_SIGNED_ISO}$`).exec(value.signed_message);
+    if (!m) return void ctx.errors.push(`${path}.signed_message: must read "Owed settle up ledger <id> v<version>: <n> requests, <total> USDC by <signer> at <UTC time>"`);
+    if (Number(m[1]) !== value.version) ctx.errors.push(`${path}.version: ${value.version}, but the message settles v${m[1]}`);
+    if (m[4] !== value.signer) ctx.errors.push(`${path}.signed_message: signed for ${m[4]}, not the signer`);
+    signedAs(value.signed_message.slice(0, value.signed_message.lastIndexOf(" at ") + 4), value.signer, value, path, ctx);
+  }),
+  groupLedgerSettleRes: object({
+    round: integer(),
+    created: array(object({
+      position: integer(), from: glMember, to: glMember, amount: positiveAmount,
+      request: object({
+        id, link: httpsUrl, solana_pay_url: solanaPayTransfer, reference: pubkey, recipient: pubkey, payer: nullable(payerInfo),
+        payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40), requester_handle: nullable(handle), created_at: iso,
+      }),
+    }), { min: 1, max: 19 }),
+    unpayable: array(object({ from: glMember, to: glMember, amount: positiveAmount, reason: oneOf("no_wallet") }), { max: 19 }),
+    ledger: glRes,
+  }, (value, path, ctx) => {
+    const l = value.ledger;
+    const round = l.settlements.find((s) => s.round === value.round);
+    if (!round) return void ctx.errors.push(`${path}.round: the ledger has no settle-up ${value.round}`);
+    if (round.transfers.length !== value.created.length) ctx.errors.push(`${path}.created: ${value.created.length}, the settle-up lists ${round.transfers.length}`);
+    for (const [i, c] of value.created.entries()) {
+      const at = `${path}.created[${i}]`;
+      const r = c.request;
+      const t = round.transfers[i];
+      if (!t || t.request_id !== r.id || t.amount !== c.amount || t.from !== c.from || t.to !== c.to) ctx.errors.push(`${at}: not the settle-up's transfer ${i}`);
+      if (r.recipient !== l.members[c.to]?.wallet) ctx.errors.push(`${at}.request.recipient: not the creditor's wallet`);
+      if ((r.payer?.wallet ?? null) !== (l.members[c.from]?.wallet ?? null)) ctx.errors.push(`${at}.request.payer: not the debtor's wallet`);
+      if (requestIdFor({ recipient: r.recipient, token: "USDC", amountAtomic: toAtomic(c.amount, 6), reference: r.reference }) !== r.id) ctx.errors.push(`${at}.request.id: does not hash its terms`);
+      const parsed = parseSolanaPayUrl(r.solana_pay_url);
+      if (!parsed.ok || parsed.recipient !== r.recipient || parsed.amount !== c.amount || parsed.token !== "USDC" || !parsed.references.includes(r.reference) || parsed.memo !== `owed:${r.id}`) {
+        ctx.errors.push(`${at}.request.solana_pay_url: does not pay exactly this transfer`);
+      }
+      if (r.for !== `${l.title} settle-up`) ctx.errors.push(`${at}.request.for: doesn't name the ledger's title`);
+      if (!r.note?.includes(`ledger ${l.id}`)) ctx.errors.push(`${at}.request.note: doesn't name the ledger`);
+    }
+    for (const [i, u] of value.unpayable.entries()) if (l.members[u.to]?.wallet !== null) ctx.errors.push(`${path}.unpayable[${i}]: the creditor has a wallet`);
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "ledgers.create.req.json": "groupLedgerCreateReq",
+  "ledgers.create.res.json": "groupLedgerRes",
+  "ledgers.get.res.json": "groupLedgerRes",
+  "ledgers.expense.req.json": "groupLedgerExpenseReq",
+  "ledgers.expense.res.json": "groupLedgerExpenseRes",
+  "ledgers.expense.fiat.req.json": "groupLedgerExpenseReq",
+  "ledgers.expense.fiat.res.json": "groupLedgerExpenseRes",
+  "ledgers.settle.req.json": "groupLedgerSettleReq",
+  "ledgers.settle.res.json": "groupLedgerSettleRes",
+});
+// ---- F6 ledger end
+
+// ---------------------------------------------------------------------------------------------- F8 invoices start
+// Merchant-grade invoices: terms (installments, an early-pay price, a late fee, chase days), refunds, monthly statements.
+// A request id commits to its exact amount, so a term that changes what is owed opens a new request (each a whole invoice
+// of its own, kind "invoice"); the invoice's own request asks for installment 1, or the early price.
+//   invoiceTermsRes   GET /api/v1/invoices/:id (and POST's reply when terms were given): invoiceRes plus `terms` (the
+//                     invoice as a whole: status, paid so far, what to pay now), `term_of` (an invoice a plan opened),
+//                     `refunded` and `refunds`. Without terms it is exactly invoiceRes's rule set.
+//   refund*           POST /api/v1/refunds (the recipient's signed "Owed refund <amount> <token> of <id> to <payer> for
+//                     <recipient> at <ISO>"), GET /api/v1/refunds/:id, GET /api/v1/refunds?requests=.
+//   statementRes      GET /api/v1/statements: lines and per-token totals that add up.
+
+const f8Roles = ["installment", "early_price", "full_price", "late_fee"];
+const f8Seq = (value, path, ctx) => {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 12) ctx.errors.push(`${path}: expected 1..12, got ${show(value)}`);
+};
+const f8Count = (value, path, ctx) => {
+  if (!Number.isSafeInteger(value) || value < 2 || value > 12) ctx.errors.push(`${path}: expected 2..12, got ${show(value)}`);
+};
+const f8Interval = (value, path, ctx) => {
+  if (value !== "monthly" && !(Number.isSafeInteger(value) && value >= 7 && value <= 365)) ctx.errors.push(`${path}: expected "monthly" or 7..365 days, got ${show(value)}`);
+};
+const f8ChaseDays = (value, path, ctx) => {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) return void ctx.errors.push(`${path}: expected 1 to 3 days`);
+  let last = 0;
+  value.forEach((d, i) => {
+    if (!Number.isSafeInteger(d) || d < 1 || d > 90 || d <= last) ctx.errors.push(`${path}[${i}]: expected a day 1..90 after the one before, got ${show(d)}`);
+    last = d;
+  });
+};
+const f8Percent = string({ max: 6, pattern: /^(0|[1-9][0-9]{0,2})(\.[0-9]{1,2})?$/, label: "a percent with at most 2 decimals" });
+const f8Status = oneOf("open", "paid", "underpaid", "cancelled", "expired");
+const f8SignedAmount = string({ max: 41, pattern: /^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/, label: "a signed decimal amount" });
+
+const f8TermRequest = object({
+  role: oneOf(...f8Roles), seq: f8Seq, amount: positiveAmount, fiat_amount: optional(positiveAmount),
+  due_date: invoiceDate, opens_on: invoiceDate,
+  status: oneOf("open", "paid", "underpaid", "cancelled", "expired", "scheduled", "skipped"),
+  id: nullable(id), link: nullable(httpsUrl), skip_reason: nullable(string({ min: 1, max: 200 })),
+  paid: optional(object({ amount: positiveAmount, at: iso, signature, on_time: oneOf(true, false) })),
+  superseded_by: optional(id),
+}, (value, path, ctx) => {
+  const waiting = value.status === "scheduled" || value.status === "skipped";
+  if (waiting !== (value.id === null)) ctx.errors.push(`${path}.id: ${value.status} ${value.id === null ? "without" : "with"} a request`);
+  if ((value.status === "skipped") !== (value.skip_reason !== null)) ctx.errors.push(`${path}.skip_reason: only a skipped row has one`);
+  if (value.id !== null && (value.link === null || !new URL(value.link).pathname.endsWith(`/i/${value.id}`))) ctx.errors.push(`${path}.link: does not end in /i/${value.id}`);
+  if (value.role !== "installment" && value.seq !== 1) ctx.errors.push(`${path}.seq: only installments count past 1`);
+  if (value.paid && value.status !== "paid" && value.status !== "underpaid" && value.status !== "cancelled") ctx.errors.push(`${path}.paid: set for status ${value.status}`);
+  if (value.superseded_by && value.status !== "cancelled" && value.status !== "paid") ctx.errors.push(`${path}.superseded_by: set for status ${value.status}`);
+  if (value.opens_on > value.due_date && value.role !== "late_fee") ctx.errors.push(`${path}.opens_on: after its due date`);
+});
+
+const f8Terms = object({
+  status: f8Status, paid_so_far: amount, remaining: amount,
+  pay_now: nullable(object({
+    id, link: httpsUrl, amount: positiveAmount, due_date: nullable(invoiceDate), role: oneOf(...f8Roles, "invoice"), seq: nullable(f8Seq),
+  })),
+  installments: nullable(object({ count: f8Count, interval: f8Interval, interval_label: string({ min: 1, max: 40 }), plan: array(f8TermRequest, { min: 2, max: 12 }) })),
+  early_discount: nullable(object({
+    early_price: positiveAmount, full_price: positiveAmount, discount: positiveAmount, percent: nullable(f8Percent), until: invoiceDate,
+    early: f8TermRequest, full: f8TermRequest, paid_with: nullable(oneOf("early", "full")),
+  })),
+  late_fee: nullable(object({ amount: positiveAmount, percent: nullable(f8Percent), applies_after: invoiceDate, request: f8TermRequest })),
+  chase: nullable(object({ days: f8ChaseDays })),
+  refunded: amount,
+});
+
+const f8TermOf = object({
+  invoice_id: id, link: httpsUrl, role: oneOf(...f8Roles), seq: f8Seq, count: nullable(f8Count), label: string({ min: 1, max: 40 }),
+}, (value, path, ctx) => {
+  if (!new URL(value.link).pathname.endsWith(`/i/${value.invoice_id}`)) ctx.errors.push(`${path}.link: does not end in /i/${value.invoice_id}`);
+  const want = value.role === "installment" ? `Installment ${value.seq}${value.count ? ` of ${value.count}` : ""}` : value.role === "full_price" ? "Full price" : value.role === "late_fee" ? "Late fee" : "Early-pay price";
+  if (value.label !== want) ctx.errors.push(`${path}.label: ${show(value.label)}, expected ${show(want)}`);
+});
+
+const f8RefundLine = object({
+  id: string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char refund id" }), request_id: id, amount: positiveAmount,
+  status: oneOf("pending", "confirmed", "lapsed"), confirmed_at: optional(iso), signature: optional(signature),
+}, (value, path, ctx) => {
+  if ((value.status === "confirmed") !== (value.confirmed_at !== undefined && value.signature !== undefined)) ctx.errors.push(`${path}: confirmed exactly when it carries confirmed_at and signature`);
+});
+
+const f8InvoiceFields = {
+  id, link: httpsUrl, request_link: httpsUrl, solana_pay_url: solanaPayTransfer, qr_url: httpsUrl, reference: pubkey,
+  x402_url: optional(nullable(httpsUrl)), recipient: pubkey, token,
+  business_name: untrusted(60), client_name: untrusted(60), invoice_number: untrusted(20), notes: untrusted(280),
+  issue_date: invoiceDate, due_date: invoiceDate,
+  items: array(object({ description: untrusted(80), quantity: invoiceQuantity, unit_price: positiveAmount, amount: positiveAmount }), { min: 1, max: 20 }),
+  total: positiveAmount, status: f8Status, paid: nullable(invoicePaid), created_at: iso, flags: array(flag),
+  from_domain: nullable(string({ max: 253, pattern: /^[a-z0-9.-]+$/, label: "a lower-case ASCII domain" })), from_domain_verified_at: nullable(iso),
+  expires_at: optional(iso), cancelled_at: optional(iso), fiat: optional(fiatQuote), payer: optional(payerInfo), requester_handle: optional(handle),
+  terms: optional(f8Terms), term_of: optional(f8TermOf), refunded: optional(positiveAmount), refunds: optional(array(f8RefundLine, { max: 100 })),
+  superseded_by: optional(id),
+};
+
+const f8Sum = (list, decimals) => list.reduce((s, v) => s + toAtomic(v, decimals), 0n);
+
+/** An invoice with terms is the invoice as a whole: the plan adds up to the total, the own request pays its first part. */
+function f8InvoiceConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (!new URL(value.link).pathname.endsWith(`/i/${value.id}`)) ctx.errors.push(`${path}.link: does not end in /i/${value.id}`);
+  if (!new URL(value.request_link).pathname.endsWith(`/r/${value.id}`)) ctx.errors.push(`${path}.request_link: does not end in /r/${value.id}`);
+  if (value.created_at.slice(0, 10) !== value.issue_date) ctx.errors.push(`${path}.issue_date: not the UTC date of created_at`);
+  if ((value.from_domain === null) !== (value.from_domain_verified_at === null)) ctx.errors.push(`${path}.from_domain: set without from_domain_verified_at, or the reverse`);
+  if ((value.status === "paid" || value.status === "underpaid") !== (value.paid !== null)) ctx.errors.push(`${path}.paid: ${value.paid ? "set" : "missing"} for status ${value.status}`);
+  payerNotRecipient(value, path, ctx);
+  if (decimals === undefined) return;
+  // Items add up: to `total`, or (local currency) to fiat.amount, whose quote gives `total`.
+  try {
+    if (value.fiat) {
+      quoteGives(value.fiat, value.total, `${path}.fiat`, ctx);
+      const sum = value.items.reduce((s, item) => s + scaled12(item.amount), 0n);
+      if (sum !== scaled12(value.fiat.amount)) ctx.errors.push(`${path}.fiat.amount: the items add up to ${fromAtomic(sum, 12)}`);
+    } else {
+      let total = 0n;
+      for (const [i, item] of value.items.entries()) {
+        const line = invoiceLineAtomic(item.quantity, item.unit_price, decimals);
+        if (line === null || line !== toAtomic(item.amount, decimals)) ctx.errors.push(`${path}.items[${i}].amount: not quantity × unit_price`);
+        else total += line;
+      }
+      if (total !== toAtomic(value.total, decimals)) ctx.errors.push(`${path}.total: ${value.total} but the items add up to ${fromAtomic(total, decimals)}`);
+    }
+  } catch (error) {
+    ctx.errors.push(`${path}.items: ${error.message}`);
+  }
+  const t = value.terms;
+  // What the invoice's own request (this id) asks: installment 1, the early price, or the total.
+  let own = value.total;
+  if (t?.installments) own = t.installments.plan[0]?.amount ?? value.total;
+  else if (t?.early_discount) own = t.early_discount.early_price;
+  urlMatchesFields({ id: value.id, recipient: value.recipient, amount: own, token: value.token, reference: value.reference, solana_pay_url: value.solana_pay_url }, path, ctx);
+  if (value.term_of && value.term_of.invoice_id === value.id) ctx.errors.push(`${path}.term_of: an invoice can't be opened by its own plan`);
+  if (value.superseded_by && value.status !== "cancelled") ctx.errors.push(`${path}.superseded_by: set on a ${value.status} invoice`);
+  if (!t) return;
+  if (t.status !== value.status) ctx.errors.push(`${path}.terms.status: ${t.status}, the invoice says ${value.status}`);
+  if (t.status === "paid" && toAtomic(t.remaining, decimals) !== 0n) ctx.errors.push(`${path}.terms.remaining: paid but ${t.remaining} remains`);
+  if (value.paid && toAtomic(value.paid.amount, decimals) !== toAtomic(t.paid_so_far, decimals)) ctx.errors.push(`${path}.paid.amount: not terms.paid_so_far`);
+  if (t.installments && t.early_discount) ctx.errors.push(`${path}.terms: installments and an early price at once`);
+  if (t.installments) {
+    const plan = t.installments.plan;
+    if (plan.length !== t.installments.count) ctx.errors.push(`${path}.terms.installments.count: ${t.installments.count}, ${plan.length} listed`);
+    plan.forEach((p, i) => {
+      if (p.role !== "installment" || p.seq !== i + 1) ctx.errors.push(`${path}.terms.installments.plan[${i}]: not installment ${i + 1}`);
+      if (i > 0 && p.due_date <= plan[i - 1].due_date) ctx.errors.push(`${path}.terms.installments.plan[${i}].due_date: not after the one before`);
+    });
+    if (plan[0]?.id !== value.id) ctx.errors.push(`${path}.terms.installments.plan[0].id: installment 1 is the invoice's own request`);
+    if (plan[0]?.due_date !== value.due_date) ctx.errors.push(`${path}.terms.installments.plan[0].due_date: not the invoice's due date`);
+    if (f8Sum(plan.map((p) => p.amount), decimals) !== toAtomic(value.total, decimals)) ctx.errors.push(`${path}.terms.installments.plan: amounts don't add up to the total`);
+    const parts = plan.map((p) => toAtomic(p.amount, decimals));
+    if (parts.some((p) => p - parts[parts.length - 1] > 1n || p < parts[parts.length - 1])) ctx.errors.push(`${path}.terms.installments.plan: not split evenly (leftover units first)`);
+    const paid = plan.filter((p) => p.status === "paid").length;
+    if ((t.status === "paid") !== (paid === plan.length)) ctx.errors.push(`${path}.terms.status: ${t.status} with ${paid} of ${plan.length} installments paid`);
+  }
+  if (t.early_discount) {
+    const d = t.early_discount;
+    if (toAtomic(d.full_price, decimals) !== toAtomic(value.total, decimals)) ctx.errors.push(`${path}.terms.early_discount.full_price: not the total`);
+    if (toAtomic(d.early_price, decimals) + toAtomic(d.discount, decimals) !== toAtomic(d.full_price, decimals)) ctx.errors.push(`${path}.terms.early_discount: early_price + discount isn't full_price`);
+    if (d.early.role !== "early_price" || d.early.id !== value.id) ctx.errors.push(`${path}.terms.early_discount.early: not the invoice's own request`);
+    if (d.full.role !== "full_price" || d.full.due_date !== value.due_date) ctx.errors.push(`${path}.terms.early_discount.full: not the full price due on the invoice's date`);
+    if (d.until > value.due_date || d.early.due_date !== d.until) ctx.errors.push(`${path}.terms.early_discount.until: past the due date, or not the early price's`);
+    if (d.full.opens_on <= d.until) ctx.errors.push(`${path}.terms.early_discount.full.opens_on: before the early price ends`);
+    if (d.early.status === "paid" && d.full.status !== "skipped" && d.full.status !== "cancelled" && d.full.status !== "paid") ctx.errors.push(`${path}.terms.early_discount.full: still payable after the early price was paid`);
+    if ((d.paid_with === null) === (t.status === "paid")) ctx.errors.push(`${path}.terms.early_discount.paid_with: ${show(d.paid_with)} for status ${t.status}`);
+    if (value.expires_at !== undefined) ctx.errors.push(`${path}.expires_at: the early price's end is terms.early_discount.until`);
+  }
+  if (t.late_fee) {
+    if (t.late_fee.request.role !== "late_fee") ctx.errors.push(`${path}.terms.late_fee.request.role: not late_fee`);
+    const first = t.installments ? t.installments.plan[0]?.due_date : value.due_date;
+    if (t.late_fee.applies_after !== first || t.late_fee.request.due_date !== first) ctx.errors.push(`${path}.terms.late_fee.applies_after: not the (first) due date`);
+    if (toAtomic(t.late_fee.amount, decimals) !== toAtomic(t.late_fee.request.amount, decimals)) ctx.errors.push(`${path}.terms.late_fee.amount: not its request's amount`);
+  }
+  if (t.pay_now && t.status === "paid") ctx.errors.push(`${path}.terms.pay_now: set on a paid invoice`);
+}
+
+/** sha256 refund id, as web/lib/refunds.ts and plugin/src/refund.ts derive it. */
+export function refundIdFor({ requestId, payer, token, amountAtomic, reference }) {
+  const asset = token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-refund:v1\n${requestId}\n${payer}\n${asset}\n${amountAtomic}\n${reference}`, "utf8").digest();
+  return base58Encode(digest).slice(-12);
+}
+
+const REFUND_MESSAGE_RE = /^Owed refund ((?:0|[1-9][0-9]*)(?:\.[0-9]+)?) (USDC|SOL) of ([1-9A-HJ-NP-Za-km-z]{12}) to ([1-9A-HJ-NP-Za-km-z]{32,44}) for ([1-9A-HJ-NP-Za-km-z]{32,44}) at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)$/;
+
+function refundSigned(value, expect, path, ctx) {
+  const m = REFUND_MESSAGE_RE.exec(value.signed_message);
+  if (!m) return void ctx.errors.push(`${path}.signed_message: must read "Owed refund <amount> <token> of <request> to <payer> for <recipient> at <UTC time>"`);
+  const [, amountText, tokenText, request, payer, recipient] = m;
+  if (expect.amount !== undefined && amountText !== expect.amount) ctx.errors.push(`${path}.signed_message: names ${amountText}, not ${expect.amount}`);
+  if (expect.token !== undefined && tokenText !== expect.token) ctx.errors.push(`${path}.signed_message: names ${tokenText}, not ${expect.token}`);
+  if (request !== expect.request) ctx.errors.push(`${path}.signed_message: names request ${request}, not ${expect.request}`);
+  if (expect.payer !== undefined && payer !== expect.payer) ctx.errors.push(`${path}.signed_message: names payer ${payer}, not ${expect.payer}`);
+  if (recipient !== expect.recipient) ctx.errors.push(`${path}.signed_message: names ${recipient}, not the recipient`);
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(value.signature) && !ed25519Verifies(value.signed_message, value.signature, expect.recipient)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${expect.recipient} over signed_message`);
+  }
+}
+
+const f8RefundFields = {
+  id: string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char refund id" }), request_id: id, request_link: httpsUrl,
+  recipient: pubkey, payer: pubkey, token, amount: positiveAmount, reference: pubkey,
+  memo: string({ pattern: /^owed-refund:[1-9A-HJ-NP-Za-km-z]{12}$/, label: "owed-refund:<id>" }),
+  status: oneOf("pending", "confirmed", "lapsed"), created_at: iso, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),
+  confirmed: nullable(object({ signature, amount: positiveAmount, at: iso })),
+};
+
+function f8RefundConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (value.memo !== `owed-refund:${value.id}`) ctx.errors.push(`${path}.memo: not owed-refund:${value.id}`);
+  if (!new URL(value.request_link).pathname.endsWith(`/r/${value.request_id}`)) ctx.errors.push(`${path}.request_link: does not end in /r/${value.request_id}`);
+  if (value.payer === value.recipient) ctx.errors.push(`${path}.payer: the recipient itself`);
+  if ((value.status === "confirmed") !== (value.confirmed !== null)) ctx.errors.push(`${path}.confirmed: ${value.confirmed ? "set" : "missing"} for status ${value.status}`);
+  try {
+    const atomic = toAtomic(value.amount, decimals);
+    if (refundIdFor({ requestId: value.request_id, payer: value.payer, token: value.token, amountAtomic: atomic, reference: value.reference }) !== value.id) ctx.errors.push(`${path}.id: not the hash of its terms`);
+    if (value.confirmed && toAtomic(value.confirmed.amount, decimals) < atomic) ctx.errors.push(`${path}.confirmed.amount: less than the refund`);
+  } catch (error) {
+    ctx.errors.push(`${path}.amount: ${error.message}`);
+  }
+  refundSigned(value, { amount: value.amount, token: value.token, request: value.request_id, payer: value.payer, recipient: value.recipient }, path, ctx);
+}
+
+const f8Summary = object({
+  request_id: id, token, paid: nullable(positiveAmount), refunded: amount, pending: amount, refundable: amount,
+  refunds: array(object({ id: f8RefundFields.id, amount: positiveAmount, status: oneOf("pending", "confirmed", "lapsed"), created_at: iso, confirmed: nullable(object({ signature, amount: positiveAmount, at: iso })) }), { max: 100 }),
+}, (value, path, ctx) => {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (decimals === undefined) return;
+  const sum = (status) => value.refunds.filter((r) => r.status === status).reduce((s, r) => s + toAtomic(r.amount, decimals), 0n);
+  if (sum("confirmed") !== toAtomic(value.refunded, decimals)) ctx.errors.push(`${path}.refunded: not the sum of confirmed refunds`);
+  if (sum("pending") !== toAtomic(value.pending, decimals)) ctx.errors.push(`${path}.pending: not the sum of pending refunds`);
+  const paid = value.paid === null ? 0n : toAtomic(value.paid, decimals);
+  const left = paid - toAtomic(value.refunded, decimals) - toAtomic(value.pending, decimals);
+  if (toAtomic(value.refundable, decimals) !== (left > 0n ? left : 0n)) ctx.errors.push(`${path}.refundable: not paid - refunded - pending`);
+  if (value.paid !== null && toAtomic(value.refunded, decimals) + toAtomic(value.pending, decimals) > paid) ctx.errors.push(`${path}: refunds add up to more than was paid`);
+  value.refunds.forEach((r, i) => { if ((r.status === "confirmed") !== (r.confirmed !== null)) ctx.errors.push(`${path}.refunds[${i}].confirmed: wrong for ${r.status}`); });
+});
+
+const f8StatementLine = object({
+  at: iso, kind: oneOf("invoiced", "cancelled", "expired", "paid", "refunded"), request_id: id, invoice_id: nullable(id),
+  invoice_number: untrusted(20), description: string({ min: 1, max: 160 }), token, amount: positiveAmount, signature: nullable(signature), link: httpsUrl,
+});
+
+Object.assign(shapes, {
+  createInvoiceTermsReq: object({
+    recipient: pubkey, token, business_name: string({ min: 1, max: 60 }), client_name: string({ min: 1, max: 60 }),
+    items: array(object({ description: string({ min: 1, max: 80 }), quantity: optional(invoiceQuantity), unit_price: positiveAmount }), { min: 1, max: 20 }),
+    due_date: invoiceDate, invoice_number: optional(string({ min: 1, max: 20 })), notes: optional(string({ min: 1, max: 280 })),
+    from_domain: optional(string({ min: 1, max: 253 })), source: oneOf("plugin", "web"), expires_in_days: optional(expiresInDays),
+    currency: optional(fiatCode), payer: optional(payerReq), requester_handle: optional(handleIn),
+    installments: optional(object({ count: f8Count, interval: optional(f8Interval), first_due: optional(invoiceDate) })),
+    early_discount: optional(object({ amount: optional(positiveAmount), percent: optional(f8Percent), until: invoiceDate })),
+    late_fee: optional(object({ amount: optional(positiveAmount), percent: optional(f8Percent) })),
+    chase: optional((value, path, ctx) => (value === false ? undefined : object({ days: f8ChaseDays })(value, path, ctx))),
+  }, (value, path, ctx) => {
+    invoiceItemsFit(value, path, ctx);
+    payerNotRecipient(value, path, ctx);
+    if (value.installments && value.early_discount) ctx.errors.push(`${path}: installments and an early-pay discount at once`);
+    for (const key of ["early_discount", "late_fee"]) {
+      const t = value[key];
+      if (t && (t.amount === undefined) === (t.percent === undefined)) ctx.errors.push(`${path}.${key}: needs exactly one of amount and percent`);
+    }
+    if (value.installments?.first_due && value.installments.first_due !== value.due_date) ctx.errors.push(`${path}.installments.first_due: not due_date`);
+    if (value.early_discount && value.early_discount.until > value.due_date) ctx.errors.push(`${path}.early_discount.until: after the due date`);
+  }),
+  invoiceTermsRes: object(f8InvoiceFields, f8InvoiceConsistent),
+  createRefundReq: object({ request: id, recipient: pubkey, amount: positiveAmount, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) },
+    (value, path, ctx) => refundSigned(value, { amount: value.amount, request: value.request, recipient: value.recipient }, path, ctx)),
+  refundRes: object(f8RefundFields, f8RefundConsistent),
+  createRefundRes: object({ ...f8RefundFields, paid: positiveAmount, refunded: amount, pending: amount, refundable: amount }, (value, path, ctx) => {
+    f8RefundConsistent(value, path, ctx);
+    const d = TOKEN_DECIMALS[value.token];
+    if (d === undefined) return;
+    if (toAtomic(value.refunded, d) + toAtomic(value.pending, d) + toAtomic(value.refundable, d) !== toAtomic(value.paid, d)) ctx.errors.push(`${path}: refunded + pending + refundable isn't paid`);
+    if (value.status === "pending" && toAtomic(value.pending, d) < toAtomic(value.amount, d)) ctx.errors.push(`${path}.pending: doesn't include this refund`);
+  }),
+  refundsLookupRes: object({ requests: array(f8Summary, { max: 20 }), not_found: array(id, { max: 20 }), chain_checked: oneOf(true, false) }, (value, path, ctx) => {
+    const ids = [...value.requests.map((r) => r.request_id), ...value.not_found];
+    if (new Set(ids).size !== ids.length) ctx.errors.push(`${path}: an id is listed twice`);
+  }),
+  statementRes: object({
+    recipient: pubkey, client: string({ min: 1, max: 64 }), month, from: iso, to: iso, generated_at: iso,
+    caution: string({ max: 400, pattern: /^Anyone can create a request that pays your wallet/, label: "the ledger's caution" }), chain_checked: oneOf(true, false),
+    invoices: array(object({ id, invoice_number: untrusted(20), issue_date: invoiceDate, due_date: invoiceDate, total: positiveAmount, token, status: f8Status, link: httpsUrl }), { max: 200 }),
+    lines: array(f8StatementLine, { max: 5000 }),
+    totals: array(object({ token, opening: f8SignedAmount, invoiced: amount, cancelled: amount, paid: amount, refunded: amount, closing: f8SignedAmount }), { max: 2 }),
+    truncated: oneOf(true, false),
+    csv: nullable(object({ url: httpsUrl, expires_at: iso })), page: nullable(object({ url: httpsUrl, expires_at: iso })),
+  }, (value, path, ctx) => {
+    const from = Date.parse(value.from);
+    const to = Date.parse(value.to);
+    if (value.from !== `${value.month}-01T00:00:00Z`) ctx.errors.push(`${path}.from: not the first of ${value.month}`);
+    let last = "";
+    for (const [i, l] of value.lines.entries()) {
+      const at = Date.parse(l.at);
+      if (at < from || at >= to) ctx.errors.push(`${path}.lines[${i}].at: outside the month`);
+      if (l.at < last) ctx.errors.push(`${path}.lines[${i}]: out of order`);
+      last = l.at;
+    }
+    for (const t of value.totals) {
+      const d = TOKEN_DECIMALS[t.token];
+      const signed = (v) => (v.startsWith("-") ? -toAtomic(v.slice(1), d) : toAtomic(v, d));
+      const mine = value.lines.filter((l) => l.token === t.token);
+      const sum = (...kinds) => mine.filter((l) => kinds.includes(l.kind)).reduce((s, l) => s + toAtomic(l.amount, d), 0n);
+      if (sum("invoiced") !== toAtomic(t.invoiced, d)) ctx.errors.push(`${path}.totals.${t.token}.invoiced: not the sum of the lines`);
+      if (sum("cancelled", "expired") !== toAtomic(t.cancelled, d)) ctx.errors.push(`${path}.totals.${t.token}.cancelled: not the sum of the lines`);
+      if (sum("paid") !== toAtomic(t.paid, d)) ctx.errors.push(`${path}.totals.${t.token}.paid: not the sum of the lines`);
+      if (sum("refunded") !== toAtomic(t.refunded, d)) ctx.errors.push(`${path}.totals.${t.token}.refunded: not the sum of the lines`);
+      const closing = signed(t.opening) + toAtomic(t.invoiced, d) - toAtomic(t.cancelled, d) - toAtomic(t.paid, d) + toAtomic(t.refunded, d);
+      if (closing !== signed(t.closing)) ctx.errors.push(`${path}.totals.${t.token}.closing: not opening + invoiced - cancelled - paid + refunded`);
+    }
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "invoice.terms.create.req.json": "createInvoiceTermsReq",
+  "invoice.terms.create.res.json": "invoiceTermsRes",
+  "invoice.terms.get.res.json": "invoiceTermsRes",
+  "invoice.terms.child.res.json": "invoiceTermsRes",
+  "invoice.statement.res.json": "statementRes",
+  "refund.create.req.json": "createRefundReq",
+  "refund.create.res.json": "createRefundRes",
+  "refund.get.res.json": "refundRes",
+  "refunds.lookup.res.json": "refundsLookupRes",
+});
+// ---------------------------------------------------------------------------------------------- F8 invoices end

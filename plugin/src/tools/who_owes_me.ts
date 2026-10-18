@@ -7,6 +7,10 @@ import { addressSchema, tokenSchema, type LedgerEntry, type LedgerRes, type Sche
 import { callContext, defaultDeps, errorText, refusal, within, type CallContext, type Deps } from "../deps.js";
 import { ago, brandWordsFromFlags, clean, explorerUrl, MATCHED_LABEL, quote, shortAddress } from "../text.js";
 import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
+// F8 invoices start
+import type { LedgerEntryF8, LedgerResF8, StatementRes } from "../contract.js";
+import { chaseStage, CHASE_DEFAULT_DAYS, isoDay, reminderTone } from "../invoice-terms-core.js";
+// F8 invoices end
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
 // request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
@@ -38,6 +42,12 @@ export const inputSchema = z.object({
   // W3-D
   csv: z.boolean().optional()
     .describe("Second call only: also return a link to download every open and paid request as a CSV file (for accounting). The link works for 10 minutes."),
+  // F8 invoices
+  statement: z.object({
+    client: z.string().min(1).max(64).describe("The client's name as written on the invoices (any case), or their wallet address."),
+    month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional().describe('The month, "YYYY-MM" (UTC). Default: this month.'),
+  }).strict().optional()
+    .describe("Second call only, instead of the ledger: a monthly statement for one client (their invoices, payments, refunds, opening and closing balance), with a CSV and a page link for 10 minutes."),
 }).strict();
 
 const entrySchema = z.object({
@@ -71,6 +81,31 @@ const entrySchema = z.object({
   rest_of: z.string().optional().describe("This request asks for the rest of that underpaid request (ask_for_rest)."),
   rest_request: z.string().optional().describe("The follow-up request that asks for this one's rest."),
   fiat: fiatOutput.optional(), // local-currency asks: the quote behind amount (USDC)
+  // F8 invoices
+  reminder_due: z.object({
+    tone: z.enum(["polite", "firm", "formal"]),
+    days_overdue: z.number().int().nonnegative(),
+    write_reminder: z.object({ request: z.string(), tone: z.enum(["friendly", "firm", "formal"]) }).strict()
+      .describe("The write_reminder call that drafts it (polite is write_reminder's \"friendly\"). Owed never sends anything."),
+  }).strict().optional().describe("Invoices past their due date: the reminder due today by the invoice's chase days (default 3, 7, 14)."),
+  refunded: z.string().optional().describe("Confirmed refunds of this payment back to the payer."),
+}).strict();
+
+// F8 invoices: a client's monthly statement.
+const statementSchema = z.object({
+  client: z.string(),
+  month: z.string(),
+  totals: z.array(z.object({ token: tokenSchema, opening: z.string(), invoiced: z.string(), cancelled: z.string(), paid: z.string(), refunded: z.string(), closing: z.string() }).strict()),
+  lines: z.array(z.object({
+    at: z.string(), kind: z.enum(["invoiced", "cancelled", "expired", "paid", "refunded"]), request_id: z.string(), invoice_number: z.string().optional().describe("Unverified."),
+    amount: z.string(), token: tokenSchema, link: z.string(), explorer_url: z.string().optional(),
+  }).strict()),
+  invoices: z.number().int().nonnegative(),
+  chain_checked: z.boolean(),
+  truncated: z.boolean(),
+  csv_url: z.string().optional(),
+  page_url: z.string().optional(),
+  links_expire_at: z.string().optional(),
 }).strict();
 
 // W3-D: monthly schedules (ask_every_month) as the ledger lists them.
@@ -92,7 +127,7 @@ const scheduleSchema = z.object({
 }).strict();
 
 export const outputSchema = z.object({
-  step: z.enum(["sign", "ledger"]).describe("sign = sign message_to_sign and call again; ledger = the result."),
+  step: z.enum(["sign", "ledger", "statement"]).describe("sign = sign message_to_sign and call again; ledger = the result; statement = a client's monthly statement (F8)."),
   recipient: z.string(),
   caution: z.string().optional().describe("Show this to the user with the ledger: anyone can create a request that pays their wallet."),
   message_to_sign: z.string().optional(),
@@ -107,6 +142,7 @@ export const outputSchema = z.object({
   schedules: z.array(scheduleSchema).optional().describe("Monthly requests (ask_every_month) paid to this wallet."),
   csv_url: z.string().optional().describe("With csv: a download link for every open and paid request as CSV, valid 10 minutes."),
   csv_expires_at: z.string().optional(),
+  statement: statementSchema.optional(), // F8 invoices
 }).strict();
 
 export type WhoInput = z.output<typeof inputSchema>;
@@ -121,6 +157,8 @@ const DESCRIPTION = [
   "For a few specific requests, check_payments needs no signature.",
   // W3-D
   "It also lists monthly requests set up with ask_every_month and each month's request. Pass csv: true on the second call for a 10-minute CSV download link of every open and paid request.",
+  // F8 invoices
+  "Overdue invoices say \"reminder due: polite\", \"firm\" or \"formal\" on their chase days (3, 7 and 14 days after the due date unless the invoice set others): offer to draft it with write_reminder (polite is its \"friendly\" tone); Owed never sends anything. Refunded payments say so. For a client's monthly statement (invoices, payments, refunds, balance), pass statement {client, month} on the second call instead of reading the ledger.",
 ].join(" ");
 
 export function ledgerMessage(recipient: string, nowMs: number): string {
@@ -227,10 +265,13 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
     return refusal(errorText(error, "Owed is misconfigured."));
   }
 
-  let ledger: LedgerRes | null;
+  // F8 invoices: a client's statement takes the same signed message.
+  if (args.statement) return statementCall(args, args.statement, ctx, deps, started);
+
+  let ledger: LedgerResF8 | null;
   try {
     ledger = await within(
-      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledger({
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledgerF8({ // F8: the ledger plus chase days and refunds
         recipient: args.recipient, signed_message: args.signed_message, signature: args.signature.trim(),
         ...(args.csv === true && { csv: true as const }), // W3-D
       }),
@@ -251,7 +292,7 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
 
 const KINDS = ["single", "split_share", "invoice"] as const;
 
-function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
+function present(e: LedgerEntry | LedgerEntryF8, now: number): z.output<typeof entrySchema> {
   const kind = (KINDS as readonly string[]).includes(e.kind) ? (e.kind as (typeof KINDS)[number]) : "single";
   const out: z.output<typeof entrySchema> = { id: e.id, kind, link: e.link, status: e.status, amount: e.amount, token: e.token, created_at: e.created_at };
   // Local-currency asks: only a quote that produces the entry's USDC amount is passed on.
@@ -289,6 +330,14 @@ function present(e: LedgerEntry, now: number): z.output<typeof entrySchema> {
   if (e.matched) out.matched = e.matched.covers === "rest" ? `the rest (${e.matched.amount} ${e.token}) was ${MATCHED_LABEL}` : `${MATCHED_LABEL}`;
   if (e.rest_of) out.rest_of = e.rest_of;
   if (e.rest_request) out.rest_request = e.rest_request;
+  // F8 invoices: the reminder due today by the invoice's chase days (the server's, else 3/7/14), and refunds.
+  const f8 = e as LedgerEntryF8;
+  if (kind === "invoice" && e.status !== "paid" && e.due_date && !out.caution) {
+    const days = f8.chase === undefined ? CHASE_DEFAULT_DAYS : f8.chase === null ? null : f8.chase.days;
+    const stage = chaseStage(e.due_date, isoDay(now), days);
+    if (stage) out.reminder_due = { tone: stage.tone, days_overdue: stage.daysOverdue, write_reminder: { request: e.link, tone: reminderTone(stage.tone) } };
+  }
+  if (f8.refunded) out.refunded = f8.refunded;
   return out;
 }
 
@@ -381,7 +430,7 @@ function who(e: z.output<typeof entrySchema>, now: number): string {
   return `${name}${forPart}${label}${monthly}${domain}`;
 }
 
-function render(ledger: LedgerRes, now: number, csvAsked = false) {
+function render(ledger: LedgerRes | LedgerResF8, now: number, csvAsked = false) {
   const open = ledger.open.map((e) => present(e, now));
   const paid = ledger.paid_recently.map((e) => present(e, now));
   const schedules = (ledger.schedules ?? []).map(presentSchedule); // W3-D
@@ -400,13 +449,15 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
     const due = e.status === "underpaid" ? `${e.amount_due} of ${e.amount} ${e.token} still due (${e.amount_paid} arrived)` : `${e.amount} ${e.token}`;
     const restOf = e.rest_of ? ` (the rest of request ${e.rest_of})` : ""; // 0012
     const asked = fiatStatusLine(e.fiat, e.amount); // local-currency asks: "₹1,200 · 12.6 USDC (rate locked …)"
-    detail.push(`Owed: ${due}${restOf}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const reminder = e.reminder_due ? ` Reminder due: ${e.reminder_due.tone} (${e.reminder_due.days_overdue} days overdue); draft it with write_reminder (request ${e.link}, tone "${e.reminder_due.write_reminder.tone}").` : ""; // F8
+    detail.push(`Owed: ${due}${restOf}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}${reminder}`);
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";
     const matched = e.matched ? `, ${e.matched}` : ""; // 0012
     const asked = fiatStatusLine(e.fiat, e.amount); // local-currency asks
-    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${by}${matched}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
+    const refunded = e.refunded ? `, refunded ${e.refunded} ${e.token}` : ""; // F8
+    detail.push(`Paid: ${e.amount_paid ?? e.amount} ${e.token}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${by}${matched}${refunded}${e.explorer_url ? `: ${e.explorer_url}` : ""}${e.caution ? ` Caution: ${e.caution}` : ""}`);
   }
   lines.push(...detail.slice(0, MAX_LINES));
   if (detail.length > MAX_LINES) lines.push(`…and ${detail.length - MAX_LINES} more in the structured result.`);
@@ -431,6 +482,55 @@ function render(ledger: LedgerRes, now: number, csvAsked = false) {
   };
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
+
+// F8 invoices start: a client's monthly statement (GET /api/v1/statements, the same signed ledger message).
+const MAX_STATEMENT_LINES = 40;
+
+async function statementCall(args: WhoInput, q: NonNullable<WhoInput["statement"]>, ctx: CallContext, deps: Deps, started: number) {
+  let st: StatementRes | null;
+  try {
+    st = await within(
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).statement({
+        recipient: args.recipient, client: q.client, ...(q.month && { month: q.month }), signed_message: args.signed_message!, signature: args.signature!.trim(),
+      }),
+      LEDGER_BUDGET_MS - (deps.now() - started), () => null,
+    );
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "invalid_input") return refusal(`Owed refused the statement: ${error.message}. Call who_owes_me with only recipient for a fresh message.`);
+    if (error instanceof ApiError && error.code === "rate_limited") return refusal("Too many signed reads for this wallet in the last hour. Try again later.");
+    if (error instanceof ApiError && error.httpStatus === 404) return refusal("This Owed server doesn't make statements yet.");
+    return refusal("Owed's server couldn't be reached, so the statement isn't available right now.");
+  }
+  if (!st) return refusal("Owed's server didn't answer in time. Call who_owes_me with only recipient for a fresh message and try again.");
+  if (st.recipient !== args.recipient) return refusal("Owed's server answered for a different wallet, so the statement wasn't used.");
+  const client = clean(st.client, 64);
+  const lines = st.lines.map((l) => {
+    const number = clean(l.invoice_number, 20);
+    return {
+      at: l.at, kind: l.kind, request_id: l.request_id, ...(number && { invoice_number: number }), amount: l.amount, token: l.token, link: l.link,
+      ...(l.signature && { explorer_url: explorerUrl(l.signature) }),
+    };
+  });
+  const statement: z.output<typeof statementSchema> = {
+    client, month: st.month, totals: st.totals, lines, invoices: st.invoices.length, chain_checked: st.chain_checked, truncated: st.truncated,
+    ...(st.csv && { csv_url: st.csv.url, links_expire_at: st.csv.expires_at }),
+    ...(st.page && { page_url: st.page.url, links_expire_at: st.page.expires_at }),
+  };
+  const sign = (v: string) => (v.startsWith("-") ? `${v.slice(1)} in the client's favour` : v);
+  const text = [
+    `Statement for ${quote(client, 64)} (as written on the invoices; unverified), ${st.month}: ${st.invoices.length} ${st.invoices.length === 1 ? "invoice" : "invoices"}.`,
+    ...st.totals.map((t) => `${t.token}: opening balance ${sign(t.opening)}, invoiced ${t.invoiced}, cancelled or ended ${t.cancelled}, paid ${t.paid}, refunded ${t.refunded}, closing balance ${sign(t.closing)}.`),
+    ...lines.slice(0, MAX_STATEMENT_LINES).map((l) => `${l.at.slice(0, 10)} ${l.kind} ${l.amount} ${l.token}${l.invoice_number ? ` invoice ${quote(l.invoice_number, 20)}` : ""}: ${l.link}`),
+    ...(lines.length > MAX_STATEMENT_LINES ? [`…and ${lines.length - MAX_STATEMENT_LINES} more lines in the structured result and the CSV.`] : []),
+    st.page ? `Statement page: ${st.page.url}` : "",
+    st.csv ? `CSV: ${st.csv.url} (both links work until ${st.csv.expires_at}, 10 minutes).` : "Statement links aren't set up on this Owed server.",
+    st.chain_checked ? "" : "Solana couldn't be read just now, so open invoices show their last known state.",
+    LEDGER_CAUTION,
+  ].filter(Boolean).join("\n");
+  const output: WhoOutput = { step: "statement", recipient: args.recipient, caution: LEDGER_CAUTION, statement };
+  return { content: [{ type: "text" as const, text }], structuredContent: output };
+}
+// F8 invoices end
 
 export function register(server: McpServer, deps: Deps = defaultDeps) {
   server.registerTool("who_owes_me", {

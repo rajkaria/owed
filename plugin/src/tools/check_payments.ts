@@ -9,6 +9,7 @@ import type { TransferRequest } from "../solana-pay.js";
 import { ago, explorerUrl, MATCHED_LABEL, shortAddress } from "../text.js";
 import { basescanTx } from "../evm.js"; // W3-B
 import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
+import type { RefundSummary } from "../contract.js"; // F8 invoices
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
 export const CHECK_BUDGET_MS = 8500;
@@ -42,6 +43,10 @@ export const resultSchema = z.object({
   rest_request: z.string().optional().describe("Underpaid: the follow-up request already asking for the rest."),
   rest_of: z.string().optional().describe("This request asks for the rest of that underpaid request."),
   fiat: fiatOutput.optional(), // local-currency asks: the quote behind amount_requested (USDC)
+  // F8 invoices
+  refunded: z.string().optional().describe("Refunds of this payment back to the payer, confirmed on Solana."),
+  refunded_in_full: z.boolean().optional(),
+  refund_pending: z.string().optional().describe("Refunds proposed but not landed yet."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -59,6 +64,7 @@ const DESCRIPTION = [
   "Pass up to 20 items: Owed request ids, Owed links, or Solana Pay transfer URLs (they must include a reference).",
   "Returns each request's status (open, paid, underpaid, cancelled, expired, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
   "A payment the user matched with match_payments (it carried no reference) is marked matched; say so. For an underpaid request, match_payments with action ask_for_rest makes a new request for exactly the rest; if the payer says they paid but it shows open, match_payments looks for a payment that lost its reference.", // 0012
+  "A payment that was partly or fully sent back with refund_payment says \"refunded <amount>\" once Solana confirms the refund.", // F8 invoices
 ].join(" ");
 
 type Parsed =
@@ -93,8 +99,16 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
       remaining(), () => UNREACHABLE,
     );
 
-  const [owed, ...transfers] = await Promise.all([
+  // F8 invoices: refunds of these requests, beside the status read (best effort: an older server just has none).
+  const refundLookup = ids.length === 0
+    ? Promise.resolve(new Map<string, RefundSummary>())
+    : within(
+      ctx.api.refundsFor(ids).then((res) => new Map(res.requests.map((r) => [r.request_id, r] as const)), () => new Map<string, RefundSummary>()),
+      Math.min(remaining(), 4000), () => new Map<string, RefundSummary>(),
+    );
+  const [owed, refunds, ...transfers] = await Promise.all([
     owedLookup,
+    refundLookup, // F8 invoices
     ...parsed.map((p) => (p.kind === "transfer" ? checkTransfer(p, ctx, deps, remaining) : Promise.resolve(null))),
   ]);
 
@@ -105,7 +119,7 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
     if (typeof owed === "string") return { input: p.input, id: p.id, status: "unknown", amount_requested: null, token: null, error: owed };
     const r = owed.get(p.id);
     if (!r) return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: NOT_FOUND };
-    return fromOwed(p.input, r, now);
+    return withRefunds(fromOwed(p.input, r, now), (refunds as Map<string, RefundSummary>).get(p.id)); // F8 invoices
   });
 
   const summary = summarize(results, deps);
@@ -165,6 +179,17 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
     if (waited) out.waited = waited;
   }
   return out;
+}
+
+// F8 invoices: what was sent back to the payer (only for a paid request, and only the token's own amounts).
+function withRefunds(r: CheckResult, s: RefundSummary | undefined): CheckResult {
+  if (!s || !r.token || s.token !== r.token || (r.status !== "paid" && r.status !== "underpaid")) return r;
+  if (s.refunded !== "0") {
+    r.refunded = s.refunded;
+    r.refunded_in_full = s.paid !== null && s.refunded === s.paid;
+  }
+  if (s.pending !== "0") r.refund_pending = s.pending;
+  return r;
 }
 
 async function checkTransfer(p: Extract<Parsed, { kind: "transfer" }>, ctx: CallContext, deps: Deps, remaining: () => number): Promise<CheckResult> {
@@ -272,7 +297,9 @@ function detailLine(r: CheckResult): string[] {
 function statusLine(r: CheckResult): string[] {
   const from = r.payer ? ` from ${shortAddress(r.payer)}` : "";
   const link = r.explorer_url ? `: ${r.explorer_url}` : "";
-  if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${r.matched ? `, ${r.matched}` : ""}${link}`]; // 0012
+  const refunded = r.refunded ? `, refunded ${r.refunded} ${r.token ?? ""}${r.refunded_in_full ? " (in full)" : ""}` : ""; // F8 invoices
+  const pending = r.refund_pending ? `, a refund of ${r.refund_pending} ${r.token ?? ""} is waiting to land` : "";
+  if (r.status === "paid") return [`Paid, ${label(r)}: ${r.amount_paid ?? r.amount_requested ?? "?"} ${r.token ?? ""}${from}${r.matched ? `, ${r.matched}` : ""}${refunded}${pending}${link}`]; // 0012
   if (r.status === "underpaid") {
     // 0012: the follow-up for the rest, or how to ask for it.
     const rest = r.rest_request

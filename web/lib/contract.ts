@@ -631,3 +631,346 @@ export const BulkRequestsResponse = z.object({
   not_found: z.array(z.string()).max(20),
 });
 export type BulkRequestsResponse = z.infer<typeof BulkRequestsResponse>;
+
+// ---- F2: funding plans (migration 0018, lib/plans.ts) ----
+// pay_link / pay_all return a funding plan when the sender's wallet is short (the exact PayBox calls that fix it).
+// POST /api/v1/plans records that one was offered: who it was for, which requests, the shortfall and which kinds of
+// option (never a balance). POST /api/v1/plans/<id>/used: its final pay_link / pay_all proposed the payment.
+// GET /api/v1/plans/stats: offered, used, paid. The funding_plan document itself is the plugin's output (in its
+// text, as a ```json block); it is mirrored here so both sides parse every contract fixture.
+
+export const PLAN_OPTION_KINDS = ["swap_sol", "bridge_base_usdc", "swap_other", "buy_usdc", "x402", "swap_usdc_for_sol", "buy_sol"] as const;
+const planOptionKind = z.enum(PLAN_OPTION_KINDS);
+export const planId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed plan id");
+const positiveAtomic = z.string().regex(/^[1-9][0-9]{0,30}$/, "must be a positive whole number of atomic units");
+const anyAtomic = z.string().regex(/^(0|[1-9][0-9]{0,30})$/, "must be a whole number of atomic units");
+
+export const CreatePlanBody = z.object({
+  tool: z.enum(["pay_link", "pay_all"]),
+  sender: anyAddress,
+  request_ids: z.array(requestId).max(20),
+  shortfall: z.object({ token, atomic: positiveAtomic }).strict(),
+  options: z.array(planOptionKind).min(1).max(8),
+}).strict().superRefine((b, ctx) => {
+  if (new Set(b.request_ids).size !== b.request_ids.length) ctx.addIssue({ code: "custom", path: ["request_ids"], message: "lists an id twice" });
+  if (new Set(b.options).size !== b.options.length) ctx.addIssue({ code: "custom", path: ["options"], message: "lists a kind twice" });
+  if (b.tool === "pay_all" && b.request_ids.length === 0) ctx.addIssue({ code: "custom", path: ["request_ids"], message: "pay_all plans name their requests" });
+});
+export type CreatePlanBody = z.infer<typeof CreatePlanBody>;
+export const CreatePlanResponse = z.object({ plan_id: planId, created_at: isoTime });
+export type CreatePlanResponse = z.infer<typeof CreatePlanResponse>;
+
+export const PlanUsedBody = z.object({ sender: anyAddress }).strict();
+export type PlanUsedBody = z.infer<typeof PlanUsedBody>;
+export const PlanUsedResponse = z.object({ plan_id: planId, used_at: isoTime, already_used: z.boolean() });
+export type PlanUsedResponse = z.infer<typeof PlanUsedResponse>;
+
+export const PlanStatsResponse = z.object({
+  offered: z.number().int().nonnegative(),
+  used: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative(),
+  since: isoTime,
+});
+export type PlanStatsResponse = z.infer<typeof PlanStatsResponse>;
+
+const PlanAmount = z.object({ token, atomic: anyAtomic, display: z.string().max(60) }).strict();
+const PlanStep = z.object({
+  via: z.enum(["paybox", "owed"]),
+  tool: z.string().min(1).max(40),
+  args: z.record(z.string(), z.unknown()),
+  credential_of: z.string().max(64).nullable(),
+  missing: z.array(z.string().max(40)).max(8).optional(),
+  why: z.string().max(800),
+}).strict();
+const PlanOption = PlanStep.extend({ kind: planOptionKind, check: PlanStep.optional(), then: z.array(PlanStep).max(4) }).strict();
+export const FundingPlan = z.object({
+  plan_id: planId.nullable(),
+  pay_tool: z.enum(["pay_link", "pay_all"]),
+  request_ids: z.array(requestId).max(20),
+  sender: anyAddress,
+  shortfall: PlanAmount,
+  have: z.array(PlanAmount).max(2),
+  need: z.array(PlanAmount).max(2),
+  options: z.array(PlanOption).min(1).max(8),
+}).strict();
+export type FundingPlan = z.infer<typeof FundingPlan>;
+/** The ```json block a plan travels in. */
+export const FundingPlanDoc = z.object({ funding_plan: FundingPlan }).strict();
+
+// ---- F6 ledger: group ledgers and settle-up (migration 0020, lib/ledgers.ts) ----
+// POST /api/v1/ledgers starts one (the owner is member 0); GET /api/v1/ledgers/<id> reads it with live balances and
+// settle-up statuses (?chain=0 skips the chain check). POST /api/v1/ledgers/<id>/expenses and /settle are writes, each
+// signed once, within 5 minutes, by a wallet named in the ledger (the owner's or a member's):
+//   "Owed add expense <digest> (<total> <currency>) to ledger <id> by <signer> at <ISO>"
+//   "Owed settle up ledger <id> v<version>: <n> requests, <total> USDC by <signer> at <ISO>"
+// (lib/ledgers-math.ts expenseDigest / settlePrefix). Members are named by position; amounts are decimal strings in
+// the expense's currency (USDC, or a local currency locked to USDC per expense); net and to_settle may be negative.
+export const ledgerId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed ledger id");
+const memberPosition = z.number().int().min(0).max(19);
+const ledgerSignedDecimal = z.string().regex(/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/, "must be a decimal string");
+const ledgerSplit = z.enum(["even", "shares", "exact", "items"]);
+
+export const CreateLedgerBody = z.object({
+  title: z.string().max(240),
+  owner: z.string().max(64),
+  owner_name: z.string().max(160),
+  members: z.array(z.object({ name: z.string().max(160), payer: PayerBody.nullish() })).min(1).max(19),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type CreateLedgerBody = z.infer<typeof CreateLedgerBody>;
+
+export const AddExpenseBody = z.object({
+  signer: z.string().max(64),
+  description: z.string().max(320).nullish(),
+  paid_by: memberPosition,
+  amount: z.string().max(40),
+  currency: z.string().min(1).max(8).nullish(),
+  split: ledgerSplit,
+  among: z.array(memberPosition).min(1).max(20).nullish(),
+  shares: z.array(z.object({ member: memberPosition, shares: z.string().max(20) })).min(1).max(20).nullish(),
+  amounts: z.array(z.object({ member: memberPosition, amount: z.string().max(40) })).min(1).max(20).nullish(),
+  items: z.array(z.object({
+    description: z.string().max(240).nullish(), amount: z.string().max(40), members: z.array(memberPosition).min(1).max(20),
+  })).min(1).max(30).nullish(),
+  tax: z.string().max(40).nullish(),
+  tip: z.string().max(40).nullish(),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+});
+export type AddExpenseBody = z.infer<typeof AddExpenseBody>;
+
+export const SettleUpBody = z.object({
+  signer: z.string().max(64),
+  version: z.number().int().min(0),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+});
+export type SettleUpBody = z.infer<typeof SettleUpBody>;
+
+export const LedgerMember = z.object({
+  position: memberPosition, name: z.string().max(160), wallet: base58Key.nullable(), handle: handle.nullable(), sns: z.string().max(140).nullable(),
+});
+export const LedgerExpense = z.object({
+  position: z.number().int().min(0).max(99),
+  description: z.string().max(320).nullable(),
+  paid_by: memberPosition,
+  split: ledgerSplit,
+  /** "USDC", or the ISO 4217 code every amount of this expense except `amount` and the shares' `amount` is in. */
+  currency: z.string().regex(/^(USDC|[A-Z]{3})$/),
+  total: decimal,
+  /** USDC: the sum of the shares' amount (what the payer is credited). */
+  amount: decimal,
+  tax: decimal.nullable(),
+  tip: decimal.nullable(),
+  fiat: FiatQuote.nullable(),
+  items: z.array(z.object({ description: z.string().max(240).nullable(), amount: decimal, members: z.array(memberPosition).min(1).max(20) })).max(30).nullable(),
+  shares: z.array(z.object({ member: memberPosition, weight: decimal.nullable(), share: decimal, amount: decimal })).min(1).max(20),
+  recorded_by: base58Key,
+  recorded_at: isoTime,
+  signed_message: z.string().max(200),
+  signature: z.string().max(200),
+  flags: z.array(z.string()),
+});
+export const LedgerTransfer = z.object({
+  position: z.number().int().min(0).max(18),
+  from: memberPosition,
+  to: memberPosition,
+  amount: decimal,
+  request_id: requestId,
+  link: z.url(),
+  status: requestStatus,
+  paid: PaidInfo.nullable(),
+  addressed: z.boolean(),
+});
+export const GroupLedgerResponse = z.object({
+  id: ledgerId,
+  link: z.url(),
+  title: z.string().max(240),
+  owner: base58Key,
+  created_at: isoTime,
+  version: z.number().int().min(0),
+  flags: z.array(z.string()),
+  caution: z.string().max(400),
+  members: z.array(LedgerMember).min(2).max(20),
+  expenses: z.array(LedgerExpense).max(100),
+  balances: z.array(z.object({
+    member: memberPosition, paid: decimal, share: decimal, sent: decimal, received: decimal, net: ledgerSignedDecimal,
+    pending_out: decimal, pending_in: decimal, to_settle: ledgerSignedDecimal,
+  })).min(2).max(20),
+  plan: z.array(z.object({ from: memberPosition, to: memberPosition, amount: decimal, payable: z.boolean() })).max(19),
+  settlements: z.array(z.object({
+    round: z.number().int().min(0), recorded_by: base58Key, recorded_at: isoTime, signed_message: z.string().max(200), signature: z.string().max(200),
+    transfers: z.array(LedgerTransfer).min(1).max(19),
+  })).max(50),
+  totals: z.object({ spent: decimal, expense_count: z.number().int().min(0).max(100), open_requests: z.number().int().nonnegative() }),
+  fiat_beside: z.object({ currency: z.string().regex(/^[A-Z]{3}$/), rate: decimal, rate_source: z.string().min(1).max(120), quoted_at: isoTime }).nullable(),
+  settled: z.boolean(),
+  chain_checked: z.boolean(),
+});
+export type GroupLedgerResponse = z.infer<typeof GroupLedgerResponse>;
+
+export const AddExpenseResponse = z.object({ added: z.number().int().min(0).max(99), ledger: GroupLedgerResponse });
+export type AddExpenseResponse = z.infer<typeof AddExpenseResponse>;
+
+export const SettleUpResponse = z.object({
+  round: z.number().int().min(0),
+  created: z.array(z.object({
+    position: z.number().int().min(0).max(18), from: memberPosition, to: memberPosition, amount: decimal,
+    request: z.object({
+      id: requestId, link: z.url(), solana_pay_url: z.string().max(2048), reference: base58Key, recipient: base58Key,
+      payer: PayerInfo.nullable(), payer_name: z.string().max(160).nullable(), for: z.string().max(320).nullable(),
+      note: z.string().max(560).nullable(), requester_name: z.string().max(160).nullable(), requester_handle: handle.nullable(), created_at: isoTime,
+    }),
+  })).min(1).max(19),
+  unpayable: z.array(z.object({ from: memberPosition, to: memberPosition, amount: decimal, reason: z.literal("no_wallet") })).max(19),
+  ledger: GroupLedgerResponse,
+});
+export type SettleUpResponse = z.infer<typeof SettleUpResponse>;
+// ---- F6 ledger end ----
+
+// ---- F8 invoices start: invoice terms, refunds, statements ----
+// POST /api/v1/invoices takes optional terms (installments, early_discount, late_fee, chase); GET /api/v1/invoices/:id
+// adds `terms` (the plan, invoice-level status), `term_of` (an invoice a plan opened) and refunds. Every field optional.
+const f8Percent = z.string().regex(/^(0|[1-9][0-9]{0,2})(\.[0-9]{1,2})?$/, "must be a percent like 10 or 2.5 (at most 2 decimal places)");
+const f8Interval = z.union([z.literal("monthly"), z.number().int().min(7, "installments.interval must be at least 7 days").max(365, "installments.interval can be at most 365 days")]);
+const f8Role = z.enum(["installment", "early_price", "full_price", "late_fee"]);
+const refundId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed refund id");
+const signedDecimal = z.string().regex(/^-?(0|[1-9][0-9]*)(\.[0-9]+)?$/, "must be a decimal string");
+
+export const InvoiceTermsFields = {
+  installments: z.object({
+    count: z.number().int().min(2, "installments.count must be 2 to 12").max(12, "installments.count must be 2 to 12"),
+    interval: f8Interval.default("monthly"),
+    first_due: isoDate.nullish(),
+  }).nullish(),
+  early_discount: z.object({ amount: z.string().max(40).nullish(), percent: f8Percent.nullish(), until: isoDate }).nullish(),
+  late_fee: z.object({ amount: z.string().max(40).nullish(), percent: f8Percent.nullish() }).nullish(),
+  chase: z.union([z.literal(false), z.object({ days: z.array(z.number().int().min(1).max(90)).min(1).max(3) })]).nullish(),
+};
+export const CreateInvoiceTermsBody = CreateInvoiceBody.extend(InvoiceTermsFields);
+export type CreateInvoiceTermsBody = z.infer<typeof CreateInvoiceTermsBody>;
+
+export const TermRequest = z.object({
+  role: f8Role,
+  seq: z.number().int().min(1).max(12),
+  amount: decimal,
+  fiat_amount: decimal.optional(),
+  due_date: isoDate,
+  opens_on: isoDate,
+  status: z.enum(["open", "paid", "underpaid", "cancelled", "expired", "scheduled", "skipped"]),
+  id: requestId.nullable(),
+  link: z.url().nullable(),
+  skip_reason: z.string().max(200).nullable(),
+  paid: z.object({ amount: decimal, at: isoTime, signature: z.string(), on_time: z.boolean() }).optional(),
+  superseded_by: requestId.optional(),
+});
+
+export const InvoiceTerms = z.object({
+  status: requestStatus,
+  paid_so_far: decimal,
+  remaining: decimal,
+  pay_now: z.object({
+    id: requestId, link: z.url(), amount: decimal, due_date: isoDate.nullable(), role: z.enum(["installment", "early_price", "full_price", "late_fee", "invoice"]),
+    seq: z.number().int().min(1).max(12).nullable(),
+  }).nullable(),
+  installments: z.object({ count: z.number().int().min(2).max(12), interval: f8Interval, interval_label: z.string().max(40), plan: z.array(TermRequest).min(2).max(12) }).nullable(),
+  early_discount: z.object({
+    early_price: decimal, full_price: decimal, discount: decimal, percent: z.string().nullable(), until: isoDate,
+    early: TermRequest, full: TermRequest, paid_with: z.enum(["early", "full"]).nullable(),
+  }).nullable(),
+  late_fee: z.object({ amount: decimal, percent: z.string().nullable(), applies_after: isoDate, request: TermRequest }).nullable(),
+  chase: z.object({ days: z.array(z.number().int().min(1).max(90)).min(1).max(3) }).nullable(),
+  refunded: decimal,
+});
+
+export const TermOf = z.object({
+  invoice_id: requestId, link: z.url(), role: f8Role, seq: z.number().int().min(1).max(12), count: z.number().int().min(2).max(12).nullable(), label: z.string().max(40),
+});
+
+export const InvoiceTermsResponse = InvoiceResponse.extend({
+  terms: InvoiceTerms.optional(),
+  term_of: TermOf.optional(),
+  superseded_by: requestId.optional(),
+  refunded: decimal.optional(),
+  refunds: z.array(z.object({
+    id: refundId, request_id: requestId, amount: decimal, status: z.enum(["pending", "confirmed", "lapsed"]),
+    confirmed_at: isoTime.optional(), signature: z.string().optional(),
+  })).max(100).optional(),
+});
+export type InvoiceTermsResponse = z.infer<typeof InvoiceTermsResponse>;
+
+// POST /api/v1/refunds. The recipient's wallet signs "Owed refund <amount> <token> of <request> to <payer> for <recipient> at <ISO>".
+export const CreateRefundBody = z.object({
+  request: requestId,
+  recipient: base58Key,
+  amount: z.string().max(40),
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export type CreateRefundBody = z.infer<typeof CreateRefundBody>;
+
+const refundConfirmed = z.object({ signature: z.string(), amount: decimal, at: isoTime });
+export const RefundResponse = z.object({
+  id: refundId,
+  request_id: requestId,
+  request_link: z.url(),
+  recipient: base58Key,
+  payer: base58Key,
+  token,
+  amount: decimal,
+  reference: base58Key,
+  memo: z.string().regex(/^owed-refund:[1-9A-HJ-NP-Za-km-z]{12}$/),
+  status: z.enum(["pending", "confirmed", "lapsed"]),
+  created_at: isoTime,
+  signed_message: z.string().max(200),
+  signature: z.string().max(200),
+  confirmed: refundConfirmed.nullable(),
+});
+export type RefundResponse = z.infer<typeof RefundResponse>;
+
+/** POST's reply: the refund, and what the request's refunds come to now (this one included). */
+export const CreateRefundResponse = RefundResponse.extend({ paid: decimal, refunded: decimal, pending: decimal, refundable: decimal });
+export type CreateRefundResponse = z.infer<typeof CreateRefundResponse>;
+
+export const RefundSummary = z.object({
+  request_id: requestId,
+  token,
+  paid: decimal.nullable(),
+  refunded: decimal,
+  pending: decimal,
+  refundable: decimal,
+  refunds: z.array(z.object({ id: refundId, amount: decimal, status: z.enum(["pending", "confirmed", "lapsed"]), created_at: isoTime, confirmed: refundConfirmed.nullable() })).max(100),
+});
+
+// GET /api/v1/refunds?requests=a,b,c (1 to 20): each request's refunds, chain-checked when pending.
+export const RefundsLookupResponse = z.object({
+  requests: z.array(RefundSummary).max(20),
+  not_found: z.array(z.string()).max(20),
+  chain_checked: z.boolean(),
+});
+export type RefundsLookupResponse = z.infer<typeof RefundsLookupResponse>;
+
+// GET /api/v1/statements?recipient&client&month&signed_message&signature (the recipient's signed ledger message).
+export const StatementResponse = z.object({
+  recipient: base58Key,
+  client: z.string().min(1).max(64),
+  month: period,
+  from: isoTime,
+  to: isoTime,
+  generated_at: isoTime,
+  caution: z.string(),
+  chain_checked: z.boolean(),
+  invoices: z.array(z.object({
+    id: requestId, invoice_number: z.string().nullable(), issue_date: isoDate, due_date: isoDate, total: decimal, token, status: requestStatus, link: z.url(),
+  })).max(200),
+  lines: z.array(z.object({
+    at: isoTime, kind: z.enum(["invoiced", "cancelled", "expired", "paid", "refunded"]), request_id: requestId, invoice_id: requestId.nullable(),
+    invoice_number: z.string().nullable(), description: z.string().max(160), token, amount: decimal, signature: z.string().nullable(), link: z.url(),
+  })).max(5000),
+  totals: z.array(z.object({ token, opening: signedDecimal, invoiced: decimal, cancelled: decimal, paid: decimal, refunded: decimal, closing: signedDecimal })).max(2),
+  truncated: z.boolean(),
+  csv: z.object({ url: z.url(), expires_at: isoTime }).nullable(),
+  page: z.object({ url: z.url(), expires_at: isoTime }).nullable(),
+});
+export type StatementResponse = z.infer<typeof StatementResponse>;
+// ---- F8 invoices end ----

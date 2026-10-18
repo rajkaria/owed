@@ -1,0 +1,393 @@
+{
+  "id": "U5zGc9TXGvE9",
+  "link": "https://www.getowed.xyz/l/U5zGc9TXGvE9",
+  "title": "Lisbon trip",
+  "owner": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+  "created_at": "2026-10-18T09:00:00Z",
+  "version": 6,
+  "flags": [],
+  "caution": "Names, descriptions and amounts are written by whoever recorded them; Owed doesn't check them. Each expense and settle-up is signed by a wallet named in the ledger, and handles are labels Owed doesn't verify.",
+  "members": [
+    {
+      "position": 0,
+      "name": "Raj",
+      "wallet": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+      "handle": null,
+      "sns": null
+    },
+    {
+      "position": 1,
+      "name": "Priya",
+      "wallet": "7n34Kk1J2VoXKnzwhjBAQWqnTzE2qUBTcnKTtvPSjvW7",
+      "handle": "priya_p",
+      "sns": null
+    },
+    {
+      "position": 2,
+      "name": "Sam",
+      "wallet": "6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X",
+      "handle": null,
+      "sns": null
+    },
+    {
+      "position": 3,
+      "name": "Alex",
+      "wallet": null,
+      "handle": null,
+      "sns": null
+    }
+  ],
+  "expenses": [
+    {
+      "position": 0,
+      "description": "Apartment, 3 nights",
+      "paid_by": 0,
+      "split": "even",
+      "currency": "USDC",
+      "total": "120",
+      "amount": "120",
+      "tax": null,
+      "tip": null,
+      "fiat": null,
+      "items": null,
+      "shares": [
+        {
+          "member": 0,
+          "weight": null,
+          "share": "30",
+          "amount": "30"
+        },
+        {
+          "member": 1,
+          "weight": null,
+          "share": "30",
+          "amount": "30"
+        },
+        {
+          "member": 2,
+          "weight": null,
+          "share": "30",
+          "amount": "30"
+        },
+        {
+          "member": 3,
+          "weight": null,
+          "share": "30",
+          "amount": "30"
+        }
+      ],
+      "recorded_by": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+      "recorded_at": "2026-10-18T09:05:00Z",
+      "signed_message": "Owed add expense bdaca5f65ac21e3a (120 USDC) to ledger U5zGc9TXGvE9 by 61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE at 2026-10-18T09:05:00Z",
+      "signature": "9b9dc1468ec3393549d740c19335d8271de9da49b1de1765a43b90de8ce71b44a797d228591f400ef10bd0778f91048ca7b49061b78afeed377e3c62e638200e",
+      "flags": []
+    },
+    {
+      "position": 1,
+      "description": "Groceries",
+      "paid_by": 1,
+      "split": "even",
+      "currency": "USDC",
+      "total": "45.5",
+      "amount": "45.5",
+      "tax": null,
+      "tip": null,
+      "fiat": null,
+      "items": null,
+      "shares": [
+        {
+          "member": 1,
+          "weight": null,
+          "share": "15.166667",
+          "amount": "15.166667"
+        },
+        {
+          "member": 2,
+          "weight": null,
+          "share": "15.166667",
+          "amount": "15.166667"
+        },
+        {
+          "member": 3,
+          "weight": null,
+          "share": "15.166666",
+          "amount": "15.166666"
+        }
+      ],
+      "recorded_by": "7n34Kk1J2VoXKnzwhjBAQWqnTzE2qUBTcnKTtvPSjvW7",
+      "recorded_at": "2026-10-18T09:06:00Z",
+      "signed_message": "Owed add expense ea084e6ce47f9ed1 (45.5 USDC) to ledger U5zGc9TXGvE9 by 7n34Kk1J2VoXKnzwhjBAQWqnTzE2qUBTcnKTtvPSjvW7 at 2026-10-18T09:06:00Z",
+      "signature": "ba4ce732bf826fb19fbcbb183d972faf5060c45b6edbacbeebf4dc7b5b6ac9df2b8f48a8f569143bf3e323496f77c0039607539f9fc4d5168d9f842c9642360b",
+      "flags": []
+    },
+    {
+      "position": 2,
+      "description": "Car rental",
+      "paid_by": 2,
+      "split": "shares",
+      "currency": "USDC",
+      "total": "60",
+      "amount": "60",
+      "tax": null,
+      "tip": null,
+      "fiat": null,
+      "items": null,
+      "shares": [
+        {
+          "member": 0,
+          "weight": "1",
+          "share": "15",
+          "amount": "15"
+        },
+        {
+          "member": 2,
+          "weight": "2",
+          "share": "30",
+          "amount": "30"
+        },
+        {
+          "member": 3,
+          "weight": "1",
+          "share": "15",
+          "amount": "15"
+        }
+      ],
+      "recorded_by": "6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X",
+      "recorded_at": "2026-10-18T09:07:00Z",
+      "signed_message": "Owed add expense b225ff8beac83718 (60 USDC) to ledger U5zGc9TXGvE9 by 6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X at 2026-10-18T09:07:00Z",
+      "signature": "95d0bdef970357e73366b0312d8bae6c7903bd77c62ed6088d52e91e429e1fb0369305fb22bd19305fa1ae6adf569d0c459bacedc236f70ed5a095971a4d9d02",
+      "flags": []
+    },
+    {
+      "position": 3,
+      "description": "Museum tickets",
+      "paid_by": 0,
+      "split": "exact",
+      "currency": "USDC",
+      "total": "33.33",
+      "amount": "33.33",
+      "tax": null,
+      "tip": null,
+      "fiat": null,
+      "items": null,
+      "shares": [
+        {
+          "member": 1,
+          "weight": null,
+          "share": "13.33",
+          "amount": "13.33"
+        },
+        {
+          "member": 3,
+          "weight": null,
+          "share": "20",
+          "amount": "20"
+        }
+      ],
+      "recorded_by": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+      "recorded_at": "2026-10-18T09:08:00Z",
+      "signed_message": "Owed add expense c1b2368d028a0aaa (33.33 USDC) to ledger U5zGc9TXGvE9 by 61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE at 2026-10-18T09:08:00Z",
+      "signature": "b42af6faf2ca659080edacfa32da3663cd565b47c194b17e478b5f3ef3163cb9d0afe6fbfc2ed9716e7ee634a3d6ac42326af90d42b60ad6091a67998ead350a",
+      "flags": []
+    },
+    {
+      "position": 4,
+      "description": "Dinner at Taberna",
+      "paid_by": 1,
+      "split": "items",
+      "currency": "USDC",
+      "total": "114.13",
+      "amount": "114.13",
+      "tax": "6.73",
+      "tip": "10",
+      "fiat": null,
+      "items": [
+        {
+          "description": "Bacalhau",
+          "amount": "18.5",
+          "members": [
+            0
+          ]
+        },
+        {
+          "description": "Risotto",
+          "amount": "16.9",
+          "members": [
+            1
+          ]
+        },
+        {
+          "description": "Octopus to share",
+          "amount": "21",
+          "members": [
+            2,
+            3
+          ]
+        },
+        {
+          "description": "Olives and bread",
+          "amount": "9.99",
+          "members": [
+            0,
+            1,
+            2
+          ]
+        },
+        {
+          "description": "Vinho verde",
+          "amount": "24",
+          "members": [
+            0,
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "description": "Espressos",
+          "amount": "7.01",
+          "members": [
+            1,
+            3
+          ]
+        }
+      ],
+      "shares": [
+        {
+          "member": 0,
+          "weight": null,
+          "share": "32.610246",
+          "amount": "32.610246"
+        },
+        {
+          "member": 1,
+          "weight": null,
+          "share": "34.84246",
+          "amount": "34.84246"
+        },
+        {
+          "member": 2,
+          "weight": null,
+          "share": "23.236118",
+          "amount": "23.236118"
+        },
+        {
+          "member": 3,
+          "weight": null,
+          "share": "23.441176",
+          "amount": "23.441176"
+        }
+      ],
+      "recorded_by": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+      "recorded_at": "2026-10-18T09:09:00Z",
+      "signed_message": "Owed add expense cbbfa526e91c4e54 (114.13 USDC) to ledger U5zGc9TXGvE9 by 61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE at 2026-10-18T09:09:00Z",
+      "signature": "8fc37469b2307d91d76498d28d6c0f05a7e69635271bd1574e7d6002ce7a8c6c4328c7db5e7dc982f025bb07228dbf2e9718512c4ff7d733c6c520c5a3773905",
+      "flags": []
+    }
+  ],
+  "balances": [
+    {
+      "member": 0,
+      "paid": "153.33",
+      "share": "77.610246",
+      "sent": "0",
+      "received": "75.719754",
+      "net": "0",
+      "pending_out": "0",
+      "pending_in": "0",
+      "to_settle": "0"
+    },
+    {
+      "member": 1,
+      "paid": "159.63",
+      "share": "93.339127",
+      "sent": "0",
+      "received": "0",
+      "net": "66.290873",
+      "pending_out": "0",
+      "pending_in": "66.290873",
+      "to_settle": "0"
+    },
+    {
+      "member": 2,
+      "paid": "60",
+      "share": "98.402785",
+      "sent": "0",
+      "received": "0",
+      "net": "-38.402785",
+      "pending_out": "38.402785",
+      "pending_in": "0",
+      "to_settle": "0"
+    },
+    {
+      "member": 3,
+      "paid": "0",
+      "share": "103.607842",
+      "sent": "75.719754",
+      "received": "0",
+      "net": "-27.888088",
+      "pending_out": "27.888088",
+      "pending_in": "0",
+      "to_settle": "0"
+    }
+  ],
+  "plan": [],
+  "settlements": [
+    {
+      "round": 5,
+      "recorded_by": "6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X",
+      "recorded_at": "2026-10-18T10:00:00Z",
+      "signed_message": "Owed settle up ledger U5zGc9TXGvE9 v5: 3 requests, 142.010627 USDC by 6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X at 2026-10-18T10:00:00Z",
+      "signature": "92215ea089d2ffbdb700c750528c0cea545e0b35982afe78afeb8ed51976ea70651899ab232deb46234960e429a92aded55fa85bc05dcd951bd81f17d676210d",
+      "transfers": [
+        {
+          "position": 0,
+          "from": 3,
+          "to": 0,
+          "amount": "75.719754",
+          "request_id": "oJPjkhwSx2gU",
+          "link": "https://www.getowed.xyz/r/oJPjkhwSx2gU",
+          "status": "paid",
+          "paid": {
+            "signature": "29XDUby55VWnGECpoa9Z9VR4W7ZJr5MQjiuXoaQHcMMnHF3szSWhsC2NTXEGu6NanfGhQGL9tMGxxeGWMsNjJqGy",
+            "payer": "3u9Gv39fXaoB3d2eG6KHsQeVbiuh3J7SaMv7zR9BUd74",
+            "amount": "75.719754",
+            "at": "2026-10-18T10:30:00Z",
+            "rail": "solana_pay"
+          },
+          "addressed": false
+        },
+        {
+          "position": 1,
+          "from": 2,
+          "to": 1,
+          "amount": "38.402785",
+          "request_id": "uZY4qqJYfojA",
+          "link": "https://www.getowed.xyz/r/uZY4qqJYfojA",
+          "status": "open",
+          "paid": null,
+          "addressed": true
+        },
+        {
+          "position": 2,
+          "from": 3,
+          "to": 1,
+          "amount": "27.888088",
+          "request_id": "2B5SsTkweF9L",
+          "link": "https://www.getowed.xyz/r/2B5SsTkweF9L",
+          "status": "open",
+          "paid": null,
+          "addressed": false
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "spent": "372.96",
+    "expense_count": 5,
+    "open_requests": 2
+  },
+  "fiat_beside": null,
+  "settled": false,
+  "chain_checked": true
+}

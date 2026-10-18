@@ -1,0 +1,7 @@
+{
+  "request": "YA9kgB8e9r5N",
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "amount": "0.25",
+  "signed_message": "Owed refund 0.25 USDC of YA9kgB8e9r5N to BoNfFwfKqvqi9fncG5DeGAipH1meAcHBSabMinvfq2gB for 39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5 at 2026-10-18T09:22:27Z",
+  "signature": "fe2f091e0fa94d72a0b21a700b97448dd5709305f6fe84597de349a9a86e6781f50bb405057bfb831e014ba686c7d98823b1fb49436ea912cb94a81f6ec6e506"
+}

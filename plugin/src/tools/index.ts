@@ -12,6 +12,11 @@ import { register as askEveryMonth } from "./ask_every_month.js"; // W3-D
 import { register as matchPayments } from "./match_payments.js"; // 0012
 import { register as whatDoIOwe } from "./what_do_i_owe.js"; // F1
 import { register as payAll } from "./pay_all.js"; // F1
+import { register as startLedger } from "./start_ledger.js"; // F6 ledger
+import { register as addExpense } from "./add_expense.js"; // F6 ledger
+import { register as ledgerBalances } from "./ledger_balances.js"; // F6 ledger
+import { register as settleUp } from "./settle_up.js"; // F6 ledger
+import { register as refundPayment } from "./refund_payment.js"; // F8 invoices
 
 // One line per tool. Sprints append their import + entry; LEAD resolves merge conflicts.
 export const tools: Array<(server: McpServer) => void> = [
@@ -28,4 +33,9 @@ export const tools: Array<(server: McpServer) => void> = [
   matchPayments, // 0012
   whatDoIOwe, // F1
   payAll, // F1
+  startLedger, // F6 ledger
+  addExpense, // F6 ledger
+  ledgerBalances, // F6 ledger
+  settleUp, // F6 ledger
+  refundPayment, // F8 invoices
 ];

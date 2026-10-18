@@ -1,0 +1,115 @@
+{
+  "id": "hbTRHzm9Y1x7",
+  "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7",
+  "request_link": "https://www.getowed.xyz/r/hbTRHzm9Y1x7",
+  "solana_pay_url": "solana:39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5?amount=100.000001&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=3TsGJH35gmSNLkJMvCgbpwcYG3TtFa9FrfjLHFkHRxvA&label=Northwind%20Translation&message=Invoice%20NT-2026-020%20%C2%B7%201%20of%203&memo=owed%3AhbTRHzm9Y1x7",
+  "qr_url": "https://www.getowed.xyz/api/qr/hbTRHzm9Y1x7.png",
+  "reference": "3TsGJH35gmSNLkJMvCgbpwcYG3TtFa9FrfjLHFkHRxvA",
+  "x402_url": null,
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "invoice_number": "NT-2026-020",
+  "notes": "Three monthly installments, thank you.",
+  "issue_date": "2026-10-18",
+  "due_date": "2026-11-01",
+  "items": [
+    {
+      "description": "Translation, English to Hindi (pages)",
+      "quantity": "30",
+      "unit_price": "10",
+      "amount": "300"
+    },
+    {
+      "description": "Proofreading",
+      "quantity": "1",
+      "unit_price": "0.000001",
+      "amount": "0.000001"
+    }
+  ],
+  "total": "300.000001",
+  "status": "open",
+  "paid": null,
+  "created_at": "2026-10-18T09:22:27Z",
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "terms": {
+    "status": "open",
+    "paid_so_far": "0",
+    "remaining": "300.000001",
+    "pay_now": {
+      "id": "hbTRHzm9Y1x7",
+      "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7",
+      "amount": "100.000001",
+      "due_date": "2026-11-01",
+      "role": "installment",
+      "seq": 1
+    },
+    "installments": {
+      "count": 3,
+      "interval": "monthly",
+      "interval_label": "monthly",
+      "plan": [
+        {
+          "role": "installment",
+          "seq": 1,
+          "amount": "100.000001",
+          "due_date": "2026-11-01",
+          "opens_on": "2026-10-18",
+          "status": "open",
+          "id": "hbTRHzm9Y1x7",
+          "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7",
+          "skip_reason": null
+        },
+        {
+          "role": "installment",
+          "seq": 2,
+          "amount": "100",
+          "due_date": "2026-12-01",
+          "opens_on": "2026-11-24",
+          "status": "scheduled",
+          "id": null,
+          "link": null,
+          "skip_reason": null
+        },
+        {
+          "role": "installment",
+          "seq": 3,
+          "amount": "100",
+          "due_date": "2027-01-01",
+          "opens_on": "2026-12-25",
+          "status": "scheduled",
+          "id": null,
+          "link": null,
+          "skip_reason": null
+        }
+      ]
+    },
+    "early_discount": null,
+    "late_fee": {
+      "amount": "4.5",
+      "percent": "1.5",
+      "applies_after": "2026-11-01",
+      "request": {
+        "role": "late_fee",
+        "seq": 1,
+        "amount": "4.5",
+        "due_date": "2026-11-01",
+        "opens_on": "2026-11-02",
+        "status": "scheduled",
+        "id": null,
+        "link": null,
+        "skip_reason": null
+      }
+    },
+    "chase": {
+      "days": [
+        3,
+        10
+      ]
+    },
+    "refunded": "0"
+  }
+}

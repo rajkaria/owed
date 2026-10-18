@@ -1,0 +1,136 @@
+{
+  "funding_plan": {
+    "plan_id": "P1anAbCdEfGh",
+    "pay_tool": "pay_link",
+    "request_ids": [
+      "JArQ6g9JvoWr"
+    ],
+    "sender": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+    "shortfall": {
+      "token": "SOL",
+      "atomic": "1000000",
+      "display": "0.001 SOL"
+    },
+    "have": [
+      {
+        "token": "USDC",
+        "atomic": "69575440",
+        "display": "69.57544 USDC"
+      },
+      {
+        "token": "SOL",
+        "atomic": "2000000",
+        "display": "0.002 SOL"
+      }
+    ],
+    "need": [
+      {
+        "token": "USDC",
+        "atomic": "15000000",
+        "display": "15 USDC"
+      },
+      {
+        "token": "SOL",
+        "atomic": "3000000",
+        "display": "0.003 SOL"
+      }
+    ],
+    "options": [
+      {
+        "kind": "x402",
+        "via": "owed",
+        "tool": "pay_link",
+        "args": {
+          "link": "https://www.getowed.xyz/r/JArQ6g9JvoWr",
+          "sender": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+          "rail": "x402",
+          "plan_id": "P1anAbCdEfGh"
+        },
+        "credential_of": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+        "why": "Pay over x402: the facilitator pays the network fee, so the wallet needs no SOL. The request is in USDC and the recipient's USDC account exists, which x402 needs. Nothing to fund.",
+        "then": []
+      },
+      {
+        "kind": "swap_usdc_for_sol",
+        "via": "paybox",
+        "tool": "request_swap",
+        "args": {
+          "src_chain": "solana:mainnet",
+          "src_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "dst_token": "native",
+          "amount": "1041608"
+        },
+        "credential_of": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+        "check": {
+          "via": "paybox",
+          "tool": "get_portfolio",
+          "args": {
+            "address": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+            "network_id": 1399811149,
+            "token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          "credential_of": null,
+          "why": "PayBox's holding check before a swap: use this option only if it shows at least 16.041608 USDC (Owed read 69.57544 USDC just now)."
+        },
+        "why": "1.041608 USDC buys about 0.01 SOL at Pyth's SOL/USD price (103.09 USD at 08:04 UTC), plus 1%: the 0.001 SOL short and some for later fees. The wallet keeps 68.533832 USDC, still enough for this payment. If PayBox answers that the swap itself needs SOL for its network fee, use the next option.",
+        "then": [
+          {
+            "via": "paybox",
+            "tool": "get_request",
+            "args": {},
+            "credential_of": null,
+            "missing": [
+              "request_id"
+            ],
+            "why": "Poll with the request_id request_swap returned until it is terminal; never call request_swap again for the same swap."
+          },
+          {
+            "via": "owed",
+            "tool": "pay_link",
+            "args": {
+              "link": "https://www.getowed.xyz/r/JArQ6g9JvoWr",
+              "sender": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+              "plan_id": "P1anAbCdEfGh"
+            },
+            "credential_of": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+            "why": "It re-runs every check and proposes the payment."
+          }
+        ]
+      },
+      {
+        "kind": "buy_sol",
+        "via": "paybox",
+        "tool": "get_buy_link",
+        "args": {
+          "amount_usd": 4.99
+        },
+        "credential_of": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+        "why": "The wallet needs about 0.001 SOL more for fees. 4.99 USD is the smallest MoonPay purchase Owed knows of (its minimum for USDC on Solana), far more than the fee; the rest stays in the wallet for later fees. The link opens MoonPay's checkout (card or bank; MoonPay checks ID the first time and doesn't sell in every country) and moves no money by itself; native SOL needs no currency_code. MoonPay's checkout shows its own minimum for SOL.",
+        "then": [
+          {
+            "via": "paybox",
+            "tool": "get_portfolio",
+            "args": {
+              "address": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+              "network_id": 1399811149,
+              "token": "native"
+            },
+            "credential_of": null,
+            "why": "After the user finishes checkout, read this until it shows at least 0.003 SOL (MoonPay can take a few minutes). Only say the funds arrived once it does."
+          },
+          {
+            "via": "owed",
+            "tool": "pay_link",
+            "args": {
+              "link": "https://www.getowed.xyz/r/JArQ6g9JvoWr",
+              "sender": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+              "plan_id": "P1anAbCdEfGh"
+            },
+            "credential_of": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+            "why": "It re-runs every check and proposes the payment."
+          }
+        ]
+      }
+    ]
+  }
+}

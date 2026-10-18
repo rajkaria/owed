@@ -1,0 +1,34 @@
+{
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "invoice_number": "NT-2026-020",
+  "items": [
+    {
+      "description": "Translation, English to Hindi (pages)",
+      "quantity": "30",
+      "unit_price": "10"
+    },
+    {
+      "description": "Proofreading",
+      "unit_price": "0.000001"
+    }
+  ],
+  "due_date": "2026-11-01",
+  "notes": "Three monthly installments, thank you.",
+  "source": "plugin",
+  "installments": {
+    "count": 3,
+    "interval": "monthly"
+  },
+  "late_fee": {
+    "percent": "1.5"
+  },
+  "chase": {
+    "days": [
+      3,
+      10
+    ]
+  }
+}

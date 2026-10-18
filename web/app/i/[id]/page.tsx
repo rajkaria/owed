@@ -59,7 +59,20 @@ export async function generateMetadata({ params }: PageProps<"/i/[id]">): Promis
 function Head({ model }: { model: InvoiceModel }) {
   return (
     <>
-      <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted">Invoice</p>
+      <p className="text-sm font-medium uppercase tracking-[0.18em] text-muted">
+        Invoice
+        {model.termOf && (
+          <>
+            {" · "}
+            <span data-term-of className="normal-case tracking-normal">
+              {model.termOf.label} of{" "}
+              <Link href={model.termOf.link} prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
+                invoice {model.termOf.parentId}
+              </Link>
+            </span>
+          </>
+        )}
+      </p>
       <h1 className="mt-1 text-2xl font-semibold tracking-tight break-all sm:text-3xl">
         {model.numberIsId ? (
           <span className="font-mono">{model.number}</span>
@@ -110,8 +123,10 @@ function Dates({ model }: { model: InvoiceModel }) {
         <dd className={`mt-0.5 font-medium ${model.overdue ? "text-warn" : ""}`}>{model.due}</dd>
       </div>
       <div className={`${cell} col-span-2 sm:col-span-1 print:col-span-1`}>
-        <dt className="text-xs text-muted">Amount due</dt>
-        {model.fiat ? (
+        <dt className="text-xs text-muted">{model.terms && model.terms.kind !== "plain" ? "Due now" : "Amount due"}</dt>
+        {model.terms && model.terms.kind !== "plain" ? (
+          <dd className="mt-0.5 font-semibold tabular-nums">{model.payable ? model.payLabel : "Nothing yet"}</dd>
+        ) : model.fiat ? (
           <dd className="mt-0.5 tabular-nums">
             <span className="font-semibold">{model.fiat.amount}</span>
             <span className="text-muted"> · </span>
@@ -196,6 +211,85 @@ function Items({ model }: { model: InvoiceModel }) {
   );
 }
 
+// F8 invoices start: the plan (installments), the two prices (early-pay discount), the late fee, refunds.
+const TONE: Record<string, string> = { paid: "text-paid", open: "text-accent", muted: "text-muted", warn: "text-warn" };
+
+function Terms({ model }: { model: InvoiceModel }) {
+  const t = model.terms;
+  if (!t && !model.refundedNote) return null;
+  return (
+    <section data-invoice-terms aria-labelledby="terms-title" className="mt-7 print:mt-4 print:break-inside-avoid">
+      <h2 id="terms-title" className="text-xs font-medium uppercase tracking-wider text-muted">
+        {t?.kind === "installments" ? "Payment plan" : t?.kind === "early_discount" ? "Pay early, pay less" : "Terms"}
+      </h2>
+      {t?.earlyNote && <p className="mt-2 leading-relaxed">{t.earlyNote}</p>}
+      {t?.summary && <p className="mt-2 leading-relaxed">{t.summary}</p>}
+      {t && t.rows.length > 0 && (
+        <table className="mt-3 w-full border-collapse text-left text-sm">
+          <caption className="sr-only">Each payment this invoice asks for</caption>
+          <thead>
+            <tr className="border-b border-line text-xs uppercase tracking-wider text-muted">
+              <th scope="col" className="py-2 pr-3 font-medium">Payment</th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">Amount</th>
+              <th scope="col" className="hidden py-2 pr-3 font-medium sm:table-cell print:table-cell">Due</th>
+              <th scope="col" className="py-2 text-right font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {t.rows.map((r, i) => (
+              <tr key={i} className="border-b border-line align-top">
+                <td className="py-2.5 pr-3">
+                  {r.link ? (
+                    <Link href={r.link} prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline print:text-fg">
+                      {r.label}
+                    </Link>
+                  ) : (
+                    r.label
+                  )}
+                  <span className="mt-0.5 block text-xs text-muted sm:hidden print:hidden">Due {r.due}</span>
+                </td>
+                <td className="py-2.5 pr-3 text-right whitespace-nowrap tabular-nums">{r.amount}</td>
+                <td className="hidden py-2.5 pr-3 whitespace-nowrap sm:table-cell print:table-cell">{r.due}</td>
+                <td className={`py-2.5 text-right text-sm font-medium ${TONE[r.tone] ?? ""}`}>{r.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {t?.lateFeeNote && (
+        <p data-late-fee className="mt-3 text-sm leading-relaxed">
+          {t.lateFeeNote}
+          {t.lateFeeLink && (
+            <>
+              {" "}
+              <Link href={t.lateFeeLink} prefetch={false} className="font-medium text-accent underline-offset-4 hover:underline">
+                See the late fee
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+      {model.refundedNote && <p data-refunded className="mt-3 text-sm font-medium text-paid">{model.refundedNote}</p>}
+      {t && t.kind !== "plain" && (
+        <p className="mt-3 text-xs leading-relaxed text-muted">
+          Each payment is its own Owed request with its own link, so its amount can never change after it is made. This invoice
+          shows Paid only when {t.kind === "installments" ? "every installment is paid" : "one of its prices is paid"}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function Waiting({ model }: { model: InvoiceModel }) {
+  return (
+    <section data-terms-waiting className="rounded-xl border border-line bg-sunken px-4 py-4">
+      <h2 className="text-lg font-semibold">Nothing to pay right now</h2>
+      <p className="mt-1 text-muted">{model.terms?.waiting ?? "The next payment hasn't opened yet."} This page will show it then.</p>
+    </section>
+  );
+}
+// F8 invoices end
+
 function Notes({ model }: { model: InvoiceModel }) {
   return (
     <div className="mt-6 print:mt-3">
@@ -241,12 +335,10 @@ async function PayPanel({ model, card }: { model: InvoiceModel; card?: ReactNode
     <section aria-labelledby="pay-title" className="rounded-xl border border-line px-4 py-5 sm:px-5 print:rounded-none print:border-x-0 print:border-b-0 print:px-0 print:pb-0 print:pt-3">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start print:flex-row print:gap-4">
         <div className="mx-auto w-full max-w-[13rem] shrink-0 rounded-lg bg-white p-2.5 sm:mx-0 sm:w-44 print:mx-0 print:w-[30mm] print:p-0">
-          <QrCode value={model.solanaPayUrl} label={`QR code to pay ${model.totalLabel}. Scan it with a Solana wallet.`} />
+          <QrCode value={model.solanaPayUrl} label={`QR code to pay ${model.payLabel}. Scan it with a Solana wallet.`} />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 id="pay-title" className="text-lg font-semibold">
-            Pay <span className="tabular-nums">{model.totalLabel}</span>
-          </h2>
+          <h2 id="pay-title" className="text-lg font-semibold tabular-nums">{model.payTitle}</h2>
           <p className="mt-1 text-sm leading-relaxed text-muted">
             Scan the code with any Solana wallet, or open this invoice at{" "}
             <span className="break-all font-mono text-fg">{model.invoiceLink}</span>. The money goes straight to the
@@ -316,7 +408,10 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
   if (!loaded) notFound();
   const model = invoiceModel(loaded.invoice, loaded.now);
   // Pay by card (MoonPay): nothing unless MoonPay is configured.
-  const offer = await cardOffer({ id: model.id, token: model.token, amount: model.total, status: loaded.invoice.status }, "i");
+  // F8 invoices: an invoice with terms pays the installment or price due now; with nothing payable, no card offer.
+  const offer = model.payable
+    ? await cardOffer({ id: model.payId, token: model.token, amount: model.payAmount, status: model.terms ? "open" : loaded.invoice.status }, "i")
+    : null;
   const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
 
   return (
@@ -336,26 +431,30 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
       <main className="mt-6 flex-1 md:mt-10 print:mt-0">
         <InvoiceLive
           initial={model.initial}
-          id={model.id}
-          total={model.total}
+          id={model.payId}
+          total={model.payable ? model.payAmount : model.total}
           token={model.token}
           dueLabel={model.dueLabel}
           overdue={model.overdue}
           sender={`“${model.businessName}”`}
           head={<Head model={model} />}
-          pay={<PayPanel model={model} card={card} />}
+          pay={model.payable ? <PayPanel model={model} card={card} /> : <Waiting model={model} />}
           expiresAt={model.expiresAt}
+          refreshOnChange={model.refreshOnChange}
+          cancelledNote={model.cancelledNote}
+          poll={model.payable}
         >
           <Parties model={model} />
           <Dates model={model} />
           <Items model={model} />
+          <Terms model={model} />
           <Notes model={model} />
         </InvoiceLive>
 
         <div className="mt-5 flex flex-wrap items-center gap-3 print:hidden">
           <PrintButton className="inline-flex h-11 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-medium hover:bg-sunken" />
           <Link
-            href={`/r/${model.id}`}
+            href={`/r/${model.payId}`}
             prefetch={false}
             className="inline-flex h-11 items-center rounded-xl px-2 text-sm font-medium text-accent underline-offset-4 hover:underline"
           >

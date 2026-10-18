@@ -22,6 +22,9 @@ import { CancelBody, CancelResponse } from "@/lib/contract"; // W3-C
 import { CreateScheduleBody, ScheduleResponse } from "@/lib/contract"; // W3-D
 import { AttributedBody, AttributedResponse, MatchBody, MatchResponse, RestBody, RestResponse } from "@/lib/contract"; // 0012
 import { BulkRequestsResponse, InboxBlockBody, InboxBlockResponse, InboxBody, InboxResponse } from "@/lib/contract"; // F1
+import { CreatePlanBody, CreatePlanResponse, FundingPlanDoc, PlanStatsResponse, PlanUsedBody, PlanUsedResponse } from "@/lib/contract"; // F2
+import { AddExpenseBody, AddExpenseResponse, CreateLedgerBody, GroupLedgerResponse, SettleUpBody, SettleUpResponse } from "@/lib/contract"; // F6 ledger
+import { CreateInvoiceTermsBody, CreateRefundBody, CreateRefundResponse, InvoiceTermsResponse, RefundResponse, RefundsLookupResponse, StatementResponse } from "@/lib/contract"; // F8 invoices
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -94,7 +97,49 @@ const SCHEMAS: Record<string, ZodType> = {
   "inbox.block.req.json": InboxBlockBody,
   "inbox.block.res.json": InboxBlockResponse,
   "requests.bulk.res.json": BulkRequestsResponse,
+  // F2 funding plans
+  "plans.create.req.json": CreatePlanBody,
+  "plans.create.res.json": CreatePlanResponse,
+  "plans.used.req.json": PlanUsedBody,
+  "plans.used.res.json": PlanUsedResponse,
+  "plans.stats.res.json": PlanStatsResponse,
+  "funding-plan.swap.json": FundingPlanDoc,
+  "funding-plan.buy.json": FundingPlanDoc,
+  "funding-plan.fee.json": FundingPlanDoc,
+  "funding-plan.pay-all.json": FundingPlanDoc,
+  // F6 ledger
+  "ledgers.create.req.json": CreateLedgerBody,
+  "ledgers.create.res.json": GroupLedgerResponse,
+  "ledgers.get.res.json": GroupLedgerResponse,
+  "ledgers.expense.req.json": AddExpenseBody,
+  "ledgers.expense.res.json": AddExpenseResponse,
+  "ledgers.expense.fiat.req.json": AddExpenseBody,
+  "ledgers.expense.fiat.res.json": AddExpenseResponse,
+  "ledgers.settle.req.json": SettleUpBody,
+  "ledgers.settle.res.json": SettleUpResponse,
+  // F8 invoices: terms, refunds, statements (the plain invoice fixtures parse with the terms schemas too, below)
+  "invoice.terms.create.req.json": CreateInvoiceTermsBody,
+  "invoice.terms.create.res.json": InvoiceTermsResponse,
+  "invoice.terms.get.res.json": InvoiceTermsResponse,
+  "invoice.terms.child.res.json": InvoiceTermsResponse,
+  "invoice.statement.res.json": StatementResponse,
+  "refund.create.req.json": CreateRefundBody,
+  "refund.create.res.json": CreateRefundResponse,
+  "refund.get.res.json": RefundResponse,
+  "refunds.lookup.res.json": RefundsLookupResponse,
 };
+
+// F8 invoices: every existing invoice fixture still parses with the terms-aware schemas (all F8 fields are optional).
+test("F8: existing invoice fixtures parse as InvoiceTermsResponse and CreateInvoiceTermsBody", () => {
+  for (const file of ["invoices.create.res.json", "invoices.get.res.json", "fiat.invoices.create.res.json", "payer.invoices.create.res.json"]) {
+    const r = InvoiceTermsResponse.safeParse(JSON.parse(readFileSync(new URL(file, dir), "utf8")));
+    assert.ok(r.success, `${file}: ${r.success ? "" : JSON.stringify(r.error.issues)}`);
+  }
+  for (const file of ["invoices.create.req.json", "fiat.invoices.create.req.json", "payer.invoices.create.req.json"]) {
+    const r = CreateInvoiceTermsBody.safeParse(JSON.parse(readFileSync(new URL(file, dir), "utf8")));
+    assert.ok(r.success, `${file}: ${r.success ? "" : JSON.stringify(r.error.issues)}`);
+  }
+});
 
 test("every contract fixture has a schema", () => {
   const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();

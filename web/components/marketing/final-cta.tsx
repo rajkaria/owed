@@ -23,6 +23,12 @@ const TRY = [
   { say: "Ask @sam for 10 USDC", tool: "ask_for_money" },
   { say: "What do I owe?", tool: "what_do_i_owe" },
   { say: "Pay them all", tool: "pay_all" },
+  { say: "Start a tab for our Lisbon trip with Priya, Sam and Alex", tool: "start_ledger" },
+  { say: "I paid 84.60 EUR for dinner, split it evenly", tool: "add_expense" },
+  { say: "Who owes what on the trip?", tool: "ledger_balances" },
+  { say: "Settle up the trip", tool: "settle_up" },
+  { say: "Invoice Acme 1,200 USDC in 3 monthly installments", tool: "create_invoice" },
+  { say: "Refund Priya the 5 USDC she overpaid", tool: "refund_payment" },
 ];
 
 export function FinalCta() {
@@ -109,9 +115,9 @@ export function FinalCta() {
               ))}
             </ul>
             <p className="mt-4 text-sm leading-relaxed text-ink-muted">
-              Asking by X handle, <code className="font-mono text-ink-fg">what_do_i_owe</code> and{" "}
-              <code className="font-mono text-ink-fg">pay_all</code> are on Owed&apos;s remote MCP endpoint now and come to the
-              PayBox plugin with its next upload.
+              Asking by X handle, <code className="font-mono text-ink-fg">what_do_i_owe</code>,{" "}
+              <code className="font-mono text-ink-fg">pay_all</code>, group ledgers, invoice terms, refunds and the steps for a
+              short balance are on Owed&apos;s remote MCP endpoint now and come to the PayBox plugin with its next upload.
             </p>
           </div>
         </div>

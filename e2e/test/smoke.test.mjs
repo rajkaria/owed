@@ -34,9 +34,16 @@ async function serve(app) {
   return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
+/** What a fully deployed app answers, from the contract fixtures. */
+const deployed = async () => ({
+  stats: await fixture("stats.res.json"),
+  planStats: await fixture("plans.stats.res.json"),
+  ledgerOwner: (await fixture("ledgers.create.req.json")).owner,
+});
+
 const notDeployed = ({ url, html }) => (url.pathname === "/" ? html(200, "<h1>Owed</h1>", "/") : html(404, "This page could not be found."));
 
-function deployedApp({ stats, bugs = {} }) {
+function deployedApp({ stats, planStats, ledgerOwner, bugs = {} }) {
   let created = null;
   const solanaPayUrl = `solana:${TEAM_WALLET}?amount=0.01&spl-token=${USDC_MINT}&reference=${REFERENCE}&label=Owed%20smoke&message=smoke%20check&memo=owed%3A${ID}`;
   const error = (code, message) => ({ error: { code, message } });
@@ -51,6 +58,20 @@ function deployedApp({ stats, bugs = {} }) {
       return send(200, "text/html", `<html><head><meta property="og:title" content="Owed smoke is asking you for 0.01 USDC"/><meta property="og:image" content="/r/${ID}/opengraph-image?abc&amp;v=1"/></head><body>0.01 USDC "${forText}"</body></html>`, "/r/[id]");
     }
     if (req.method === "GET" && path === "/api/v1/stats") return bugs.statsBroken ? html(500, "Internal Server Error", "/api/v1/stats") : json(200, stats, "/api/v1/stats");
+    if (req.method === "GET" && path === "/api/v1/plans/stats") return json(200, planStats, "/api/v1/plans/stats"); // F2
+    // F6 ledgers and F8 refunds: 12-character ids; nothing exists in this double.
+    if (req.method === "GET" && path.startsWith("/l/")) return html(404, "not found", "/l/[id]");
+    for (const [prefix, matched, what] of [["/api/v1/ledgers/", "/api/v1/ledgers/[id]", "ledger"], ["/api/v1/refunds/", "/api/v1/refunds/[id]", "refund"]]) {
+      if (req.method !== "GET" || !path.startsWith(prefix)) continue;
+      const id = path.slice(prefix.length);
+      return /^[1-9A-HJ-NP-Za-km-z]{12}$/.test(id) ? json(404, error("not_found", `no ${what} with this id`), matched) : json(400, error("invalid_input", `id must be a 12-character Owed ${what} id`), matched);
+    }
+    if (req.method === "POST" && path === "/api/v1/ledgers") {
+      const input = JSON.parse(body);
+      // The real route refuses an owner off the ed25519 curve; the double knows the one wallet its fixture uses.
+      if (input.owner !== ledgerOwner) return json(400, error("invalid_input", "owner: must be the owner's Solana wallet address, one that can sign (not a token account)"), "/api/v1/ledgers");
+      return json(503, error("upstream_unavailable", "this double never creates a ledger"), "/api/v1/ledgers");
+    }
     if (req.method === "GET" && path.startsWith("/api/v1/requests/")) {
       const id = path.split("/").pop();
       if (id === ID && created) {
@@ -100,11 +121,11 @@ test("nothing deployed yet: pending is OK, --strict fails", async () => {
     assert.equal(report.ok, true);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.summary.pass, 2); // landing + unknown page is 404
-    assert.equal(report.summary.pending, 13);
+    assert.equal(report.summary.pending, 19); // 14 + F6 ledger page and 3 ledger routes + F8 refund lookup
     assert.equal(report.summary.skip, 6);
     const strict = await runSmoke({ base: server.base, strict: true });
     assert.equal(strict.ok, false);
-    assert.equal(strict.summary.fail, 13);
+    assert.equal(strict.summary.fail, 19);
     assert.ok(strict.results.every((result) => result.status !== "fail" || result.detail.includes("--strict")));
   } finally {
     await server.close();
@@ -112,7 +133,7 @@ test("nothing deployed yet: pending is OK, --strict fails", async () => {
 });
 
 test("fully deployed: --create checks one request end to end and --strict passes", async () => {
-  const server = await serve(deployedApp({ stats: await fixture("stats.res.json") }));
+  const server = await serve(deployedApp(await deployed()));
   try {
     const report = await runSmoke({ base: server.base, strict: true, create: true });
     const notPassing = report.results.filter((result) => result.status !== "pass");
@@ -126,7 +147,7 @@ test("fully deployed: --create checks one request end to end and --strict passes
 });
 
 test("--id reads an existing request without creating anything", async () => {
-  const server = await serve(deployedApp({ stats: await fixture("stats.res.json") }));
+  const server = await serve(deployedApp(await deployed()));
   try {
     const report = await runSmoke({ base: server.base, id: ID });
     // The double only knows the request after a create, so the reads fail: proves --id never POSTs a create.
@@ -139,7 +160,7 @@ test("--id reads an existing request without creating anything", async () => {
 
 test("regressions fail with a reason", async () => {
   const stats = await fixture("stats.res.json");
-  const server = await serve(deployedApp({ stats: { ...stats, paid_volume_usdc: 12.5 }, bugs: { unknownIs200: true, leakUrl: true } }));
+  const server = await serve(deployedApp({ ...(await deployed()), stats: { ...stats, paid_volume_usdc: 12.5 }, bugs: { unknownIs200: true, leakUrl: true } }));
   try {
     const report = await runSmoke({ base: server.base, create: true });
     const failed = Object.fromEntries(report.results.filter((result) => result.status === "fail").map((result) => [result.name, result.detail]));
@@ -150,7 +171,7 @@ test("regressions fail with a reason", async () => {
   } finally {
     await server.close();
   }
-  const broken = await serve(deployedApp({ stats, bugs: { statsBroken: true } }));
+  const broken = await serve(deployedApp({ ...(await deployed()), stats, bugs: { statsBroken: true } }));
   try {
     const report = await runSmoke({ base: broken.base });
     assert.match(report.results.find((result) => result.name === "stats").detail, /status 500, expected 200.*content-type text\/html/);

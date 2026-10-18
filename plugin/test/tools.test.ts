@@ -21,6 +21,8 @@ test("index registers the Owed tools", () => {
     "ask_every_month", // W3-D
     "match_payments", // 0012
     "what_do_i_owe", "pay_all", // F1
+    "start_ledger", "add_expense", "ledger_balances", "settle_up", // F6 ledger
+    "refund_payment", // F8 invoices
   ]);
 });
 
@@ -39,6 +41,8 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("cancel_request")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true });
   // W3-D: creates a schedule (and maybe this month's request) each call, like ask_for_money.
   assert.deepEqual(seen.get("ask_every_month")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
+  // F8 invoices: a refund sends money out of the user's wallet (destructive); each one is new (not idempotent).
+  assert.deepEqual(seen.get("refund_payment")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
   // 0012: confirm records a match and ask_for_rest makes a request (not read-only); doing either twice changes nothing more.
   assert.deepEqual(seen.get("match_payments")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   // F1: the inbox needs a fresh signature each time and can block a requester; pay_all moves money like pay_link.

@@ -13,6 +13,9 @@ import { cancelReqSchema, cancelResSchema } from "../src/contract.ts"; // W3-C
 import { createScheduleReqSchema, scheduleResSchema } from "../src/contract.ts"; // W3-D
 import { attributedReqSchema, attributedResSchema, matchReqSchema, matchResSchema, restReqSchema, restResSchema } from "../src/contract.ts"; // 0012
 import { bulkRequestsResSchema, inboxBlockReqSchema, inboxBlockResSchema, inboxReqSchema, inboxResSchema } from "../src/contract.ts"; // F1
+import { createPlanReqSchema, createPlanResSchema, fundingPlanDocSchema, planStatsResSchema, planUsedReqSchema, planUsedResSchema } from "../src/contract.ts"; // F2
+import { addExpenseReqSchema, addExpenseResSchema, createGroupLedgerReqSchema, groupLedgerResSchema, settleUpReqSchema, settleUpResSchema } from "../src/contract.ts"; // F6 ledger
+import { createInvoiceTermsReqSchema, createRefundReqSchema, createRefundResSchema, invoiceTermsResSchema, ledgerResF8Schema, refundResSchema, refundsLookupResSchema, statementResSchema } from "../src/contract.ts"; // F8 invoices
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -84,7 +87,48 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "inbox.block.req.json": inboxBlockReqSchema,
   "inbox.block.res.json": inboxBlockResSchema,
   "requests.bulk.res.json": bulkRequestsResSchema,
+  // F2 funding plans
+  "plans.create.req.json": createPlanReqSchema,
+  "plans.create.res.json": createPlanResSchema,
+  "plans.used.req.json": planUsedReqSchema,
+  "plans.used.res.json": planUsedResSchema,
+  "plans.stats.res.json": planStatsResSchema,
+  "funding-plan.swap.json": fundingPlanDocSchema,
+  "funding-plan.buy.json": fundingPlanDocSchema,
+  "funding-plan.fee.json": fundingPlanDocSchema,
+  "funding-plan.pay-all.json": fundingPlanDocSchema,
+  // F6 ledger
+  "ledgers.create.req.json": createGroupLedgerReqSchema,
+  "ledgers.create.res.json": groupLedgerResSchema,
+  "ledgers.get.res.json": groupLedgerResSchema,
+  "ledgers.expense.req.json": addExpenseReqSchema,
+  "ledgers.expense.res.json": addExpenseResSchema,
+  "ledgers.expense.fiat.req.json": addExpenseReqSchema,
+  "ledgers.expense.fiat.res.json": addExpenseResSchema,
+  "ledgers.settle.req.json": settleUpReqSchema,
+  "ledgers.settle.res.json": settleUpResSchema,
+  // F8 invoices
+  "invoice.terms.create.req.json": createInvoiceTermsReqSchema,
+  "invoice.terms.create.res.json": invoiceTermsResSchema,
+  "invoice.terms.get.res.json": invoiceTermsResSchema,
+  "invoice.terms.child.res.json": invoiceTermsResSchema,
+  "invoice.statement.res.json": statementResSchema,
+  "refund.create.req.json": createRefundReqSchema,
+  "refund.create.res.json": createRefundResSchema,
+  "refund.get.res.json": refundResSchema,
+  "refunds.lookup.res.json": refundsLookupResSchema,
 };
+
+// F8 invoices: the existing invoice and ledger fixtures parse with the terms-aware schemas too (every F8 field is optional).
+test("F8: existing invoice and ledger fixtures parse with the terms-aware schemas", () => {
+  for (const file of ["invoices.create.res.json", "invoices.get.res.json", "fiat.invoices.create.res.json", "payer.invoices.create.res.json"]) {
+    assert.ok(invoiceTermsResSchema.safeParse(fixture(file)).success, file);
+  }
+  for (const file of ["invoices.create.req.json", "fiat.invoices.create.req.json", "payer.invoices.create.req.json"]) {
+    assert.ok(createInvoiceTermsReqSchema.safeParse({ ...fixture(file), source: "plugin" }).success, file);
+  }
+  for (const file of ["ledger.res.json", "ledger.schedules.res.json", "fiat.ledger.res.json"]) assert.ok(ledgerResF8Schema.safeParse(fixture(file)).success, file);
+});
 
 const files = readdirSync(fileURLToPath(new URL("../../contract/fixtures/", import.meta.url))).filter((f) => f.endsWith(".json")).sort();
 

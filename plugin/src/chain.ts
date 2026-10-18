@@ -177,6 +177,27 @@ interface ParsedAccount {
   data: { parsed?: { info?: { mint?: string; owner?: string; state?: string; tokenAmount?: { amount: string } } } } | unknown[];
 }
 
+/** F2: what the sender holds, as one readiness read saw it. A SOL request doesn't read the sender's USDC (null). */
+export interface PayerFunds {
+  lamports: bigint;
+  usdc: bigint | null;
+  /** Whether the sender has a USDC account (a swap into USDC opens one otherwise, about 0.002 SOL). null: not read. */
+  usdcAccount: boolean | null;
+}
+
+export interface Readiness {
+  ok: boolean;
+  reason?: string;
+  recipientAtaExists: boolean;
+  /** F2: the sender's balances, set on every answer from the chain (test doubles may leave it out). */
+  funds?: PayerFunds;
+  /**
+   * F2: why it isn't ok. "funds": a balance is short, which a funding plan can fix (swap, bridge or buy);
+   * "frozen" (a USDC account is frozen) and "rent_minimum" (a first SOL payment below rent) can't be funded away.
+   */
+  blocker?: "funds" | "frozen" | "rent_minimum";
+}
+
 /**
  * One getMultipleAccounts read (plus a rent query only when a SOL payee has no account yet).
  * USDC reads [sender, sender USDC account, recipient USDC account]; SOL reads [sender, recipient].
@@ -186,7 +207,7 @@ export async function payerReadiness(
   rpc: Rpc,
   q: { sender: string; recipient: string; token: "USDC" | "SOL"; amountAtomic: bigint },
   budgetMs = RPC_BUDGET_MS,
-): Promise<{ ok: boolean; reason?: string; recipientAtaExists: boolean }> {
+): Promise<Readiness> {
   const sender = address(q.sender, "sender");
   const recipient = address(q.recipient, "recipient");
   const deadline = Date.now() + budgetMs;
@@ -197,33 +218,36 @@ export async function payerReadiness(
     const keys = [sender, getAssociatedTokenAddressSync(mint, sender, true), getAssociatedTokenAddressSync(mint, recipient, true)];
     const [payer = null, from = null, to = null] = await accounts(rpc, keys, deadline);
     const recipientAtaExists = to !== null;
-    const no = (reason: string) => ({ ok: false, reason, recipientAtaExists });
-
     const held = tokenInfo(from)?.amount;
     const balance = held === undefined ? 0n : BigInt(held);
-    if (balance < want) return no(`Your wallet has ${usdc(balance)} USDC; this request is ${usdc(want)} USDC.`);
-    if (tokenInfo(from)?.state === "frozen") return no("Your USDC account is frozen, so it cannot send.");
-    if (tokenInfo(to)?.state === "frozen") return no("The recipient's USDC account is frozen, so it cannot receive.");
     const lamports = lamportsOf(payer);
+    const funds: PayerFunds = { lamports, usdc: balance, usdcAccount: from !== null };
+    const no = (reason: string, blocker: Readiness["blocker"] = "funds"): Readiness => ({ ok: false, reason, recipientAtaExists, funds, blocker });
+
+    // Frozen accounts first: no funding plan can fix them (F2), so they must never be hidden behind a shortfall.
+    if (tokenInfo(from)?.state === "frozen") return no("Your USDC account is frozen, so it cannot send.", "frozen");
+    if (tokenInfo(to)?.state === "frozen") return no("The recipient's USDC account is frozen, so it cannot receive.", "frozen");
+    if (balance < want) return no(`Your wallet has ${usdc(balance)} USDC; this request is ${usdc(want)} USDC.`);
     if (lamports < FEE_RESERVE_LAMPORTS) {
       return no(`Your wallet needs about ${sol(FEE_RESERVE_LAMPORTS)} SOL for fees; it has ${sol(lamports)} SOL.`);
     }
-    return { ok: true, recipientAtaExists };
+    return { ok: true, recipientAtaExists, funds };
   }
 
   const [payer = null, payee = null] = await accounts(rpc, [sender, recipient], deadline);
-  const no = (reason: string) => ({ ok: false, reason, recipientAtaExists: true });
   const lamports = lamportsOf(payer);
+  const funds: PayerFunds = { lamports, usdc: null, usdcAccount: null };
+  const no = (reason: string, blocker: Readiness["blocker"] = "funds"): Readiness => ({ ok: false, reason, recipientAtaExists: true, funds, blocker });
+  if (payee === null) {
+    // A transfer that creates an account must leave it rent-exempt; ask the cluster for the minimum.
+    const min = BigInt(await within(deadline, rpc.call<number>("getMinimumBalanceForRentExemption", [0, { commitment: "confirmed" }])));
+    if (want < min) return no(`This address has never been used, so the first payment must be at least ${sol(min)} SOL.`, "rent_minimum");
+  }
   if (lamports < want) return no(`Your wallet has ${sol(lamports)} SOL; this request is ${sol(want)} SOL.`);
   if (lamports < want + FEE_RESERVE_LAMPORTS) {
     return no(`Your wallet needs about ${sol(FEE_RESERVE_LAMPORTS)} SOL for fees on top of the ${sol(want)} SOL request; it has ${sol(lamports)} SOL.`);
   }
-  if (payee === null) {
-    // A transfer that creates an account must leave it rent-exempt; ask the cluster for the minimum.
-    const min = BigInt(await within(deadline, rpc.call<number>("getMinimumBalanceForRentExemption", [0, { commitment: "confirmed" }])));
-    if (want < min) return no(`This address has never been used, so the first payment must be at least ${sol(min)} SOL.`);
-  }
-  return { ok: true, recipientAtaExists: true };
+  return { ok: true, recipientAtaExists: true, funds };
 }
 
 export const DEFAULT_RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
@@ -483,6 +507,8 @@ export interface BatchAccounts {
   senderLamports: bigint;
   senderUsdc: bigint;
   senderUsdcFrozen: boolean;
+  /** F2: whether the sender has a USDC account at all (a swap into USDC opens one otherwise). Doubles may leave it out. */
+  senderUsdcAccount?: boolean;
   /** recipient wallet → its USDC account (null: none yet; frozen as read). USDC recipients only. */
   usdcAccounts: Map<string, { exists: boolean; frozen: boolean }>;
   /** SOL recipients whose account doesn't exist yet. */
@@ -517,13 +543,15 @@ export async function readBatchAccounts(
     : null;
   return {
     senderLamports: lamportsOf(got[0] ?? null), senderUsdc: from?.amount === undefined ? 0n : BigInt(from.amount),
-    senderUsdcFrozen: from?.state === "frozen", usdcAccounts, newSolWallets, rentMinimum,
+    senderUsdcFrozen: from?.state === "frozen", senderUsdcAccount: (got[1] ?? null) !== null, usdcAccounts, newSolWallets, rentMinimum,
   };
 }
 
 export interface BatchNeed {
   ok: boolean;
   reason?: string;
+  /** F2: why not ok, as in Readiness: "funds" can be fixed by a funding plan, "frozen" and "rent_minimum" can't. */
+  blocker?: "funds" | "frozen" | "rent_minimum";
   usdcTotal: bigint;
   solTotal: bigint;
   /** USDC recipients (wallets) whose account the batch opens, once each. */
@@ -549,27 +577,76 @@ export function assessBatch(a: BatchAccounts, items: ReadonlyArray<{ recipient: 
   }
   const feeLamports = FEE_RESERVE_LAMPORTS + (opens.length > 1 ? BigInt(opens.length - 1) * ATA_RENT_LAMPORTS : 0n);
   const base = { usdcTotal, solTotal, opensAccountFor: opens, feeLamports };
-  const no = (reason: string): BatchNeed => ({ ok: false, reason, ...base });
+  const no = (reason: string, blocker: BatchNeed["blocker"] = "funds"): BatchNeed => ({ ok: false, reason, blocker, ...base });
   const count = (token: "USDC" | "SOL") => items.filter((i) => i.token === token).length;
   if (usdcTotal > 0n) {
-    if (a.senderUsdc < usdcTotal) return no(`Your wallet has ${usdc(a.senderUsdc)} USDC; ${count("USDC") === 1 ? "this request is" : `these ${count("USDC")} requests total`} ${usdc(usdcTotal)} USDC.`);
-    if (a.senderUsdcFrozen) return no("Your USDC account is frozen, so it cannot send.");
+    // Frozen accounts first: no funding plan can fix them (F2).
+    if (a.senderUsdcFrozen) return no("Your USDC account is frozen, so it cannot send.", "frozen");
     for (const it of items) {
-      if (it.token === "USDC" && a.usdcAccounts.get(it.recipient)?.frozen) return no(`The USDC account of ${it.recipient} is frozen, so it cannot receive.`);
+      if (it.token === "USDC" && a.usdcAccounts.get(it.recipient)?.frozen) return no(`The USDC account of ${it.recipient} is frozen, so it cannot receive.`, "frozen");
     }
+  }
+  for (const wallet of a.newSolWallets) {
+    const sent = solTo.get(wallet) ?? 0n;
+    if (a.rentMinimum !== null && sent > 0n && sent < a.rentMinimum) {
+      return no(`${wallet} has never been used, so the first payment to it must be at least ${sol(a.rentMinimum)} SOL.`, "rent_minimum");
+    }
+  }
+  if (usdcTotal > 0n && a.senderUsdc < usdcTotal) {
+    return no(`Your wallet has ${usdc(a.senderUsdc)} USDC; ${count("USDC") === 1 ? "this request is" : `these ${count("USDC")} requests total`} ${usdc(usdcTotal)} USDC.`);
   }
   if (a.senderLamports < solTotal + feeLamports) {
     return no(solTotal > 0n
       ? `Your wallet needs ${sol(solTotal)} SOL for the SOL requests plus about ${sol(feeLamports)} SOL for fees${opens.length ? " and new USDC accounts" : ""}; it has ${sol(a.senderLamports)} SOL.`
       : `Your wallet needs about ${sol(feeLamports)} SOL for fees${opens.length ? ` (it also opens ${opens.length} recipient USDC ${opens.length === 1 ? "account" : "accounts"})` : ""}; it has ${sol(a.senderLamports)} SOL.`);
   }
-  for (const wallet of a.newSolWallets) {
-    const sent = solTo.get(wallet) ?? 0n;
-    if (a.rentMinimum !== null && sent > 0n && sent < a.rentMinimum) {
-      return no(`${wallet} has never been used, so the first payment to it must be at least ${sol(a.rentMinimum)} SOL.`);
-    }
-  }
   return { ok: true, ...base };
+}
+
+// ---------------------------------------------------------------------------------------------
+// F2 funding plan: the SOL/USD price that sizes a swap, read from Pyth on Solana itself (the RPC hosts the plugin
+// already uses, so no new host). The account is Pyth's sponsored SOL/USD PriceUpdateV2 account, owned by the Pyth
+// Solana Receiver program; the feed id inside it is checked, so a wrong or replaced account is refused.
+
+export const PYTH_SOL_USD_ACCOUNT = "7UVimffxr9ow1uXYxsr4LHAcV58mLzhmwaeKvJ1pjLiE";
+export const PYTH_RECEIVER_PROGRAM = "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ";
+/** Pyth's SOL/USD feed id (hex). */
+export const PYTH_SOL_USD_FEED = "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d";
+const PYTH_OPTS = { encoding: "base64", commitment: "confirmed" } as const;
+
+/** USD per SOL = price × 10^expo, ± conf × 10^expo, published at publishTime (unix seconds). */
+export interface SolUsdPrice {
+  price: bigint;
+  conf: bigint;
+  expo: number;
+  publishTime: number;
+}
+
+/**
+ * One getAccountInfo read of Pyth's SOL/USD account. PriceUpdateV2 layout (Anchor): 8-byte discriminator, 32-byte
+ * write authority, verification level (1 byte for Full; Partial carries a signature count and is refused), then the
+ * price message: feed id (32), price i64, conf u64, exponent i32, publish time i64 (little-endian). Throws when the
+ * account isn't Pyth's, isn't fully verified, or isn't the SOL/USD feed. Freshness is the caller's call (funding.ts).
+ */
+export async function readSolUsdPrice(rpc: Rpc, budgetMs = 1500): Promise<SolUsdPrice> {
+  const res = await within(Date.now() + budgetMs, rpc.call<{ value: { owner: string; data: [string, string] | unknown } | null }>(
+    "getAccountInfo", [PYTH_SOL_USD_ACCOUNT, PYTH_OPTS]));
+  const v = res?.value;
+  if (!v || v.owner !== PYTH_RECEIVER_PROGRAM || !Array.isArray(v.data) || v.data[1] !== "base64" || typeof v.data[0] !== "string") {
+    throw new RpcError("Pyth's SOL/USD account isn't what Owed expects");
+  }
+  const b = Buffer.from(v.data[0], "base64");
+  const FULL = 1;
+  let o = 8 + 32;
+  if (b.length < o + 1 + 32 + 28 || b[o] !== FULL) throw new RpcError("Pyth's SOL/USD price isn't fully verified");
+  o += 1;
+  if (b.subarray(o, o + 32).toString("hex") !== PYTH_SOL_USD_FEED) throw new RpcError("Pyth's account isn't the SOL/USD feed");
+  o += 32;
+  const price = b.readBigInt64LE(o);
+  const conf = b.readBigUInt64LE(o + 8);
+  const expo = b.readInt32LE(o + 16);
+  const publishTime = Number(b.readBigInt64LE(o + 20));
+  return { price, conf, expo, publishTime };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 import { errorResponse, json, toErrorResponse } from "@/lib/http";
 import { cronAuthorized, runDueSchedules } from "@/lib/schedules";
+import { runDueInvoiceTerms } from "@/lib/invoice-terms"; // F8 invoices
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,13 @@ export async function GET(req: Request): Promise<Response> {
   try {
     const summary = await runDueSchedules();
     console.log(`cron schedules ${summary.period}: due ${summary.due}, opened ${summary.opened.length}, already ${summary.already}, skipped ${summary.skipped.length}, failed ${summary.failed.length}, remaining ${summary.remaining}`);
+    // F8 invoices start: invoice terms on the same daily run (later installments, full prices, late fees, pending refunds).
+    const invoiceTerms = await runDueInvoiceTerms().catch((e: unknown) => ({ error: e instanceof Error ? e.message.slice(0, 200) : "error" }));
+    if ("error" in invoiceTerms) console.error(`cron invoice terms: ${invoiceTerms.error}`);
+    else console.log(`cron invoice terms ${invoiceTerms.date}: due ${invoiceTerms.due}, opened ${invoiceTerms.opened.length}, skipped ${invoiceTerms.skipped.length}, waiting ${invoiceTerms.waiting.length}, failed ${invoiceTerms.failed.length}`);
+    Object.assign(summary, { invoice_terms: invoiceTerms });
+    if ("error" in invoiceTerms || invoiceTerms.failed.length > 0) return json(summary, { status: 500 });
+    // F8 invoices end
     return json(summary, { status: summary.failed.length > 0 ? 500 : 200 });
   } catch (e) {
     return toErrorResponse(e);

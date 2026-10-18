@@ -11,6 +11,7 @@ import { basescanTx } from "../evm.js"; // W3-B
 import { checkPayments, type CheckResult } from "./check_payments.js";
 import { fiatAmountText, fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
 import type { FiatQuoteRes } from "../contract.js";
+import type { InvoiceTermsRes } from "../contract.js"; // F8 invoices
 
 // A nudge for someone who hasn't paid yet. It reads the request's status first and never writes a
 // reminder for a request that is paid or cancelled, or whose status can't be read right now.
@@ -320,15 +321,41 @@ async function owedFacts(id: string, invoiceLink: boolean, ctx: CallContext, dep
 }
 
 async function invoiceFacts(id: string, ctx: CallContext, deps: Deps, budgetMs: number): Promise<Facts | string> {
-  let inv: InvoiceRes | null;
+  let inv: InvoiceTermsRes | null; // F8 invoices: with terms, if the invoice has any
   try {
-    inv = await within(ctx.api.getInvoice(id), budgetMs, () => null);
+    inv = await within(ctx.api.getInvoiceTerms(id), budgetMs, () => null);
   } catch (error) {
     return apiProblem(error, "invoice");
   }
   if (!inv) return UNREADABLE;
   if (inv.status === "not_found" || inv.status === "invalid") return "No Owed invoice has this id.";
   const paid = inv.paid ?? undefined;
+  // F8 invoices: an invoice with installments or an early price is chased for what is due now: that request's amount
+  // and link (each is an invoice of its own). With nothing open right now there is nothing to chase.
+  const now = inv.terms && (inv.status === "open" || inv.status === "underpaid") ? inv.terms.pay_now : undefined;
+  if (inv.terms && (inv.status === "open" || inv.status === "underpaid") && !now) {
+    const next = inv.terms.installments?.plan.find((p) => p.status === "scheduled") ?? (inv.terms.early_discount?.full.status === "scheduled" ? inv.terms.early_discount.full : undefined);
+    return `Nothing to chase on this invoice right now: ${next ? `its next payment opens ${next.opens_on}` : "nothing is open to pay"}. Paid so far: ${inv.terms.paid_so_far} ${inv.token}.`;
+  }
+  if (now) {
+    return {
+      status: "open",
+      kind: "invoice",
+      id: now.id,
+      link: now.link,
+      amount: now.amount,
+      token: inv.token,
+      amountDue: now.amount,
+      payerName: clean(inv.client_name, 60) || undefined,
+      requesterName: clean(inv.business_name, 60) || undefined,
+      invoiceNumber: clean(inv.invoice_number, 20) || inv.id,
+      dueDate: now.due_date ?? inv.due_date,
+      createdAt: inv.created_at,
+      recipient: inv.recipient,
+      claimedDomain: inv.from_domain || undefined,
+      flags: inv.flags,
+    };
+  }
   return {
     status: inv.status,
     kind: "invoice",

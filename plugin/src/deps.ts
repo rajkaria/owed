@@ -1,5 +1,5 @@
 import { makeApi, owedHosts, resolveBaseUrl, type ApiClient } from "./api.js";
-import { DEFAULT_RPC_URLS, findPayment, makeRpc, payerReadiness, readBatchAccounts, type Rpc } from "./chain.js";
+import { DEFAULT_RPC_URLS, findPayment, makeRpc, payerReadiness, readBatchAccounts, readSolUsdPrice, type Rpc } from "./chain.js";
 import { fromAtomic, toAtomic } from "./money.js";
 import { screenRecipient } from "./screen.js";
 import { buildTransferUrl, isSolanaAddress, newReference, parseLink } from "./solana-pay.js";
@@ -28,6 +28,8 @@ export interface Deps {
   /** F1 pay_all: one account read for a whole batch, and the transaction that pays it (chunked at 1,232 bytes). */
   readBatchAccounts: typeof readBatchAccounts;
   planBatch: typeof planBatch;
+  /** F2 funding plan: Pyth's SOL/USD price, read over the same Solana RPC hosts, to size a swap. */
+  solUsdPrice: typeof readSolUsdPrice;
 }
 
 export const defaultDeps: Deps = {
@@ -38,6 +40,7 @@ export const defaultDeps: Deps = {
   toAtomic, fromAtomic, parseLink, buildTransferUrl, newReference, isSolanaAddress, buildTransferTx, findPayment, payerReadiness,
   screenRecipient,
   readBatchAccounts, planBatch, // F1
+  solUsdPrice: readSolUsdPrice, // F2
 };
 
 export interface CallContext {

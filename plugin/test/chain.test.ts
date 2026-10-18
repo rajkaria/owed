@@ -255,6 +255,10 @@ test("refuses malformed addresses before any RPC call", async () => {
 // ---------------------------------------------------------------------------------------------
 // payerReadiness
 
+/** F2: the recorded balances (the RPC's own uiAmountString / lamports are the oracle). */
+const ACTIVE_FUNDS = { lamports: 35_987_616_384n, usdc: 69_575_440n, usdcAccount: true };
+const SOL_FUNDS = { lamports: 29_286_626_676n, usdc: null, usdcAccount: null };
+
 function ready(name: string) {
   const f = fixture(name);
   const accounts = (f.calls[0]!.result as { value: Array<{ lamports: number; data: { parsed: { info: { state: string; tokenAmount: { uiAmountString: string } } } } } | null> }).value;
@@ -265,7 +269,10 @@ test("USDC: an empty sender is told its balance and the request amount", async (
   const { rpc, fresh, accounts } = ready("readiness-usdc-empty-sender");
   assert.deepEqual([accounts[0], accounts[1]], [null, null]);
   const r = await payerReadiness(rpc, { sender: fresh, recipient: ACTIVE_WALLET, token: "USDC", amountAtomic: 15_000_000n });
-  assert.deepEqual(r, { ok: false, reason: "Your wallet has 0 USDC; this request is 15 USDC.", recipientAtaExists: true });
+  assert.deepEqual(r, {
+    ok: false, reason: "Your wallet has 0 USDC; this request is 15 USDC.", recipientAtaExists: true,
+    funds: { lamports: 0n, usdc: 0n, usdcAccount: false }, blocker: "funds", // F2: what a funding plan is built from
+  });
   assert.equal(rpc.log.length, 1);
 });
 
@@ -273,13 +280,13 @@ test("USDC: a funded sender paying a new address is ready and needs the account 
   const { rpc, fresh, accounts } = ready("readiness-usdc-new-recipient");
   assert.equal(accounts[2], null);
   const r = await payerReadiness(rpc, { sender: ACTIVE_WALLET, recipient: fresh, token: "USDC", amountAtomic: 15_000_000n });
-  assert.deepEqual(r, { ok: true, recipientAtaExists: false });
+  assert.deepEqual(r, { ok: true, recipientAtaExists: false, funds: { lamports: 35_992_412_910n, usdc: 69_063_710n, usdcAccount: true } });
 });
 
 test("USDC: a funded sender paying an existing USDC account", async () => {
   const { rpc } = ready("readiness-usdc-existing-recipient");
   const r = await payerReadiness(rpc, { sender: ACTIVE_WALLET, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 1_000_000n });
-  assert.deepEqual(r, { ok: true, recipientAtaExists: true });
+  assert.deepEqual(r, { ok: true, recipientAtaExists: true, funds: ACTIVE_FUNDS });
 });
 
 test("USDC: asking for more than the sender holds names both amounts", async () => {
@@ -287,7 +294,7 @@ test("USDC: asking for more than the sender holds names both amounts", async () 
   // The RPC's own uiAmountString is the oracle for our bigint formatting.
   const held = accounts[1]!.data.parsed.info.tokenAmount.uiAmountString;
   const r = await payerReadiness(rpc, { sender: ACTIVE_WALLET, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 100_000_000_000n });
-  assert.deepEqual(r, { ok: false, reason: `Your wallet has ${held} USDC; this request is 100000 USDC.`, recipientAtaExists: true });
+  assert.deepEqual(r, { ok: false, reason: `Your wallet has ${held} USDC; this request is 100000 USDC.`, recipientAtaExists: true, funds: ACTIVE_FUNDS, blocker: "funds" });
 });
 
 test("USDC: enough USDC but under 0.003 SOL for fees", async () => {
@@ -296,7 +303,7 @@ test("USDC: enough USDC but under 0.003 SOL for fees", async () => {
   // Derived from the real capture: same accounts, sender lamports lowered to 0.002 SOL.
   (call.result as { value: Array<{ lamports: number }> }).value[0]!.lamports = 2_000_000;
   const r = await payerReadiness(replay(call), { sender: ACTIVE_WALLET, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 1_000_000n });
-  assert.deepEqual(r, { ok: false, reason: "Your wallet needs about 0.003 SOL for fees; it has 0.002 SOL.", recipientAtaExists: true });
+  assert.deepEqual(r, { ok: false, reason: "Your wallet needs about 0.003 SOL for fees; it has 0.002 SOL.", recipientAtaExists: true, funds: { ...ACTIVE_FUNDS, lamports: 2_000_000n }, blocker: "funds" });
 });
 
 test("USDC: a frozen sender account cannot send", async () => {
@@ -305,7 +312,7 @@ test("USDC: a frozen sender account cannot send", async () => {
   // Derived from the real capture: the sender's token account state set to frozen.
   (call.result as { value: Array<{ data: { parsed: { info: { state: string } } } }> }).value[1]!.data.parsed.info.state = "frozen";
   const r = await payerReadiness(replay(call), { sender: ACTIVE_WALLET, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 1_000_000n });
-  assert.deepEqual(r, { ok: false, reason: "Your USDC account is frozen, so it cannot send.", recipientAtaExists: true });
+  assert.deepEqual(r, { ok: false, reason: "Your USDC account is frozen, so it cannot send.", recipientAtaExists: true, funds: ACTIVE_FUNDS, blocker: "frozen" });
 });
 
 test("USDC: a frozen recipient account cannot receive", async () => {
@@ -314,13 +321,13 @@ test("USDC: a frozen recipient account cannot receive", async () => {
   // Derived from the real capture: the recipient's token account state set to frozen.
   (call.result as { value: Array<{ data: { parsed: { info: { state: string } } } }> }).value[2]!.data.parsed.info.state = "frozen";
   const r = await payerReadiness(replay(call), { sender: ACTIVE_WALLET, recipient: TEAM_WALLET, token: "USDC", amountAtomic: 1_000_000n });
-  assert.deepEqual(r, { ok: false, reason: "The recipient's USDC account is frozen, so it cannot receive.", recipientAtaExists: true });
+  assert.deepEqual(r, { ok: false, reason: "The recipient's USDC account is frozen, so it cannot receive.", recipientAtaExists: true, funds: ACTIVE_FUNDS, blocker: "frozen" });
 });
 
 test("SOL: a funded sender paying an existing account is ready", async () => {
   const { rpc } = ready("readiness-sol-existing-recipient");
   const r = await payerReadiness(rpc, { sender: SOL_PAYER, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 3_027_000n });
-  assert.deepEqual(r, { ok: true, recipientAtaExists: true });
+  assert.deepEqual(r, { ok: true, recipientAtaExists: true, funds: SOL_FUNDS });
   assert.equal(rpc.log.length, 1);
 });
 
@@ -328,12 +335,12 @@ test("SOL: the amount plus the fee reserve must fit in the balance", async () =>
   const { accounts } = ready("readiness-sol-existing-recipient");
   assert.equal(accounts[0]!.lamports, 29_286_626_676, "re-captured: update the SOL amounts below");
   const r = await payerReadiness(ready("readiness-sol-existing-recipient").rpc, { sender: SOL_PAYER, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 30_000_000_000n });
-  assert.deepEqual(r, { ok: false, reason: "Your wallet has 29.286626676 SOL; this request is 30 SOL.", recipientAtaExists: true });
+  assert.deepEqual(r, { ok: false, reason: "Your wallet has 29.286626676 SOL; this request is 30 SOL.", recipientAtaExists: true, funds: SOL_FUNDS, blocker: "funds" });
   const r2 = await payerReadiness(ready("readiness-sol-existing-recipient").rpc, { sender: SOL_PAYER, recipient: SOL_PAYEE, token: "SOL", amountAtomic: 29_285_000_000n });
   assert.deepEqual(r2, {
     ok: false,
     reason: "Your wallet needs about 0.003 SOL for fees on top of the 29.285 SOL request; it has 29.286626676 SOL.",
-    recipientAtaExists: true,
+    recipientAtaExists: true, funds: SOL_FUNDS, blocker: "funds",
   });
 });
 
@@ -344,10 +351,10 @@ test("SOL: a new address must receive at least the cluster's rent-exempt minimum
   assert.deepEqual(low, {
     ok: false,
     reason: "This address has never been used, so the first payment must be at least 0.00065024 SOL.",
-    recipientAtaExists: true,
+    recipientAtaExists: true, funds: SOL_FUNDS, blocker: "rent_minimum", // F2: no funding plan fixes this
   });
   const ok = await payerReadiness(ready("readiness-sol-new-recipient").rpc, { sender: SOL_PAYER, recipient: fresh, token: "SOL", amountAtomic: 650_240n });
-  assert.deepEqual(ok, { ok: true, recipientAtaExists: true });
+  assert.deepEqual(ok, { ok: true, recipientAtaExists: true, funds: SOL_FUNDS });
 });
 
 test("readiness gives up with a plain error when RPC exceeds the time budget", async () => {

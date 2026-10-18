@@ -7,7 +7,9 @@ import { assessBatch, type BatchAccounts } from "../chain.js";
 import type { Token } from "../money.js";
 import { proposeSolana, solanaOutputSchema } from "../paybox.js";
 import { domainBrandFlags, PAYEE_BUDGET_MS, payeeForPayment } from "../payee.js";
-import { handleCheckLine, payerLabel } from "../payer.js";
+import { handleCheckBeforeFunding, handleCheckLine, payerLabel } from "../payer.js";
+import { planIdSchema } from "../contract.js"; // F2
+import { markPlanUsed, planFunding, planResult, PLAN_RECORD_BUDGET_MS, PLAN_USED_BUDGET_MS, PRICE_BUDGET_MS, readUsablePrice, recordPlan } from "../funding.js"; // F2
 import { SNS_BUDGET_MS, snsBrandFlags, snsForPayment } from "../sns-payee.js";
 import { brandFlags, brandWordsFromFlags, quote, shortAddress, withoutOwnBrandFlags } from "../text.js";
 import { checkOwedTerms, PAY_BUDGET_MS, type Resolved } from "./pay_link.js";
@@ -30,6 +32,7 @@ export const inputSchema = z.object({
   max_total_sol: decimalSchema.optional().describe("The most SOL to send in total. SOL requests are only paid when this is set."),
   include_cautioned: z.boolean().optional()
     .describe("Only when the user named them: also pay requests that carry a brand-word caution (they mention a brand such as PayBox or IRS). Skipped otherwise."),
+  plan_id: planIdSchema.optional().describe("Only when a funding plan from pay_all says so: its plan_id, passed on the pay_all call that ends the plan, so Owed can count plans that led to a payment."), // F2
 }).strict();
 
 export const outputSchema = solanaOutputSchema;
@@ -42,6 +45,7 @@ const DESCRIPTION = [
   "It refuses when the total is above max_total or the wallet can't cover the total plus fees, then returns one unsigned transaction for the user to approve in PayBox.",
   "Show the user the text preview: it lists each payee, amount and badge, quotes the requesters' words as unverified, and ends with a handle check for every request that names an X handle: call PayBox resolve_username for each before approving, and don't approve if one resolves to a different wallet than its request pays.",
   "One transaction holds up to 1,232 bytes (about 6 to 9 payments): if not all fit, it pays the first ones and lists the ids left; after the user approves and it confirms, call pay_all again with those ids.",
+  "If the wallet can't cover the total, nothing is proposed: the text gives a funding plan for exactly the requests that passed the checks (swap SOL for USDC, bring USDC over from Base, swap another token, or buy with MoonPay through get_buy_link), each ending with pay_all again with the plan's plan_id; run only the option the user picks, with PayBox check_operation_readiness before each step. Skipped requests are never part of a plan.", // F2
 ].join(" ");
 
 /** One request being considered: its terms (checked against its id) and, once checked, why it's skipped. */
@@ -199,8 +203,8 @@ export async function payAll(args: PayAllInput, deps: Deps = defaultDeps) {
     included.push(c);
   });
 
-  const skipText = () => skips.map((s) => `- Skipped ${s.id}: ${s.reason}.`);
-  if (included.length === 0) return refusal(["Nothing was sent: no request passed the checks.", ...skipText()].join("\n"));
+  const skipList = () => skips.map((s) => `- Skipped ${s.id}: ${s.reason}.`);
+  if (included.length === 0) return refusal(["Nothing was sent: no request passed the checks.", ...skipList()].join("\n"));
 
   // Ceilings the user agreed to, over everything that passed (not only this transaction's chunk).
   const total = (token: Token) => included.filter((c) => c.token === token).reduce((n, c) => n + c.amountAtomic, 0n);
@@ -215,7 +219,30 @@ export async function payAll(args: PayAllInput, deps: Deps = defaultDeps) {
 
   if (!accounts) return refusal("Solana couldn't be reached to check your balance. Nothing was sent; try again in a moment.");
   const need = assessBatch(accounts, included.map((c) => ({ recipient: c.resolved.request.recipient, token: c.token, amountAtomic: c.amountAtomic })));
-  if (!need.ok) return refusal(`${need.reason} Nothing was sent.`);
+  const skipText = () => skips.map((s) => `- Skipped ${s.id}: ${s.reason}.`);
+  if (!need.ok) {
+    // F2 funding plan: only a balance shortfall gets a plan, and only for the requests that passed every check
+    // (skipped ones, cautioned ones included, are never in it). A frozen account or a below-rent SOL payment refuses.
+    if (need.blocker !== "funds") return refusal(`${need.reason} Nothing was sent.`);
+    const price = await readUsablePrice(deps, Math.min(PRICE_BUDGET_MS, remaining() - 1000));
+    const { plan_id: planIdIn, ...again } = args;
+    const plan0 = planFunding({
+      payTool: "pay_all", payArgs: again, requestIds: included.map((c) => c.id), sender: args.sender,
+      sendUsdc: need.usdcTotal, sendLamports: need.solTotal, feeLamports: need.feeLamports,
+      funds: { lamports: accounts.senderLamports, usdc: accounts.senderUsdc, usdcAccount: accounts.senderUsdcAccount ?? null },
+      x402Rail: false, x402Possible: false, price, // pay_all is one Solana Pay transaction: no x402
+    });
+    if (!plan0) return refusal(`${need.reason} Nothing was sent.`);
+    const plan = await recordPlan(plan0, ctx, planIdIn, Math.min(PLAN_RECORD_BUDGET_MS, remaining() - 300));
+    const totalsText = (["USDC", "SOL"] as const).filter((t) => total(t) > 0n).map((t) => `${deps.fromAtomic(total(t), t)} ${t}`).join(" + ");
+    return planResult(plan, again, [`${need.reason} Nothing was sent.`],
+      included.filter((c) => c.resolved.requesterHandle).map((c) => handleCheckBeforeFunding(c.resolved.requesterHandle!, c.resolved.request.recipient, `request ${c.id}`)),
+      [
+        `The plan covers these ${included.length} ${included.length === 1 ? "request" : "requests"} (${totalsText}), the ones that passed every check:`,
+        ...included.map((c) => `- ${c.amount} ${c.token} to ${c.lead}; request ${c.id}; recipient ${c.resolved.request.recipient}.${c.caution.length ? ` Caution: it mentions ${c.caution.map((w) => `"${w}"`).join(", ")}; included because the user named it.` : ""}`),
+        ...skipText(),
+      ]);
+  }
 
   let plan;
   try {
@@ -262,6 +289,7 @@ export async function payAll(args: PayAllInput, deps: Deps = defaultDeps) {
   }
   lines.push(...skipText());
   lines.push("Nothing is sent until the user approves in PayBox.");
+  await markPlanUsed(args.plan_id, args.sender, ctx, Math.min(PLAN_USED_BUDGET_MS, remaining() - 200)); // F2
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent };
 }
 

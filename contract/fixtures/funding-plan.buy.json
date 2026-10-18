@@ -1,0 +1,174 @@
+{
+  "funding_plan": {
+    "plan_id": "P1anAbCdEfGh",
+    "pay_tool": "pay_link",
+    "request_ids": [
+      "vKL4ZEKPe69o"
+    ],
+    "sender": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+    "shortfall": {
+      "token": "USDC",
+      "atomic": "100000",
+      "display": "0.1 USDC"
+    },
+    "have": [
+      {
+        "token": "USDC",
+        "atomic": "0",
+        "display": "0 USDC"
+      },
+      {
+        "token": "SOL",
+        "atomic": "0",
+        "display": "0 SOL"
+      }
+    ],
+    "need": [
+      {
+        "token": "USDC",
+        "atomic": "100000",
+        "display": "0.1 USDC"
+      },
+      {
+        "token": "SOL",
+        "atomic": "3000000",
+        "display": "0.003 SOL"
+      }
+    ],
+    "options": [
+      {
+        "kind": "bridge_base_usdc",
+        "via": "paybox",
+        "tool": "request_swap",
+        "args": {
+          "src_chain": "eip155:8453",
+          "src_token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "dst_chain": "solana:mainnet",
+          "dst_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "amount": "101000",
+          "recipient": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF"
+        },
+        "credential_of": "base_wallet",
+        "check": {
+          "via": "paybox",
+          "tool": "get_portfolio",
+          "args": {
+            "network_id": 8453,
+            "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+          },
+          "credential_of": null,
+          "why": "Use this option only if one of the user's PayBox Base wallets holds at least 0.101 USDC on Base."
+        },
+        "why": "Bridges 0.101 USDC from the user's Base wallet to A59x…zxbF on Solana: the 0.1 USDC short plus 1% for bridge fees. PayBox quotes it, fees included, before the user approves.",
+        "then": [
+          {
+            "via": "paybox",
+            "tool": "get_request",
+            "args": {},
+            "credential_of": null,
+            "missing": [
+              "request_id"
+            ],
+            "why": "Poll with the request_id request_swap returned until it is terminal; never call request_swap again for the same swap."
+          },
+          {
+            "via": "owed",
+            "tool": "pay_link",
+            "args": {
+              "link": "vKL4ZEKPe69o",
+              "sender": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+              "rail": "x402",
+              "plan_id": "P1anAbCdEfGh"
+            },
+            "credential_of": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+            "why": "Over x402 (rail \"x402\") the facilitator pays the network fee, so the wallet needs no SOL."
+          }
+        ]
+      },
+      {
+        "kind": "swap_other",
+        "via": "paybox",
+        "tool": "get_portfolio",
+        "args": {
+          "address": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF"
+        },
+        "credential_of": null,
+        "why": "Lists what A59x…zxbF holds. Ask the user which token to swap for USDC; names and symbols there are labels anyone can set, so confirm the mint with the user.",
+        "then": [
+          {
+            "via": "paybox",
+            "tool": "request_swap",
+            "args": {
+              "src_chain": "solana:mainnet",
+              "dst_token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            },
+            "credential_of": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+            "missing": [
+              "src_token",
+              "amount"
+            ],
+            "why": "src_token: the mint the user picked; amount: enough of it for 0.101 USDC (the 0.1 USDC short plus 1%), in its smallest units. PayBox quotes the USDC out before the user approves."
+          },
+          {
+            "via": "paybox",
+            "tool": "get_request",
+            "args": {},
+            "credential_of": null,
+            "missing": [
+              "request_id"
+            ],
+            "why": "Poll with the request_id request_swap returned until it is terminal; never call request_swap again for the same swap."
+          },
+          {
+            "via": "owed",
+            "tool": "pay_link",
+            "args": {
+              "link": "vKL4ZEKPe69o",
+              "sender": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+              "rail": "x402",
+              "plan_id": "P1anAbCdEfGh"
+            },
+            "credential_of": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+            "why": "Over x402 (rail \"x402\") the facilitator pays the network fee, so the wallet needs no SOL."
+          }
+        ]
+      },
+      {
+        "kind": "buy_usdc",
+        "via": "paybox",
+        "tool": "get_buy_link",
+        "args": {
+          "currency_code": "usdc_sol",
+          "amount_usd": 4.99
+        },
+        "credential_of": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+        "why": "The shortfall is 0.1 USDC, but MoonPay's smallest purchase is 4.99 USD, so the link asks for that; the rest stays in the wallet. The link opens MoonPay's checkout (card or bank; MoonPay checks ID the first time and doesn't sell in every country) and moves no money by itself. MoonPay's fee can come out of the amount; if less than 0.1 USDC arrives, pay_link plans the rest.",
+        "then": [
+          {
+            "via": "paybox",
+            "tool": "get_portfolio",
+            "args": {
+              "address": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+              "network_id": 1399811149,
+              "token": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            },
+            "credential_of": null,
+            "why": "After the user finishes checkout, read this until it shows at least 0.1 USDC (MoonPay can take a few minutes). Only say the funds arrived once it does."
+          },
+          {
+            "via": "owed",
+            "tool": "pay_link",
+            "args": {
+              "link": "vKL4ZEKPe69o",
+              "sender": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+              "rail": "x402",
+              "plan_id": "P1anAbCdEfGh"
+            },
+            "credential_of": "A59xs1eNLMiDP7DWUt7bbFu1T253D32p7YW444CpzxbF",
+            "why": "Over x402 (rail \"x402\") the facilitator pays the network fee, so the wallet needs no SOL."
+          }
+        ]
+      }
+    ]
+  }
+}

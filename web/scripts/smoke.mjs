@@ -18,6 +18,8 @@ import { check, fixtureShapes, parseSolanaPayUrl, shapes, TEAM_WALLET, USDC_MINT
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "../../contract/fixtures");
 const UNKNOWN_ID = "1111111111"; // valid 10-char base58 that random ids never produce in practice
+const UNKNOWN_LEDGER_ID = "1111111111ab"; // valid 12-char base58 (ledger and refund ids), never produced in practice
+const TOKEN_ACCOUNT = "2YXyjxcV8FqSeZ8iRqZoNUnxAvfuX49d7VmzTmySgv1x"; // off the ed25519 curve: no wallet can sign for it
 const SMOKE_AMOUNT = "0.01";
 const SMOKE_REQUEST = {
   recipient: TEAM_WALLET, amount: SMOKE_AMOUNT, token: "USDC",
@@ -165,11 +167,13 @@ export async function runSmoke({ base, strict = false, create = false, id = null
   await page("landing", "/", { contains: ["Owed"] });
   await page("unknown page is 404", `/smoke-missing-${Date.now().toString(36)}`, { expect: 404, pendingIfMissing: false });
   await page("pay page, unknown id", `/r/${UNKNOWN_ID}`, { expect: 404, mustExist: false });
+  await page("ledger page, unknown id", `/l/${UNKNOWN_LEDGER_ID}`, { expect: 404, mustExist: false }); // F6 (0020)
   await page("stateless pay page", `/p?u=${encodeURIComponent(fixtures["status-raw.req"].solana_pay_url)}`);
 
   // ------------------------------------------------------------------------------------------- API, read-only
 
   await api("stats", "GET", "/api/v1/stats", { expect: 200, shape: "statsRes" });
+  await api("plans stats", "GET", "/api/v1/plans/stats", { expect: 200, shape: "planStatsRes" }); // F2 (0018)
   await api("get unknown id", "GET", `/api/v1/requests/${UNKNOWN_ID}`, {
     expect: 404, shape: "errorRes",
     refine: (json, problems) => { if (json.error.code !== "not_found") problems.push(`error code ${json.error.code}, expected not_found`); },
@@ -216,6 +220,13 @@ export async function runSmoke({ base, strict = false, create = false, id = null
     },
   });
   await expect404("QR, unknown id", `/api/qr/${UNKNOWN_ID}.png`);
+  const notFoundCode = (json, problems) => { if (json.error.code !== "not_found") problems.push(`error code ${json.error.code}, expected not_found`); };
+  await api("ledger, unknown id", "GET", `/api/v1/ledgers/${UNKNOWN_LEDGER_ID}`, { expect: 404, shape: "errorRes", refine: notFoundCode }); // F6 (0020)
+  await api("ledger, malformed id", "GET", "/api/v1/ledgers/bad_id-0OIl", { expect: 400, shape: "errorRes", refine: invalidCode });
+  await api("ledger create rejects a token account owner", "POST", "/api/v1/ledgers", {
+    json: { ...fixtures["ledgers.create.req"], owner: TOKEN_ACCOUNT, source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
+  });
+  await api("refund, unknown id", "GET", `/api/v1/refunds/${UNKNOWN_LEDGER_ID}`, { expect: 404, shape: "errorRes", refine: notFoundCode }); // F8 (0021)
 
   // ------------------------------------------------------------------------------------------- one real request
 

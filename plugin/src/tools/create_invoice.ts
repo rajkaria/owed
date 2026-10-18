@@ -26,6 +26,13 @@ import {
 } from "../payer.js";
 import { SNS_BUDGET_MS } from "../sns-payee.js";
 // F1 payer inbox end
+// F8 invoices start
+import { invoiceTermsSchema, type CreateInvoiceTermsReq, type InvoiceTermsRes } from "../contract.js";
+import { isoDay } from "../invoice-terms-core.js";
+import {
+  chaseInput, checkTerms, earlyDiscountInput, hasTermsArgs, installmentsInput, lateFeeInput, payAtomicOf, planLocal, termsLines, termsSentence, type LocalPlan,
+} from "../invoice-terms.js";
+// F8 invoices end
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -58,7 +65,7 @@ export const inputSchema = z.object({
   business_name: z.string().min(1).max(INVOICE_LIMITS.business_name).describe("Who the invoice is from: the user's name or business."),
   client_name: z.string().min(1).max(INVOICE_LIMITS.client_name).describe("Who is being billed."),
   items: z.array(itemSchema).min(1).max(INVOICE_LIMITS.items).describe("1 to 20 line items. The total is their sum; Owed computes it."),
-  due_date: isoDateSchema.describe("Payment due date, YYYY-MM-DD (today or later)."),
+  due_date: isoDateSchema.describe("Payment due date, YYYY-MM-DD (today or later). With installments, the first installment's due date."),
   invoice_number: z.string().min(1).max(INVOICE_LIMITS.invoice_number).optional().describe("The user's own invoice number, if they have one."),
   notes: z.string().min(1).max(INVOICE_LIMITS.notes).optional().describe("Optional note printed on the invoice, e.g. payment terms or a thank-you."),
   from_domain: z.string().min(1).max(253).optional().describe("A domain the user controls whose _owed TXT record publishes this wallet (verified payee)."),
@@ -66,6 +73,12 @@ export const inputSchema = z.object({
   currency: currencyInput.optional(), // local-currency invoice: every unit_price is in this currency
   payer: payerInput.optional().describe("Optional: the client as a payer, so the invoice shows up in their own agent's inbox (what_do_i_owe). For an X handle, call PayBox resolve_username first, tell the user which wallet it resolved to, and pass {handle, wallet}; or pass {sns} or {wallet}. A handle is a label: Owed doesn't verify it."), // F1
   requester_handle: requesterHandleInput.optional(), // F1
+  // F8 invoices start
+  installments: installmentsInput.optional(),
+  early_discount: earlyDiscountInput.optional(),
+  late_fee: lateFeeInput.optional(),
+  chase: chaseInput.optional(),
+  // F8 invoices end
 }).strict();
 
 const itemOutput = z.object({
@@ -97,6 +110,9 @@ export const outputSchema = z.object({
   fiat: fiatOutput.optional(), // local-currency invoice: items are in fiat.currency, total is the USDC locked
   payer: payerOutput.optional().describe("The client the invoice is addressed to: it is in their what_do_i_owe inbox."), // F1
   requester_handle: z.string().optional().describe("The user's own X handle as the client sees it (not verified by Owed)."), // F1
+  // F8 invoices: the invoice as a whole. With installments or an early price, `id`'s own request asks for installment 1 or
+  // the early price (pay_now); `total` is still the whole invoice.
+  terms: invoiceTermsSchema.optional().describe("Installments, the early and full price, the late fee and the chase days, as Owed stored them."),
 }).strict();
 
 export type InvoiceInput = z.output<typeof inputSchema>;
@@ -109,6 +125,9 @@ const DESCRIPTION = [
   "Give each line a description, quantity and unit price; Owed adds them up. Returns invoice_link and a ready-to-send share_text: show both to the user.",
   "Later, check_payments with the id tells whether the invoice has been paid.",
   "If the user prices the work in their own currency (\"invoice Acme ₹40,000 for the logo\"), pass currency (\"INR\") with unit prices in it: the invoice lists the items in that currency and the total is locked to USDC at a live rate.", // local-currency invoices
+  // F8 invoices start
+  "Merchant terms, all optional: installments {count 2-12, interval \"monthly\" or days} splits the total into that many requests (the first due on due_date and payable now, each later one opening 7 days before its own due date; the invoice shows Paid only when all are); early_discount {amount or percent, until} asks a lower price until a date and the full price after (paying one cancels the other); late_fee {amount or percent} is printed now and opened once as its own request the day after the due date, only if it wasn't paid on time; chase sets the days after the due date when who_owes_me says a polite, firm or formal reminder is due (default 3, 7, 14; false for none). Every amount-changing term is a new request, so no link ever changes its amount.",
+  // F8 invoices end
 ].join(" ");
 
 // ---- pure: amounts and dates (bigint only) ----
@@ -259,6 +278,17 @@ export async function createInvoice(
   let total = units.fromAtomic(priced.totalAtomic, unit);
   const fiatTotal = code ? total : undefined;
   let fiat: FiatQuoteRes | undefined;
+  // F8 invoices: every term worked out here first, so the server's reply can be checked against it.
+  const termArgs = { installments: args.installments, early_discount: args.early_discount, late_fee: args.late_fee, chase: args.chase };
+  let plan: LocalPlan | null = null;
+  if (hasTermsArgs(termArgs)) {
+    const planned = planLocal(termArgs, {
+      totalUnits: priced.totalAtomic, issueDate: isoDay(started), dueDate: args.due_date, currency: code ?? null, expiresInDays: args.expires_in_days,
+      units: (amount) => units.toAtomic(amount, unit),
+    });
+    if (!planned.ok) return refusal(planned.message);
+    plan = planned.plan;
+  }
 
   const text = {
     businessName: clean(args.business_name, INVOICE_LIMITS.business_name),
@@ -300,6 +330,12 @@ export async function createInvoice(
   if (minimum !== null && priced.totalAtomic < minimum) {
     return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${total} SOL invoice`));
   }
+  // F8 invoices: every request a plan opens must reach the minimum too (installments, the early price, the late fee).
+  if (minimum !== null && plan) {
+    const parts = [...(plan.installments ?? []).map((i) => i.units), ...(plan.discount ? [plan.discount.earlyUnits] : []), ...(plan.lateFee ? [plan.lateFee.feeUnits] : [])];
+    const smallest = parts.reduce((a, b) => (b < a ? b : a), priced.totalAtomic);
+    if (smallest < minimum) return refusal(belowNewWalletMinimum(shortAddress(args.recipient), deps.fromAtomic(minimum, "SOL"), `a ${deps.fromAtomic(smallest, "SOL")} SOL part of this invoice`));
+  }
 
   const body: CreateInvoiceReq = {
     recipient: args.recipient,
@@ -321,10 +357,20 @@ export async function createInvoice(
     ...(payer && { payer: payer.body }), // F1
     ...(requesterHandle && { requester_handle: requesterHandle }),
   };
+  // F8 invoices: the terms ride along; a plain invoice is created exactly as before.
+  const termsBody: CreateInvoiceTermsReq | null = plan
+    ? {
+        ...body,
+        ...(args.installments && { installments: { count: args.installments.count, interval: args.installments.interval, ...(args.installments.first_due && { first_due: args.installments.first_due }) } }),
+        ...(args.early_discount && { early_discount: args.early_discount }),
+        ...(args.late_fee && { late_fee: args.late_fee }),
+        ...(args.chase !== undefined && { chase: args.chase }),
+      }
+    : null;
 
   // The API client gives up after API_TIMEOUT_MS; `within` also keeps a slow screening + DNS step from pushing past 10 s.
-  const outcome = await within<{ res: InvoiceRes } | { error: unknown }>(
-    ctx.api.createInvoice(body).then((res) => ({ res }), (error: unknown) => ({ error })),
+  const outcome = await within<{ res: InvoiceRes | InvoiceTermsRes } | { error: unknown }>(
+    (termsBody ? ctx.api.createInvoiceTerms(termsBody) : ctx.api.createInvoice(body)).then((res) => ({ res }), (error: unknown) => ({ error })),
     Math.max(0, Math.min(API_TIMEOUT_MS + 250, budgetLeft())),
     () => ({ error: new ApiError("upstream_unavailable", "Owed's server did not answer in time.") }),
   );
@@ -345,7 +391,22 @@ export async function createInvoice(
     payAtomic = quoted.atomic;
     total = quoted.amount;
   }
-  const mismatch = checkInvoice(res, body, priced, ctx, deps, code ? { code, payAtomic } : undefined);
+  // F8 invoices: with installments or an early price, the invoice's own request asks installment 1 or the early price.
+  let ownAtomic = payAtomic;
+  const terms = (res as InvoiceTermsRes).terms;
+  if (plan) {
+    let pay: (units: bigint) => bigint;
+    try {
+      const rate = code ? (res.fiat?.rate ?? null) : null;
+      pay = (u: bigint) => payAtomicOf(u, code ?? null, rate);
+      ownAtomic = pay(plan.ownUnits);
+    } catch {
+      return refusal("Owed's server returned an invoice that doesn't match what was asked, so it wasn't used. Try again.");
+    }
+    const termsProblem = checkTerms(terms, plan, { id: res.id, token, toAtomic: deps.toAtomic, pay });
+    if (termsProblem) return refusal(termsProblem);
+  }
+  const mismatch = checkInvoice(res, body, priced, ctx, deps, code ? { code, payAtomic } : undefined, ownAtomic);
   if (mismatch) return refusal(mismatch);
   if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer).replace("the request", "the invoice")); // F1
   const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
@@ -357,7 +418,7 @@ export async function createInvoice(
     invoiceNumber: res.invoice_number ? clean(res.invoice_number, INVOICE_LIMITS.invoice_number) : null,
     total, token, dueDate: res.due_date, link: res.link,
     ...(fiat && { fiat: fiatAmountText(fiat) }), // local-currency invoice
-  });
+  }) + (plan && terms ? ` ${termsSentence(terms, token)}`.trimEnd() : ""); // F8 invoices
   const output: InvoiceOutput = {
     id: res.id,
     invoice_link: res.link,
@@ -385,6 +446,7 @@ export async function createInvoice(
     ...(fiat && { fiat: { currency: fiat.currency, amount: fiat.amount, rate: fiat.rate, rate_source: fiat.rate_source, quoted_at: fiat.quoted_at } }),
     ...(payer && { payer: payer.payer }), // F1
     ...(requesterHandle && { requester_handle: requesterHandle }),
+    ...(plan && terms && { terms: invoiceTermsSchema.parse(terms) }), // F8 invoices
   };
 
   const count = res.items.length;
@@ -399,6 +461,7 @@ export async function createInvoice(
   const caution = cautionLine(res.flags);
   if (caution) lines.push(caution.replace("this request", "this invoice"));
   if (screening.screening === "unavailable") lines.push("Recipient screening was unavailable, so this address wasn't screened.");
+  if (plan && terms) lines.push(...termsLines(terms)); // F8 invoices
   lines.push("Use check_payments with the id to see whether it's paid.");
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }
@@ -412,18 +475,21 @@ function checkInvoice(
   res: InvoiceRes, body: CreateInvoiceReq, priced: ReturnType<typeof priceItems>, ctx: CallContext, deps: Deps,
   // Local-currency invoice: items are in `code` minor units, and the payment is `payAtomic` USDC (checked by checkQuote).
   local?: { code: FiatCode; payAtomic: bigint },
+  // F8 invoices: what the invoice's own request asks when terms make it installment 1 or the early price.
+  ownAtomic?: bigint,
 ): string | null {
   const bad = "Owed's server returned an invoice that doesn't match what was asked, so it wasn't used. Try again.";
   try {
     const token = body.token;
-    const payAtomic = local ? local.payAtomic : priced.totalAtomic;
+    const totalAtomic = local ? local.payAtomic : priced.totalAtomic;
+    const payAtomic = ownAtomic ?? totalAtomic;
     const itemUnits = (amount: string) => (local ? toMinor(amount, local.code) : deps.toAtomic(amount, token));
     const link = new URL(res.link);
     const payLink = new URL(res.request_link);
     if (link.protocol !== "https:" || link.pathname !== `/i/${res.id}`) return bad;
     if (payLink.protocol !== "https:" || payLink.pathname !== `/r/${res.id}`) return bad;
     if (res.recipient !== body.recipient || res.token !== token || res.status !== "open" || res.due_date !== body.due_date) return bad;
-    if (deps.toAtomic(res.total, token) !== payAtomic) return bad;
+    if (deps.toAtomic(res.total, token) !== totalAtomic) return bad;
     if (res.items.length !== priced.lines.length) return bad;
     for (const [i, line] of priced.lines.entries()) {
       const item = res.items[i]!;

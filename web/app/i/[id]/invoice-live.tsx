@@ -16,9 +16,9 @@ const STAMP_DATE = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "s
  * good once it is paid, underpaid, cancelled or expired. What shows always comes from the API, so a hard
  * refresh after the flip shows the same Paid stamp (the server renders it from the stored payment).
  */
-function useInvoiceState(initial: LiveState, id: string, total: string, token: Token): LiveState {
+function useInvoiceState(initial: LiveState, id: string, total: string, token: Token, refreshOnChange = false, poll = true): LiveState {
   const [state, setState] = useState<LiveState>(initial);
-  const active = state.status === "open";
+  const active = state.status === "open" && poll; // F8 invoices: nothing to watch while no payment is open
 
   useEffect(() => {
     if (!active) return;
@@ -43,6 +43,11 @@ function useInvoiceState(initial: LiveState, id: string, total: string, token: T
         if (res.ok) {
           const next = stateFromStatus(pickStatusResult(await res.json(), id), total, token);
           if (next && next.status !== "open") {
+            // F8 invoices: an invoice with terms moves on (the next installment, the other price): the server re-renders it.
+            if (refreshOnChange) {
+              window.location.reload();
+              return;
+            }
             setState(next);
             return;
           }
@@ -74,7 +79,7 @@ function useInvoiceState(initial: LiveState, id: string, total: string, token: T
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [active, id, total, token]);
+  }, [active, id, total, token, refreshOnChange]);
 
   return state;
 }
@@ -252,7 +257,16 @@ export function InvoiceLive({
   children,
   pay,
   expiresAt = null,
+  refreshOnChange = false,
+  cancelledNote = null,
+  poll = true,
 }: {
+  /** F8 invoices: false while an invoice with terms has nothing payable (so there is nothing to watch). */
+  poll?: boolean;
+  /** F8 invoices: reload when the watched request changes, so the server shows the invoice as a whole. */
+  refreshOnChange?: boolean;
+  /** F8 invoices: why it was cancelled when Owed's server did it (the invoice's other price was paid). */
+  cancelledNote?: string | null;
   /** W3-C: when an open invoice stops taking payments. */
   expiresAt?: string | null;
   initial: LiveState;
@@ -267,7 +281,7 @@ export function InvoiceLive({
   children: ReactNode;
   pay: ReactNode;
 }) {
-  const state = useInvoiceState(initial, id, total, token);
+  const state = useInvoiceState(initial, id, total, token, refreshOnChange, poll);
   const flipped = initial.status === "open" && state.status !== "open";
   return (
     <article
@@ -289,7 +303,7 @@ export function InvoiceLive({
           <section className="rounded-xl border border-line bg-sunken px-4 py-4">
             <h2 className="text-lg font-semibold">This invoice was cancelled</h2>
             <p className="mt-1 text-muted">
-              <Ended at={state.at} lead="Cancelled" tail=" by the wallet it pays, with a signed message." />
+              {cancelledNote ? <>{cancelledNote} </> : <Ended at={state.at} lead="Cancelled" tail=" by the wallet it pays, with a signed message." />}
               Don&apos;t send money for it.
             </p>
           </section>

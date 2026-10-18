@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRightIcon, AtIcon, CardIcon, CoinsIcon, LayersIcon, ListIcon, QrIcon, SearchIcon } from "@/components/icons";
+import { ArrowRightIcon, AtIcon, CardIcon, CoinsIcon, LayersIcon, ListIcon, QrIcon, ReceiptIcon, SearchIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { Container, SectionHeading } from "./ui";
 
 // What shipped after the first release, newest work first. Every "Live" card is on production from main
 // cecfbd2 (docs/FACTS.md, "Web production: main cecfbd2"); the proof links point at real mainnet payments.
-// The first card (F1: what_do_i_owe, pay_all, X handles) ships with the same deploy as this copy: on the remote MCP
-// endpoint (/api/mcp, the current bundle) at once, in the PayBox portal build with its next upload, and it says so.
+// The first four cards (F6 group ledgers, F8 invoice terms and refunds, F2 funding plans, F1 what_do_i_owe / pay_all /
+// X handles) are on the remote MCP endpoint (/api/mcp, the current bundle) from the deploy that ships this copy, and
+// in the PayBox portal build with its next upload; each says so. Their pages and API routes are on production.
 // The card-payment card says "Live" only when MoonPay is configured with live keys (lib/moonpay/config.ts),
 // the same switch that puts "Pay by card (MoonPay)" on the pay page, so the two never disagree.
 
@@ -21,6 +22,48 @@ interface Item {
 
 function items(cardLive: boolean): Item[] {
   return [
+    {
+      icon: <UsersIcon />,
+      title: "Group ledgers that settle in the fewest payments",
+      body: (
+        <>
+          Start a tab for a trip or a flat, add expenses as they happen (evenly, by shares, exact amounts, or straight off a
+          receipt, in USDC or the local currency), then settle up: at most one fewer payment than there are people, each one
+          an ordinary Owed request paid straight to the person owed. Every expense is signed by a wallet in the ledger. On
+          Owed&apos;s remote MCP endpoint now; in the PayBox plugin with its next upload.
+        </>
+      ),
+      tools: ["start_ledger", "add_expense", "ledger_balances", "settle_up"],
+      live: true,
+    },
+    {
+      icon: <ReceiptIcon />,
+      title: "Invoices with terms, and refunds",
+      body: (
+        <>
+          Installments or an early-payment discount, a late fee and reminder days, where every term that changes the amount
+          is its own request, so no link ever changes what it asks. Your agent says when a reminder is due, makes a
+          client&apos;s monthly statement, and sends a refund back to the wallet that paid, never more than was paid. On
+          Owed&apos;s remote MCP endpoint now; in the PayBox plugin with its next upload.
+        </>
+      ),
+      tools: ["create_invoice", "who_owes_me", "refund_payment"],
+      live: true,
+    },
+    {
+      icon: <WalletIcon />,
+      title: "A short balance doesn't end a payment",
+      body: (
+        <>
+          Not enough USDC? Your agent gets the exact PayBox steps that fix it: swap SOL (sized at Pyth&apos;s price), bring USDC over
+          from Base, buy the shortfall with MoonPay, or pay over x402 when only the network fee is missing. You approve each
+          step, and the payment is checked again from scratch. On Owed&apos;s remote MCP endpoint now; in the PayBox plugin
+          with its next upload.
+        </>
+      ),
+      tools: ["pay_link", "pay_all"],
+      live: true,
+    },
     {
       icon: <ListIcon />,
       title: "Ask by X handle, pay them all at once",

@@ -124,3 +124,11 @@ export const REFUSE_PAYER_NOT_STORED = (p: PayerInfo) =>
 export function handleCheckLine(handle: string, recipient: string): string {
   return `Handle check: this request says it is from @${handle} (not verified by Owed). Before approving, call PayBox resolve_username('@${handle}'); if its Solana address isn't ${recipient}, tell the user and don't approve.`;
 }
+
+/**
+ * F2: the same handle check, before a funding plan. A request that fails it must not be funded either, so the plan
+ * puts it before every step.
+ */
+export function handleCheckBeforeFunding(handle: string, recipient: string, which = "this request"): string {
+  return `First, before any step: ${which} says it is from @${handle} (not verified by Owed). Call PayBox resolve_username('@${handle}'); if its Solana address isn't ${recipient}, tell the user and stop: don't fund or pay it.`;
+}

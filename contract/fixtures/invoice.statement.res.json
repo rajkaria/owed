@@ -1,0 +1,134 @@
+{
+  "recipient": "39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5",
+  "client": "lena",
+  "month": "2026-10",
+  "from": "2026-10-01T00:00:00Z",
+  "to": "2026-11-01T00:00:00Z",
+  "generated_at": "2026-10-18T09:22:28Z",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone. A statement lists the invoices whose client name or payer wallet matches, as their creator wrote them.",
+  "chain_checked": true,
+  "invoices": [
+    {
+      "id": "hbTRHzm9Y1x7",
+      "invoice_number": "NT-2026-020",
+      "issue_date": "2026-10-18",
+      "due_date": "2026-11-01",
+      "total": "300.000001",
+      "token": "USDC",
+      "status": "open",
+      "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7"
+    },
+    {
+      "id": "CcqWt2o6T3Rd",
+      "invoice_number": "NT-2026-020 late fee",
+      "issue_date": "2026-10-18",
+      "due_date": "2026-11-24",
+      "total": "4.5",
+      "token": "USDC",
+      "status": "open",
+      "link": "https://www.getowed.xyz/i/CcqWt2o6T3Rd"
+    },
+    {
+      "id": "438EhamrPRUD",
+      "invoice_number": "NT-2026-020 2/3",
+      "issue_date": "2026-10-18",
+      "due_date": "2026-12-01",
+      "total": "100",
+      "token": "USDC",
+      "status": "open",
+      "link": "https://www.getowed.xyz/i/438EhamrPRUD"
+    },
+    {
+      "id": "EEU272MXZqGY",
+      "invoice_number": "NT-2026-021",
+      "issue_date": "2026-10-18",
+      "due_date": "2026-11-17",
+      "total": "200",
+      "token": "USDC",
+      "status": "paid",
+      "link": "https://www.getowed.xyz/i/EEU272MXZqGY"
+    }
+  ],
+  "lines": [
+    {
+      "at": "2026-10-18T09:22:27Z",
+      "kind": "invoiced",
+      "request_id": "438EhamrPRUD",
+      "invoice_id": "438EhamrPRUD",
+      "invoice_number": "NT-2026-020 2/3",
+      "description": "Invoice NT-2026-020 2/3, due 2026-12-01",
+      "token": "USDC",
+      "amount": "100",
+      "signature": null,
+      "link": "https://www.getowed.xyz/i/438EhamrPRUD"
+    },
+    {
+      "at": "2026-10-18T09:22:27Z",
+      "kind": "invoiced",
+      "request_id": "CcqWt2o6T3Rd",
+      "invoice_id": "CcqWt2o6T3Rd",
+      "invoice_number": "NT-2026-020 late fee",
+      "description": "Invoice NT-2026-020 late fee, due 2026-11-24",
+      "token": "USDC",
+      "amount": "4.5",
+      "signature": null,
+      "link": "https://www.getowed.xyz/i/CcqWt2o6T3Rd"
+    },
+    {
+      "at": "2026-10-18T09:22:27Z",
+      "kind": "invoiced",
+      "request_id": "EEU272MXZqGY",
+      "invoice_id": "EEU272MXZqGY",
+      "invoice_number": "NT-2026-021",
+      "description": "Invoice NT-2026-021, due 2026-11-17",
+      "token": "USDC",
+      "amount": "190",
+      "signature": null,
+      "link": "https://www.getowed.xyz/i/EEU272MXZqGY"
+    },
+    {
+      "at": "2026-10-18T09:22:27Z",
+      "kind": "invoiced",
+      "request_id": "hbTRHzm9Y1x7",
+      "invoice_id": "hbTRHzm9Y1x7",
+      "invoice_number": "NT-2026-020",
+      "description": "Invoice NT-2026-020, due 2026-11-01",
+      "token": "USDC",
+      "amount": "100.000001",
+      "signature": null,
+      "link": "https://www.getowed.xyz/i/hbTRHzm9Y1x7"
+    },
+    {
+      "at": "2026-10-18T09:22:28Z",
+      "kind": "paid",
+      "request_id": "EEU272MXZqGY",
+      "invoice_id": "EEU272MXZqGY",
+      "invoice_number": "NT-2026-021",
+      "description": "Invoice NT-2026-021, due 2026-11-17",
+      "token": "USDC",
+      "amount": "190",
+      "signature": "3ZYhT7Bjnaaj42zyRs4TMRvQCAwNGWrvP7qL7RqzMQYX33s2UPeDiKfTZZsAMZvaLngzQBDREj4k6HBoRb4ByQKV",
+      "link": "https://www.getowed.xyz/i/EEU272MXZqGY"
+    }
+  ],
+  "totals": [
+    {
+      "token": "USDC",
+      "opening": "0",
+      "invoiced": "394.500001",
+      "cancelled": "0",
+      "paid": "190",
+      "refunded": "0",
+      "closing": "204.500001"
+    }
+  ],
+  "truncated": false,
+  "csv": {
+    "url": "https://www.getowed.xyz/api/v1/statements/csv?recipient=39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5&client=lena&month=2026-10&expires=1792315948&sig=pDiAk6cNUTGg56nUh9Otafe5XsPV3qyM-MHLog2hdVg",
+    "expires_at": "2026-10-18T09:32:28Z"
+  },
+  "page": {
+    "url": "https://www.getowed.xyz/i/statement?recipient=39mHMrzztHN7kSzUHEA4enUxiFU2nT9Te33sAZVEXCp5&client=lena&month=2026-10&expires=1792315948&sig=pDiAk6cNUTGg56nUh9Otafe5XsPV3qyM-MHLog2hdVg",
+    "expires_at": "2026-10-18T09:32:28Z"
+  }
+}

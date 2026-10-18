@@ -85,6 +85,18 @@ const underpaidSchema = z.object({
   rest_request: z.string().optional().describe("A follow-up request already asks for the rest."),
 }).strict();
 
+// F8 invoices: a request paid more than it asked; the difference can go back with refund_payment.
+const overpaidSchema = z.object({
+  request_id: z.string(),
+  request_link: z.string(),
+  token: tokenSchema,
+  amount: z.string(),
+  amount_paid: z.string(),
+  difference: z.string(),
+  refund: z.object({ tool: z.literal("refund_payment"), args: z.object({ link: z.string(), recipient: z.string(), amount: z.string() }).strict() }).strict()
+    .describe("The refund_payment call that sends the difference back to the payer (it returns a message to sign first)."),
+}).strict();
+
 const scanSchema = z.object({
   token: tokenSchema,
   account: z.string().describe("The account read: the wallet's USDC account, or the wallet for SOL."),
@@ -104,6 +116,7 @@ export const outputSchema = z.object({
   // find
   candidates: z.array(candidateSchema).optional(),
   underpaid: z.array(underpaidSchema).optional(),
+  overpaid: z.array(overpaidSchema).optional(), // F8 invoices
   scanned: z.array(scanSchema).optional(),
   requests_checked: z.number().int().optional(),
   notes: z.array(z.string()).optional(),
@@ -135,6 +148,7 @@ const DESCRIPTION = [
   "action find (default): pass recipient (the user's PayBox Solana wallet) and requests (Owed links or ids) to look at those, or leave requests out to look at every open request (then it returns a ledger message to sign with request_wallet_sign first, and you call again with signed_message and signature). It returns candidates: transfers into the wallet of exactly the amount still due, made after the request, not counted anywhere, ranked with reasons and warnings. It never marks anything paid.",
   "action confirm: link (the request) and transaction (from a candidate). The first call checks it and returns message_to_sign; sign it with request_wallet_sign (op solanaMessage, the same wallet; signing moves no money), then call again with signed_message and signature. Owed re-checks the chain and marks the request paid, labelled \"matched by the recipient (no reference on the payment)\". Only confirm a payment the user recognises; when a candidate is ambiguous, ask which request it pays.",
   "action ask_for_rest: link of an underpaid request; makes one new request for exactly what is still owed and returns its link to share.",
+  "find also lists requests that were paid more than they asked (overpaid), each with the refund_payment call that sends the difference back to the payer.", // F8 invoices
 ].join(" ");
 
 // -------------------------------------------------------------------------------------------------------- shared
@@ -340,10 +354,32 @@ export function rankCandidates(targets: readonly Target[], transfers: readonly I
     .slice(0, MAX_CANDIDATES);
 }
 
+// F8 invoices start
+type Overpaid = z.output<typeof overpaidSchema>;
+
+/** A paid request whose payment credited more than it asked: the difference, and the refund_payment call for it. */
+export function overpaidOf(x: { id: string; link: string; token: Token; amount: string; amountPaid: string | undefined }, recipient: string, deps: Pick<Deps, "toAtomic" | "fromAtomic">): Overpaid | null {
+  if (!x.amountPaid) return null;
+  try {
+    const asked = deps.toAtomic(x.amount, x.token);
+    const paid = deps.toAtomic(x.amountPaid, x.token);
+    if (paid <= asked) return null;
+    const difference = deps.fromAtomic(paid - asked, x.token);
+    return {
+      request_id: x.id, request_link: x.link, token: x.token, amount: x.amount, amount_paid: x.amountPaid, difference,
+      refund: { tool: "refund_payment", args: { link: x.link, recipient, amount: difference } },
+    };
+  } catch {
+    return null;
+  }
+}
+// F8 invoices end
+
 async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: number, remaining: () => number) {
   const notes: string[] = [];
   let targets: Target[] = [];
   const known: Known[] = [];
+  const overpaid: Overpaid[] = []; // F8 invoices
   let checked = 0;
 
   if (args.requests) {
@@ -371,6 +407,10 @@ async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: num
       if (rq.chain === "base") { notes.push(`Request ${rq.id} is on Base, where payments are found by amount already; nothing to match.`); continue; }
       if (rq.recipient !== args.recipient) { notes.push(`Request ${rq.id} pays ${shortAddress(rq.recipient)}, not this wallet; skipped.`); continue; }
       if (rq.paid?.signature) known.push({ id: rq.id, signature: rq.paid.signature, payer: rq.paid.payer });
+      if (rq.status === "paid") { // F8 invoices: paid more than it asked
+        const over = overpaidOf({ id: rq.id, link: `${ctx.base}/${rq.kind === "invoice" ? "i" : "r"}/${rq.id}`, token: rq.token, amount: rq.amount, amountPaid: rq.paid?.amount }, args.recipient, deps);
+        if (over) overpaid.push(over);
+      }
       if (rq.matched?.signature) known.push({ id: rq.id, signature: rq.matched.signature, payer: rq.matched.payer });
       const t = targetFromRequest(rq, ctx.base, deps);
       if (t?.restRequest) {
@@ -417,6 +457,10 @@ async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: num
     if (!ledger.chain_checked) notes.push("Solana couldn't be read when the ledger was fetched, so a request listed as open may have been paid since.");
     if (ledger.truncated) notes.push("This wallet has more than 100 open requests; only the newest 100 were searched.");
     for (const e of ledger.paid_recently) if (e.signature) known.push({ id: e.id, signature: e.signature, payer: e.payer });
+    for (const e of ledger.paid_recently) { // F8 invoices: paid more than it asked
+      const over = overpaidOf({ id: e.id, link: e.link, token: e.token, amount: e.amount, amountPaid: e.amount_paid }, args.recipient, deps);
+      if (over) overpaid.push(over);
+    }
     for (const e of ledger.open) {
       checked++;
       if (e.status === "underpaid" && e.signature) known.push({ id: e.id, signature: e.signature, payer: e.payer });
@@ -523,6 +567,7 @@ async function find(args: MatchInput, ctx: CallContext, deps: Deps, started: num
 
   const output: MatchOutput = {
     action: "find", step: "candidates", recipient: args.recipient, candidates, underpaid, scanned, requests_checked: checked,
+    ...(overpaid.length > 0 && { overpaid }), // F8 invoices
     ...(notes.length > 0 && { notes }),
   };
   return { content: [{ type: "text" as const, text: findText(output, targets.length) }], structuredContent: output };
@@ -550,6 +595,9 @@ function findText(o: MatchOutput, searched: number): string {
     lines.push(u.rest_request
       ? `Underpaid: request ${u.request_id}, ${u.amount_paid} of ${u.amount} ${u.token}; the rest is asked in request ${u.rest_request}.`
       : `Underpaid: request ${u.request_id}, ${u.amount_paid} of ${u.amount} ${u.token}, ${u.remaining} ${u.token} still owed. To ask for exactly that, call match_payments with action ask_for_rest and link ${u.request_link}.`);
+  }
+  for (const p of o.overpaid ?? []) { // F8 invoices
+    lines.push(`Overpaid: request ${p.request_id} asked ${p.amount} ${p.token} and received ${p.amount_paid} ${p.token}. To send the ${p.difference} ${p.token} difference back to the payer, call refund_payment with link ${p.request_link}, recipient ${p.refund.args.recipient} and amount ${p.difference} (it returns a message to sign, then one transfer for the user to approve). Only if the user agrees it was a mistake.`);
   }
   for (const n of o.notes ?? []) lines.push(n);
   return lines.join("\n");

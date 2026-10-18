@@ -1,0 +1,63 @@
+{
+  "signer": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+  "description": "Dinner",
+  "paid_by": 0,
+  "amount": "114.13",
+  "currency": "EUR",
+  "split": "items",
+  "items": [
+    {
+      "description": "Bacalhau",
+      "amount": "18.5",
+      "members": [
+        0
+      ]
+    },
+    {
+      "description": "Risotto",
+      "amount": "16.9",
+      "members": [
+        1
+      ]
+    },
+    {
+      "description": "Octopus to share",
+      "amount": "21",
+      "members": [
+        2,
+        3
+      ]
+    },
+    {
+      "description": "Olives and bread",
+      "amount": "9.99",
+      "members": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "description": "Vinho verde",
+      "amount": "24",
+      "members": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "description": "Espressos",
+      "amount": "7.01",
+      "members": [
+        1,
+        3
+      ]
+    }
+  ],
+  "tax": "6.73",
+  "tip": "10",
+  "signed_message": "Owed add expense 654ea5f9a40899dd (114.13 EUR) to ledger DqmacyvqjDwt by 61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE at 2026-10-18T11:05:00Z",
+  "signature": "ccad9382e8ef4e88f22c5b6700a73190b10543fed1dd167bd1302097a46c583524aab698c47d16b5acf4543efbb9209433cb4e0531a28ac4e4c3ee49008b5c09"
+}

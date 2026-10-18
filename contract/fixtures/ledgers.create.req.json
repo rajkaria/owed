@@ -1,0 +1,24 @@
+{
+  "title": "Lisbon trip",
+  "owner": "61MWaC6ULyPjRfR1KJguM3UfUGhmE5qzCDSoG5AUEtUE",
+  "owner_name": "Raj",
+  "members": [
+    {
+      "name": "Priya",
+      "payer": {
+        "handle": "priya_p",
+        "wallet": "7n34Kk1J2VoXKnzwhjBAQWqnTzE2qUBTcnKTtvPSjvW7"
+      }
+    },
+    {
+      "name": "Sam",
+      "payer": {
+        "wallet": "6Q6RkqXfoTeDYKbw9RBineS6mD9yhTijLUzDeFE8j56X"
+      }
+    },
+    {
+      "name": "Alex"
+    }
+  ],
+  "source": "plugin"
+}

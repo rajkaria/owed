@@ -9,6 +9,7 @@ import { brandFlags, cautionLine, clean, quote, shortAddress } from "./text.js";
 import { expiryLine, expiryProblem } from "./expiry.js"; // W3-C on Base
 import { SCREENING_UNAVAILABLE_LINE } from "./screen.js"; // W2-E on Base
 import { ADDRESSED_LINE, REFUSE_PAYER_NOT_STORED, samePayer, type PayerResolution } from "./payer.js"; // F1
+import { baseFundingLine } from "./funding.js"; // F2
 
 // W3-B Base requests, plugin side. USDC on Base (eip155:8453):
 // - ask_for_money with chain "base" creates a hosted request whose link opens an EIP-681 USDC
@@ -300,6 +301,8 @@ export async function payBaseRequest(rq: GetRequestRes, id: string, args: BasePa
     "Approve in PayBox to send.",
   ].filter(Boolean).join(" ");
   const text = [caution, payee.caution, preview, `Recipient: ${recipient} (Base)`, ...payee.lines,
-    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : ""].filter(Boolean).join("\n");
+    screening.screening === "unavailable" ? SCREENING_UNAVAILABLE_LINE : "",
+    // F2: Owed can't read Base, so it can't tell a short Base wallet before PayBox pays; it says how to fund one.
+    baseFundingLine(amountAtomic, args.sender)].filter(Boolean).join("\n");
   return { content: [{ type: "text" as const, text }], structuredContent };
 }
