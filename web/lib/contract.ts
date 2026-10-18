@@ -196,6 +196,7 @@ export const StatsResponse = z.object({
   paid_count: z.number().int().nonnegative(),
   paid_volume_usdc: decimal,
   since: isoTime,
+  cta: z.object({ paybox_clicks: z.number().int().nonnegative(), prompt_copies: z.number().int().nonnegative() }).optional(), // SP1
 });
 
 // Split bills: POST /api/v1/groups, GET /api/v1/groups/:id (one response shape for both).

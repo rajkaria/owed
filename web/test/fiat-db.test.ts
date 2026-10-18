@@ -48,7 +48,9 @@ const RECIPIENT = "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs";
 const NEON = "https://api.us-east-1.aws.neon.tech/sql";
 const fx = (name: string) => readFileSync(new URL(`fixtures/fx/${name}`, import.meta.url), "utf8");
 let coinbase = fx("coinbase-usd.json");
-const erApi = fx("er-api-usd.json");
+// The route reads the real clock, and lib/fx.ts trusts open.er-api.com's table for 26 h after its own update time
+// (FALLBACK_MAX_AGE_MS). Re-date the recorded table to an hour ago so these tests don't expire with the fixture.
+const erApi = fx("er-api-usd.json").replace(/"time_last_update_unix":\d+/, `"time_last_update_unix":${Math.floor(Date.now() / 1000) - 3600}`);
 const fxCalls: string[] = [];
 
 before(async () => {

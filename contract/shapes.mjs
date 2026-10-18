@@ -504,7 +504,7 @@ export const shapes = {
   statusRes: object({ results: array(object({ id, ...statusFields }, statusConsistent), { max: 20 }) }),
   statusRawReq: object({ solana_pay_url: string({ max: 2048, pattern: /^solana:/, label: "a solana: URL" }) }),
   statusRawRes: object(statusFields, statusConsistent),
-  statsRes: object({ paid_count: integer(), paid_volume_usdc: amount, since: iso }),
+  statsRes: object({ paid_count: integer(), paid_volume_usdc: amount, since: iso, cta: optional(object({ paybox_clicks: integer(), prompt_copies: integer() })) }), // SP1 (0016)
   errorRes: object({ error: object({ code: oneOf(...ERROR_CODES), message: string({ min: 1, max: 500 }) }) }),
   ledgerReq: object({
     recipient: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }),

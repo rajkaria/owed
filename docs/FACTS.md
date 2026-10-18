@@ -93,6 +93,13 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Pay with PayBox on the pay page (SP1, migration 0016; tests only until it is deployed)
+- On PGlite (`web/test/cta-db.test.ts`, `web/test/cta-view.test.ts`, 20/20): 0016 applies after 0001–0015.
+- `GET /api/v1/cta/paybox?r=<id>` always answers 302 to https://app.paybox.sh with `Cache-Control: no-store`. It counts one `paybox_click` only for a request that exists. Malformed, missing or unknown ids count nothing, and with the database down it still redirects.
+- `POST /api/v1/cta` counts a `prompt_copy` (204). It refuses any other event or a malformed id (400), an unknown request (404), a non-JSON body (400), and more than 30 per request per hour (429).
+- The table holds kind, request, UTC day and a count, nothing about the visitor. `/api/v1/stats` adds `cta: {paybox_clicks, prompt_copies}` and leaves it out while 0016 isn't applied.
+- The section shows only when `OWED_PAYBOX_CTA=1`, and only for open requests with 12-character ids and no brand-word caution. Its prompt is exactly "Pay this: " plus the share link.
+
 ## Build notes
 - The plugin bundle uses `--main-fields=module,main` and a `createRequire` banner so CommonJS parts of @solana/web3.js and @solana/spl-token can load Node builtins inside the ESM bundle. Without it the bundle crashes at startup ("Dynamic require of buffer is not supported").
 

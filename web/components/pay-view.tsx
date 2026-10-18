@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { ctaEnabled, payboxCta } from "@/lib/cta";
 import { headline, type PayModel } from "@/lib/view/request-view";
 import { basescanAddress, solscanAccount } from "@/lib/view/format";
 import { CopyButton } from "./copy-button";
 import { AgentIcon, AlertIcon, CopyIcon, ExternalIcon, LinkIcon, WalletIcon } from "./icons";
 import { LiveRequest } from "./live-request";
+import { PayboxCta } from "./paybox-cta";
 import { QrCode } from "./qr-code";
 import { Wordmark } from "./wordmark";
 
@@ -58,6 +60,9 @@ function RequesterDetails({ model }: { model: PayModel }) {
 }
 
 function Actions({ model, card }: { model: PayModel; card?: ReactNode }) {
+  // SP1: "New to crypto? Pay with PayBox" for an open hosted request (lib/cta.ts says when). It lives here, in the
+  // actions LiveRequest shows only while the request is open, so it goes away once a payment lands.
+  const paybox = ctaEnabled() ? payboxCta(model) : null;
   return (
     <div className="flex flex-col gap-3">
       <a
@@ -94,6 +99,7 @@ function Actions({ model, card }: { model: PayModel; card?: ReactNode }) {
         PayBox connected.
       </p>
       {model.x402Url && process.env.NEXT_PUBLIC_OWED_X402_PUBLIC === "1" ? <p className="text-sm leading-relaxed text-muted">AI agents can pay this at <span className="break-all font-mono text-fg">{model.x402Url}</span></p> : null}
+      {paybox ? <PayboxCta cta={paybox} /> : null}
     </div>
   );
 }

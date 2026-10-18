@@ -58,6 +58,7 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - Sanctions list: `cd web && node scripts/ofac-sdn.mjs [sdn.xml]` rebuilds `plugin/src/ofac-sdn.ts` and `web/lib/ofac-sdn.ts`
   from the U.S. Treasury's OFAC SDN list (Solana and EVM digital currency addresses, with the list's publish date).
   Re-run it before a release; `web/test/sanctions.test.ts` checks both copies are identical.
+- Pay with PayBox (SP1): `web/test/cta-db.test.ts` runs migration 0016 on PGlite, the counting redirect, the prompt-copy POST and `/api/v1/stats`; `web/test/cta-view.test.ts` checks when the pay page shows the section, its exact prompt, and the `OWED_PAYBOX_CTA` switch.
 - Postgres: `web/test/x402-store.test.ts` and `web/test/payee-db.test.ts` run the migrations and SQL on PGlite and skip
   until the devDependency `@electric-sql/pglite` is installed.
 
