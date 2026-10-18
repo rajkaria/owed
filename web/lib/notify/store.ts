@@ -9,11 +9,16 @@ export const WATCH_LIMIT = 10_000;
 /** Requests older than this stop being watched (status checks still settle them). */
 const WATCH_DAYS = 30;
 
-/** Reference keys the webhook should watch: every open or underpaid Solana request, newest first, capped. Sorted. */
+/**
+ * Reference keys the webhook should watch: every open or underpaid Solana request, newest first, capped. Sorted.
+ * F7 pots: a contribution is minted per QR scan and many are never paid, so it leaves the watch once it expires (at most
+ * 24 hours after minting); a late payment to one is still recorded by status reads and the board.
+ */
 export async function watchedReferences(limit = WATCH_LIMIT): Promise<string[]> {
   const rows = await sql(
     `select reference from requests
       where status in ('open', 'underpaid') and chain = 'solana' and created_at > now() - interval '${WATCH_DAYS} days'
+        and (pot_id is null or expires_at > now())
       order by created_at desc
       limit $1`,
     [limit],

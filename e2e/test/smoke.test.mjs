@@ -76,6 +76,9 @@ function deployedApp({ stats, planStats, ledgerOwner, bugs = {} }) {
     }
     if (req.method === "POST" && path === "/api/v1/pots") return json(400, error("invalid_input", "recipient must be a wallet address, not a token account or program address"), "/api/v1/pots");
     if (req.method === "GET" && path.startsWith("/x/pot/")) return json(404, error("not_found", "no pot with this id"), "/x/pot/[potId]/[amount]");
+    // S1 alerts: the page, and a sign-up refused while Telegram isn't configured (checked before the proof is spent).
+    if (req.method === "GET" && path === "/alerts") return html(200, "<h1>Paid alerts</h1>", "/alerts");
+    if (req.method === "POST" && path === "/api/v1/alerts") return json(503, error("upstream_unavailable", "Telegram alerts aren't switched on yet"), "/api/v1/alerts");
     if (req.method === "POST" && path === "/api/v1/ledgers") {
       const input = JSON.parse(body);
       // The real route refuses an owner off the ed25519 curve; the double knows the one wallet its fixture uses.
@@ -131,11 +134,11 @@ test("nothing deployed yet: pending is OK, --strict fails", async () => {
     assert.equal(report.ok, true);
     assert.equal(report.summary.fail, 0);
     assert.equal(report.summary.pass, 2); // landing + unknown page is 404
-    assert.equal(report.summary.pending, 25); // 14 + F6 ledger page and 3 ledger routes + F8 refund lookup + F5 autopay + F7 pot page and 4 pot routes
+    assert.equal(report.summary.pending, 27); // 14 + F6 ledger page and 3 ledger routes + F8 refund lookup + F5 autopay + F7 pot page and 4 pot routes + S1 alerts page and route
     assert.equal(report.summary.skip, 6);
     const strict = await runSmoke({ base: server.base, strict: true });
     assert.equal(strict.ok, false);
-    assert.equal(strict.summary.fail, 25);
+    assert.equal(strict.summary.fail, 27);
     assert.ok(strict.results.every((result) => result.status !== "fail" || result.detail.includes("--strict")));
   } finally {
     await server.close();

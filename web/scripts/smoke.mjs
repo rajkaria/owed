@@ -240,6 +240,11 @@ export async function runSmoke({ base, strict = false, create = false, id = null
     json: { ...fixtures["pots.create.req"], recipient: TOKEN_ACCOUNT, source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
   });
   await api("pot x402 preset, unknown pot", "GET", `/x/pot/${UNKNOWN_POT_ID}/1`, { expect: 404, shape: "errorRes", refine: notFoundCode });
+  // S1 alerts (0025): the page answers, and a sign-up whose proof doesn't verify is refused (503 while Telegram isn't configured).
+  await page("alerts page", "/alerts", { contains: ["Paid alerts"] });
+  await api("alerts rejects a bad proof", "POST", "/api/v1/alerts", {
+    json: { wallet: TEAM_WALLET, signed_message: "x", signature: "00".repeat(64), channel: "telegram" }, expect: [400, 503], shape: "errorRes",
+  });
 
   // ------------------------------------------------------------------------------------------- one real request
 

@@ -20,6 +20,7 @@ import { getLedger } from "@/lib/ledger";
 import { CONTRIBUTION_LIMITS, getPot, mintContribution, potTransactionRequestUrl, withPots } from "@/lib/pots";
 import { getPublicRequest } from "@/lib/public-api";
 import { getRequest } from "@/lib/requests";
+import { watchedReferences } from "@/lib/notify/store"; // coordinator: the Helius watch drops expired contributions
 import { handlePotX402, type PotX402Deps, type X402Deps } from "@/lib/x402/handler";
 import { store } from "@/lib/x402/store";
 import { parseJsonExact } from "@/lib/solana";
@@ -748,4 +749,21 @@ it("stats: pots and paid contributions are counted; unpaid contributions never i
   assert.equal(after.pots!.count, beforeRes.pots!.count + 1);
   assert.equal(after.pots!.paid_contributions, beforeRes.pots!.paid_contributions + 1);
   assert.equal(after.paid_count, beforeRes.paid_count + 1);
+});
+
+// ---------------------------------------------------------------- Helius watch (coordinator, wave 3 merge)
+
+it("Helius watch: an open contribution is watched until it expires, then dropped; a plain open request past its expiry stays watched", async () => {
+  const pot = await newPot({ suggested: "1" });
+  const fresh = await contribute(pot.id);
+  const stale = await contribute(pot.id);
+  await expire(stale.id);
+  const watched = new Set(await watchedReferences());
+  assert.ok(watched.has(fresh.reference), "an unexpired contribution is watched");
+  assert.ok(!watched.has(stale.reference), "an expired contribution leaves the watch");
+  // Not a contribution: W3-C keeps watching it for 30 days, a late payment from a kept link is still money moved.
+  const plain = key("plain request past expiry");
+  await sql(`insert into requests (id, recipient, token, mint, decimals, amount_atomic, reference, source, created_at, expires_at)
+    values ('1111111111wa', $1, 'USDC', $2, 6, 1000000, $3, 'web', now() - interval '3 days', now() - interval '1 day')`, [TEAM, USDC, plain]);
+  assert.ok((await watchedReferences()).includes(plain));
 });

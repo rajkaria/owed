@@ -5,6 +5,7 @@ import { EFFECTIVE_STATUS } from "../requests";
 import { rpcBatch, type RpcOptions } from "../solana";
 import { isTeamSql, teamWallets } from "../team"; // W2-F is_team
 import { watchSoon } from "../notify/helius"; // W3-A
+import { alertsSoon } from "../alerts/soon"; // S1 alerts
 import { creditFromTransaction, type Credit, type ParsedTransaction } from "../validate";
 import { getVirtualAccount, type VirtualAccount } from "./accounts";
 import { bankRailConfig, FAILED_STATUSES, fetchTransactions, type AutorampTransaction, type EnterpriseConfig, type EnterpriseEvent, type PayoutCurrency } from "./enterprise";
@@ -207,6 +208,7 @@ async function settle(txId: string, requestId: string, outcome: "verified" | "un
       },
     ]);
     if (updated.length > 0 && outcome === "verified") watchSoon(); // W3-A: a paid request leaves the Helius watch
+    if (updated.length > 0) alertsSoon(); // S1 alerts: send what the 0025 trigger queued, after the response
     return updated.length > 0;
   } catch (e) {
     if (isUniqueViolation(e, "requests_paid_signature_key")) {

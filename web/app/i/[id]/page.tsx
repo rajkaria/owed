@@ -11,6 +11,9 @@ import { Wordmark } from "@/components/wordmark";
 import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
 import { BankTransfer } from "@/components/bank-transfer"; // F3 bank rail
 import { bankOffer } from "@/lib/moonpay/bank-offer"; // F3 bank rail
+import { DepositPay } from "@/components/deposit-pay"; // F3 deposit link
+import { depositLinkEnabled, depositOffer } from "@/lib/deposit-link"; // F3 deposit link
+import { getRequest } from "@/lib/requests"; // F3 deposit link
 import { solscanAccount } from "@/lib/view/format";
 import { InvoiceLive } from "./invoice-live";
 import { invoiceDescription, invoiceModel, invoiceTitle, type InvoiceModel } from "./model";
@@ -415,7 +418,14 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
   const offer = model.payable
     ? await cardOffer({ id: model.payId, token: model.token, amount: model.payAmount, status: model.terms ? "open" : loaded.invoice.status }, "i")
     : null;
-  const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
+  const cardPay = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
+  // F3 deposit link: plain invoices only (the API refuses a link on one with terms); read from the invoice's own request,
+  // and only when OWED_DEPOSIT_LINK=1, so a page without the feature makes no extra query.
+  const depositRow = model.payable && !model.terms && depositLinkEnabled() ? await getRequest(loaded.invoice.id) : null;
+  const deposit = depositRow
+    ? depositOffer({ status: depositRow.status, token: depositRow.token, chain: depositRow.chain, deposit_url: depositRow.depositUrl, deposit_url_added_at: depositRow.depositUrlAddedAt })
+    : null;
+  const card = deposit ? <>{cardPay}<DepositPay offer={deposit} /></> : cardPay;
   // F3 bank rail: nothing unless OWED_BANK_RAIL=1 and the recipient registered a signed virtual account in the invoice's
   // currency. EUR/GBP need the invoice's local-currency quote (plain invoices only); USD is the USDC amount due now.
   const bankDeal = model.payable
