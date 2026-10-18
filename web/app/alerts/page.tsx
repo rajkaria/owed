@@ -91,15 +91,23 @@ export default function AlertsPage() {
         </section>
 
         <section aria-labelledby="kept-title" className="mt-12 rounded-2xl bg-sunken px-5 py-5 leading-relaxed text-muted">
-          <h2 id="kept-title" className="font-semibold text-fg">
-            What Owed keeps
-          </h2>
-          <p className="mt-2">
-            The wallet, the chat id{channels.email ? " or the address" : ""} you linked, and the message your wallet signed,
-            as the record that you asked. Turning alerts off erases the chat id{channels.email ? " and the address" : ""}.
-            A wallet can have up to 5 links. Alerts go only to chats{channels.email ? " and addresses" : ""} linked here.
-          </p>
-          <p className="mt-3">
+          {on ? (
+            <>
+              <h2 id="kept-title" className="font-semibold text-fg">
+                What Owed keeps
+              </h2>
+              <p className="mt-2">
+                The wallet, the chat id{channels.email ? " or the address" : ""} you linked, and the message your wallet signed,
+                as the record that you asked. Turning alerts off erases the chat id{channels.email ? " and the address" : ""}.
+                A wallet can have up to 5 links. Alerts go only to chats{channels.email ? " and addresses" : ""} linked here.
+              </p>
+            </>
+          ) : (
+            <h2 id="kept-title" className="font-semibold text-fg">
+              Until then
+            </h2>
+          )}
+          <p className={on ? "mt-3" : "mt-2"}>
             Requests themselves work the same with or without alerts. <Link href="/proof" className="font-medium text-accent underline-offset-4 hover:underline">See real payments on mainnet</Link>.
           </p>
         </section>
