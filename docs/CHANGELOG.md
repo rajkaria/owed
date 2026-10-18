@@ -2,6 +2,14 @@
 
 What reached production, newest first. Times are UTC. Every line is backed by [FACTS.md](FACTS.md), which says how it was verified.
 
+## 2026-10-18 08:30 · main ab382d8 · payer inbox and pay_all, migrations on deploy
+
+- **Ask by X handle, pay several requests with one approval** (migration 0017). Every asking tool takes `payer`: an X handle the agent resolved with PayBox `resolve_username`, an `.sns` name, or a wallet. It also takes `requester_handle`.
+- `what_do_i_owe` is the payer's signed inbox, with block and unblock for a requester. `pay_all` pays several requests in one Solana transaction and runs every `pay_link` check on each one.
+- Paid detection now pairs each reference with its own transfer, so one transaction can settle several requests, each exactly once.
+- Live on the remote MCP endpoint (13 tools); these tools reach the PayBox plugin with its next upload.
+- **Migrations ship with the deploy.** Vercel Production and Preview builds apply pending `web/db/migrations` before `next build`. Each file runs in one transaction under an advisory lock, and a failure fails the build. This build applied 0016 and 0017 to production. New build-time devDependency `pg` 8.23.1.
+
 ## 2026-10-18 07:40 · main d864a4c · remote MCP endpoint, Pay with PayBox (off)
 
 - **Remote MCP endpoint** (`POST /api/mcp`). Any MCP client can add `https://www.getowed.xyz/api/mcp` and get every Owed tool. Each tool call runs the committed plugin bundle (`web/mcp/owed-plugin.mjs`) in a fresh process with PayBox's limits (10 s, 256 KiB, clean environment), and `tools/list` is the bundle's own. Supports MCP 2026-07-28 plus clients that open with `initialize` (2025-11-25, 2025-06-18, 2025-03-26). Stateless JSON, no sessions, 120 tool calls a minute per IP. CI fails when the copy drifts from the plugin build.

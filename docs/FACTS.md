@@ -93,6 +93,16 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Payer inbox and pay_all on production (SP3, main ab382d8, 2026-10-18 08:30Z)
+- Production build of ab382d8, checked from this machine:
+  - `POST /api/mcp` `tools/list` → 13 tools, including `what_do_i_owe` and `pay_all`.
+  - `GET /api/v1/stats` returns `cta {paybox_clicks: 0, prompt_copies: 0}`, so 0016 is applied.
+  - `GET /api/v1/requests?ids=qNaosx73zzt3,FeJG9SuofqWU` → 200.
+  - `POST /api/v1/inbox` with an empty body → 400 `invalid_input`.
+  - `smoke.mjs --strict --id qNaosx73zzt3`: 22 pass, 0 fail.
+- The production build applied migrations itself (D10), the first real run of `migrate-on-build.mjs`. The proof is the 0016 table answering through `/api/v1/stats`.
+- Not run on mainnet yet: a request addressed to an X handle and paid from the inbox; a `pay_all` settling two or more requests.
+
 ## Migrations on the build (D10)
 - Build-time migrations (`web/scripts/migrate-on-build.mjs`, `pnpm build`): `web/test/migrate-on-build.test.ts` 19/19 on PGlite; the web suite 599/599 with it. Not yet run against Neon: the first Preview build after this lands is the first real run, and its log should show one `migrate-on-build: preview · applied N (…) · already applied M` line, and the next Production build the same for owed-db.
 
