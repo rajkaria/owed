@@ -46,7 +46,7 @@ A pot (`start_pot`) collects contributions for one wallet. Each contribution is 
 
 ## Paid alerts
 
-`https://www.getowed.xyz/alerts` links a Telegram chat to the Solana wallet the user's requests pay, after that wallet signs `Owed alerts for <wallet> at <ISO time>` (a browser wallet, or PayBox `request_wallet_sign`). The chat then gets one message per request paid to that wallet, on every rail; `/stop` turns it off. It works only once the Owed bot is configured on production; until then the page says alerts aren't switched on.
+`https://www.getowed.xyz/alerts` links a Telegram chat to the Solana wallet the user's requests pay, after that wallet signs `Owed alerts for <wallet> at <ISO time>` (a browser wallet, or PayBox `request_wallet_sign`). The chat then gets one message per request paid to that wallet, on every rail; `/stop` turns it off. The bot is @getowedbot (https://t.me/getowedbot). Email alerts aren't switched on.
 
 ## Verified payee
 
@@ -69,7 +69,7 @@ A payment counts only when it carries the request's Solana Pay reference. The pa
 - `https://www.getowed.xyz/i/<id>`: a printable invoice; with terms, its installments, both prices, the late fee, refunds and what is due now.
 - `https://www.getowed.xyz/l/<id>`: a group ledger: members, balances, settle-up requests with live status, and each expense with its recorder's signed message.
 - `https://www.getowed.xyz/pot/<id>`: a chip-in pot's board: the total against the target, every contribution with its transaction, printable QR codes, and nothing to pay once it has ended.
-- `https://www.getowed.xyz/alerts`: paid alerts in Telegram for the wallet a user's requests pay.
+- `https://www.getowed.xyz/alerts`: paid alerts in Telegram (@getowedbot) for the wallet a user's requests pay.
 - `https://www.getowed.xyz/x/<id>`: the request as an x402 endpoint: any x402 agent can pay it (HTTP 402 with the payment terms). A pot's presets are at `/x/pot/<pot id>/<amount>`.
 - `https://www.getowed.xyz/api/v1/pay/<id>`: the request as a Solana Pay transaction request (what the QR encodes): a wallet fetches the transaction and signs it.
 

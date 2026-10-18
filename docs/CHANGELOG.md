@@ -2,6 +2,10 @@
 
 What reached production, newest first. Times are UTC. Every line is backed by [FACTS.md](FACTS.md), which says how it was verified.
 
+## 2026-10-18 15:25 · paid alerts switched on (@getowedbot)
+
+- Production now has the Owed bot's keys ([@getowedbot](https://t.me/getowedbot)) and its webhook points at `/api/hooks/telegram`, so `/alerts` signs up a Telegram chat for the wallet your requests pay. Same build (main 5cc73a5), redeployed with the new environment. Email alerts stay off.
+
 ## 2026-10-18 14:58 · main bbefbbb · chip-in pots, one-tap monthly pay, paid alerts, MoonPay rails (off)
 
 - **Chip-in pots** (migration 0019).
