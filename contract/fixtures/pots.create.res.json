@@ -1,0 +1,60 @@
+{
+  "id": "FcPCDyvkUVAUfo",
+  "link": "https://www.getowed.xyz/pot/FcPCDyvkUVAUfo",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "nonce": "DvRCvPgMta7tLekqrrmYETy6QE57GoT9tTU8JsTQaPom",
+  "title": "Farewell gift for Ana",
+  "note": "Card and flowers from the team",
+  "requester_name": "Raj",
+  "requester_handle": "rajkaria",
+  "target": "100",
+  "suggested": "10",
+  "any_amount": true,
+  "presets": [
+    "5",
+    "10",
+    "20"
+  ],
+  "deadline": "2026-11-17T09:00:00Z",
+  "status": "open",
+  "created_at": "2026-10-18T09:00:00Z",
+  "flags": [],
+  "totals": {
+    "raised": "0",
+    "count": 0
+  },
+  "contributions": [],
+  "chain_checked": true,
+  "links": {
+    "board": "https://www.getowed.xyz/pot/FcPCDyvkUVAUfo",
+    "transaction_request": [
+      {
+        "amount": "10",
+        "url": "solana:https%3A%2F%2Fwww.getowed.xyz%2Fapi%2Fv1%2Fpay%2FFcPCDyvkUVAUfo%3Famount%3D10"
+      },
+      {
+        "amount": "5",
+        "url": "solana:https%3A%2F%2Fwww.getowed.xyz%2Fapi%2Fv1%2Fpay%2FFcPCDyvkUVAUfo%3Famount%3D5"
+      },
+      {
+        "amount": "20",
+        "url": "solana:https%3A%2F%2Fwww.getowed.xyz%2Fapi%2Fv1%2Fpay%2FFcPCDyvkUVAUfo%3Famount%3D20"
+      }
+    ],
+    "x402": [
+      {
+        "amount": "5",
+        "url": "https://www.getowed.xyz/x/pot/FcPCDyvkUVAUfo/5"
+      },
+      {
+        "amount": "10",
+        "url": "https://www.getowed.xyz/x/pot/FcPCDyvkUVAUfo/10"
+      },
+      {
+        "amount": "20",
+        "url": "https://www.getowed.xyz/x/pot/FcPCDyvkUVAUfo/20"
+      }
+    ]
+  }
+}

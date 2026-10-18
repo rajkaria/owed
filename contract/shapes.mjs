@@ -2271,3 +2271,150 @@ Object.assign(fixtureShapes, {
   "deposit.invoices.create.res.json": "depositInvoiceRes",
 });
 // ---------------------------------------------------------------------------------------------- F5 autopay end
+// ---------------------------------------------------------------------------------------------- F7 pots start
+// Chip-in pots (decision D15, migration 0019): POST /api/v1/pots, GET /api/v1/pots/:id, POST /api/v1/pots/:id/contributions.
+// A pot id commits to its recipient and token through the server's nonce (a third copy of web/lib/ids.ts and
+// plugin/src/request-id.ts potIdFor). A contribution is an ordinary request (its id hashes its own terms) that names
+// its pot. The board's total must be the sum of the contributions it lists whenever it lists them all.
+
+/** Pot id = last 14 base58 chars of sha256("owed-pot:v1\n" recipient "\n" asset "\n" nonce). */
+export function potIdFor({ recipient, token, nonce }) {
+  const asset = token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-pot:v1\n${recipient}\n${asset}\n${nonce}`, "utf8").digest();
+  return base58Encode(digest).slice(-14);
+}
+
+const potIdShape = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{14}$/, label: "a 14-char base58 pot id" });
+const potRail = oneOf("solana_pay", "x402", "matched", "moonpay_card");
+const potAmountLink = object({ amount: positiveAmount, url: string({ max: 2048 }) });
+const potBool = oneOf(true, false);
+
+/** The amounts a fixed-amount pot takes: the suggested one, then the presets, each once (web/lib/pots.ts fixedAmounts). */
+function potFixedAmounts(value) {
+  const decimals = TOKEN_DECIMALS[value.token] ?? 6;
+  const out = [];
+  for (const a of [...(value.suggested === null ? [] : [value.suggested]), ...value.presets]) {
+    if (!out.some((b) => toAtomic(b, decimals) === toAtomic(a, decimals))) out.push(a);
+  }
+  return out;
+}
+
+function potConsistent(value, path, ctx) {
+  const decimals = TOKEN_DECIMALS[value.token];
+  if (value.title === null) ctx.errors.push(`${path}.title: a pot always has a title`);
+  if (potIdFor(value) !== value.id) ctx.errors.push(`${path}.id: ${value.id} is not the hash of recipient, token and nonce (expected ${potIdFor(value)})`);
+  const origin = new URL(value.link).origin;
+  if (new URL(value.link).pathname !== `/pot/${value.id}`) ctx.errors.push(`${path}.link: is not /pot/${value.id}`);
+  if (value.links.board !== value.link) ctx.errors.push(`${path}.links.board: differs from .link`);
+  for (const key of ["target", "suggested"]) if (value[key] !== null) decimalsFit(key)(value, path, ctx);
+  value.presets.forEach((p, i) => { try { toAtomic(p, decimals); } catch (e) { ctx.errors.push(`${path}.presets[${i}]: ${e.message}`); } });
+  if (value.presets.length > 0 && value.token !== "USDC") ctx.errors.push(`${path}.presets: set on a ${value.token} pot (x402 is USDC only)`);
+  if (new Set(value.presets.map((p) => toAtomic(p, decimals))).size !== value.presets.length) ctx.errors.push(`${path}.presets: an amount is listed twice`);
+  if (!value.any_amount && value.suggested === null && value.presets.length === 0) ctx.errors.push(`${path}.any_amount: false without a suggested amount or presets`);
+  const created = Date.parse(value.created_at);
+  const deadline = Date.parse(value.deadline);
+  if (deadline <= created || deadline > created + 90 * 86_400_000) ctx.errors.push(`${path}.deadline: not within 90 days after created_at`);
+  // The board: every listed contribution counted, the total their sum when all are listed.
+  if (value.totals.count < value.contributions.length) ctx.errors.push(`${path}.totals.count: fewer than the contributions listed`);
+  if (value.totals.count === value.contributions.length) {
+    const sum = value.contributions.reduce((s, c) => s + toAtomic(c.amount, decimals), 0n);
+    if (sum !== toAtomic(value.totals.raised, decimals)) ctx.errors.push(`${path}.totals.raised: ${value.totals.raised}, but the contributions add up to ${fromAtomic(sum, decimals)}`);
+  }
+  for (let i = 1; i < value.contributions.length; i++) {
+    if (value.contributions[i].at > value.contributions[i - 1].at) ctx.errors.push(`${path}.contributions[${i}]: not newest first`);
+  }
+  // Links: one transaction request per fixed amount, one x402 endpoint per preset; none once the pot ended.
+  const ended = value.status === "ended";
+  const wantTx = ended ? [] : potFixedAmounts(value);
+  if (JSON.stringify(value.links.transaction_request.map((l) => l.amount)) !== JSON.stringify(wantTx)) {
+    ctx.errors.push(`${path}.links.transaction_request: amounts ${show(value.links.transaction_request.map((l) => l.amount))}, expected ${show(wantTx)}`);
+  }
+  value.links.transaction_request.forEach((l, i) => {
+    const parsed = parseSolanaPayUrl(l.url);
+    if (!parsed.ok || parsed.kind !== "transaction" || parsed.link !== `${origin}/api/v1/pay/${value.id}?amount=${l.amount}`) {
+      ctx.errors.push(`${path}.links.transaction_request[${i}].url: not the transaction request ${origin}/api/v1/pay/${value.id}?amount=${l.amount}`);
+    }
+    if (!l.url.startsWith(`solana:${encodeURIComponent(origin)}`)) ctx.errors.push(`${path}.links.transaction_request[${i}].url: the link isn't URL-encoded (it carries a query)`);
+  });
+  const wantX = ended || value.token !== "USDC" ? [] : value.presets;
+  if (JSON.stringify(value.links.x402.map((l) => l.amount)) !== JSON.stringify(wantX)) ctx.errors.push(`${path}.links.x402: amounts differ from the presets`);
+  value.links.x402.forEach((l, i) => {
+    if (l.url !== `${origin}/x/pot/${value.id}/${l.amount}`) ctx.errors.push(`${path}.links.x402[${i}].url: not ${origin}/x/pot/${value.id}/${l.amount}`);
+  });
+}
+
+const potRef = object({ id: potIdShape, title: string({ min: 1, max: 120 }), link: httpsUrl }, (value, path, ctx) => {
+  if (new URL(value.link).pathname !== `/pot/${value.id}`) ctx.errors.push(`${path}.link: is not /pot/${value.id}`);
+});
+// A contribution read as a request (GET /api/v1/requests/:id) names its pot; other requests never carry `pot`.
+Object.assign(getRequestFields, { pot: optional(potRef) });
+
+const potSummary = object({
+  id: potIdShape, link: httpsUrl, title: string({ min: 1, max: 120 }), token, raised: amount, count: integer(), target: nullable(positiveAmount),
+  deadline: iso, flags: array(flag, { max: 32 }),
+}, (value, path, ctx) => { if (new URL(value.link).pathname !== `/pot/${value.id}`) ctx.errors.push(`${path}.link: is not /pot/${value.id}`); });
+
+/** Composes with the shape already registered: `pots` is checked here and the rest by the earlier shape. */
+function withPotsField(base, potsShape) {
+  return (value, path, ctx) => {
+    if (kind(value) !== "object" || !("pots" in value)) return base(value, path, ctx);
+    const { pots, ...rest } = value;
+    base(rest, path, ctx);
+    potsShape(pots, `${path}.pots`, ctx);
+  };
+}
+
+const statsBeforePots = shapes.statsRes;
+const ledgerBeforePots = shapes.ledgerRes;
+const potStatsShape = object({ count: integer(), paid_contributions: integer() });
+const potSummaries = array(potSummary, { max: 20 });
+
+Object.assign(shapes, {
+  createPotReq: object({
+    recipient: pubkey, token: optional(token), title: string({ min: 1, max: 320 }), note: optional(string({ max: 560 })),
+    requester_name: optional(string({ max: 160 })), requester_handle: optional(handleIn),
+    target: optional(positiveAmount), suggested: optional(positiveAmount), any_amount: optional(potBool),
+    presets: optional(array(positiveAmount, { max: 4 })), deadline: optional(iso),
+    deadline_days: optional((value, path, ctx) => { if (!Number.isInteger(value) || value < 1 || value > 90) ctx.errors.push(`${path}: expected 1..90 days, got ${show(value)}`); }),
+    source: oneOf("plugin", "web"),
+  }, (value, path, ctx) => {
+    if ("deadline" in value && "deadline_days" in value) ctx.errors.push(`${path}: deadline and deadline_days both set`);
+    if (value.any_amount === false && !value.suggested && !(value.presets ?? []).length) ctx.errors.push(`${path}.any_amount: false without suggested or presets`);
+    if ((value.presets ?? []).length > 0 && (value.token ?? "USDC") !== "USDC") ctx.errors.push(`${path}.presets: x402 presets are USDC only`);
+  }),
+  potRes: object({
+    id: potIdShape, link: httpsUrl, recipient: pubkey, token, nonce: pubkey, title: untrusted(120), note: untrusted(140),
+    requester_name: untrusted(40), requester_handle: nullable(handle), target: nullable(positiveAmount), suggested: nullable(positiveAmount),
+    any_amount: potBool, presets: array(positiveAmount, { max: 4 }), deadline: iso, status: oneOf("open", "ended"), created_at: iso,
+    flags: array(flag, { max: 32 }),
+    totals: object({ raised: amount, count: integer() }),
+    contributions: array(object({ id, amount: positiveAmount, payer: pubkey, signature, at: iso, rail: potRail }), { max: 100 }),
+    chain_checked: potBool,
+    links: object({ board: httpsUrl, transaction_request: array(potAmountLink, { max: 5 }), x402: array(potAmountLink, { max: 4 }) }),
+  }, potConsistent),
+  contributionReq: object({ amount: optional(positiveAmount), source: optional(oneOf("plugin", "web")) }),
+  potContributionRes: object({ ...getRequestFields, pot: potRef }, (value, path, ctx) => {
+    getRequestConsistent(value, path, ctx);
+    if (value.kind !== "single") ctx.errors.push(`${path}.kind: a contribution is a single request`);
+    if (!value.expires_at) ctx.errors.push(`${path}.expires_at: a contribution always ends`);
+    else if (Date.parse(value.expires_at) > Date.parse(value.created_at) + 86_400_000) ctx.errors.push(`${path}.expires_at: more than 24 hours after created_at`);
+    if (value.payer) ctx.errors.push(`${path}.payer: a contribution isn't addressed to anyone`);
+  }),
+  ledgerPotsRes: withPotsField(ledgerBeforePots, potSummaries),
+  statsPotsRes: withPotsField(statsBeforePots, potStatsShape),
+  // GET /api/v1/stats and POST /api/v1/ledger may carry `pots` now: the smoke reads them with the same shapes.
+  statsRes: withPotsField(statsBeforePots, potStatsShape),
+  ledgerRes: withPotsField(ledgerBeforePots, potSummaries),
+});
+
+Object.assign(fixtureShapes, {
+  "pots.create.req.json": "createPotReq",
+  "pots.create.res.json": "potRes",
+  "pots.get.res.json": "potRes",
+  "pots.contribution.req.json": "contributionReq",
+  "pots.contribution.res.json": "potContributionRes",
+  "pots.get-request.res.json": "potContributionRes",
+  "ledger.pots.res.json": "ledgerPotsRes",
+  "stats.pots.res.json": "statsPotsRes",
+});
+// ---------------------------------------------------------------------------------------------- F7 pots end

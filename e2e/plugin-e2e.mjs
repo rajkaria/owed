@@ -312,7 +312,12 @@ export async function runE2E(options) {
   const hasProposal = Boolean(result.structuredContent?.[PROPOSAL_KEY]);
   if (options.expectNoProposal && hasProposal) fail("expected no PayBox proposal, but the tool returned one");
   if (hasProposal) {
-    const expected = await expectedPayment(args, options.baseUrl ?? DEFAULT_BASE_URL, warn);
+    let expected = await expectedPayment(args, options.baseUrl ?? DEFAULT_BASE_URL, warn);
+    // F7 pots: what a pot link pays is known only once pay_link minted its contribution, which the memo names.
+    if (!expected && !Array.isArray(args.ids) && potIdOf(args.link)) {
+      const first = inspectProposal(result.structuredContent, { sender: options.sender ?? args.sender, ataFor: plugin.ataFor() });
+      expected = await expectedContribution(potIdOf(args.link), first.summary?.memo ?? null, options.baseUrl ?? DEFAULT_BASE_URL, warn, fail);
+    }
     // F1 pay_all: several requests in one transaction, each checked against its own terms.
     const inspection = inspectProposal(result.structuredContent, {
       sender: options.sender ?? args.sender, ataFor: plugin.ataFor(),
@@ -369,6 +374,51 @@ async function expectedBatch(args, baseUrl, warn) {
     return null;
   }
 }
+
+// F7 pots start
+const POT_ID = /^[1-9A-HJ-NP-Za-km-z]{14}$/;
+
+/** The pot a pay_link `link` names: a bare 14-char id, a /pot/<id> board link, or Owed's pot QR code (solana:https://…/api/v1/pay/<id>). */
+export function potIdOf(link) {
+  if (typeof link !== "string") return null;
+  const text = link.trim();
+  if (POT_ID.test(text)) return text;
+  let inner = text;
+  if (/^solana:/i.test(text)) {
+    try { inner = decodeURIComponent(text.slice("solana:".length)); } catch { return null; }
+  }
+  const m = /^(?:https?:\/\/)?[^/\s]+\/(?:pot|api\/v1\/pay)\/([1-9A-HJ-NP-Za-km-z]{14})(?:[/?#]|$)/.exec(inner);
+  return m ? m[1] : null;
+}
+
+/**
+ * A pot's proposal pays one contribution: its memo names it (owed:<id>), GET /api/v1/requests/<id> must say it belongs to
+ * this pot, and the proposal is then checked against that request's own solana: URL like any Owed link.
+ */
+export async function expectedContribution(potId, memo, baseUrl, warn, fail, fetchImpl = fetch) {
+  const id = typeof memo === "string" ? /^owed:([1-9A-HJ-NP-Za-km-z]{12})$/.exec(memo)?.[1] : null;
+  if (!id) {
+    fail(`proposal for pot ${potId}: the memo ${JSON.stringify(memo)} doesn't name a contribution (owed:<request id>)`);
+    return null;
+  }
+  const origin = new URL(baseUrl).origin;
+  try {
+    const res = await fetchImpl(`${origin}/api/v1/requests/${id}`, { signal: AbortSignal.timeout(5000), headers: { "user-agent": "owed-plugin-e2e/1" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const request = await res.json();
+    if (request?.pot?.id !== potId) {
+      fail(`proposal for pot ${potId}: contribution ${id} belongs to ${JSON.stringify(request?.pot?.id ?? null)}`);
+      return null;
+    }
+    const parsed = parseSolanaPayUrl(request.solana_pay_url ?? "");
+    if (!parsed.ok || parsed.kind !== "transfer") return null;
+    return { source: `GET ${origin}/api/v1/requests/${id} (pot ${potId})`, recipient: parsed.recipient, amount: parsed.amount, token: parsed.token, splToken: parsed.splToken, references: parsed.references, memo: parsed.memo };
+  } catch (error) {
+    warn(`could not resolve contribution ${id} of pot ${potId} to cross-check the proposal: ${error.message}`);
+    return null;
+  }
+}
+// F7 pots end
 
 /** What the paid link asks for: parsed from a solana: URL, or fetched from the Owed API for an Owed link/id. */
 async function expectedPayment(args, baseUrl, warn) {

@@ -20,6 +20,7 @@ const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "../../contract/f
 const UNKNOWN_ID = "1111111111"; // valid 10-char base58 that random ids never produce in practice
 const UNKNOWN_LEDGER_ID = "1111111111ab"; // valid 12-char base58 (ledger and refund ids), never produced in practice
 const TOKEN_ACCOUNT = "2YXyjxcV8FqSeZ8iRqZoNUnxAvfuX49d7VmzTmySgv1x"; // off the ed25519 curve: no wallet can sign for it
+const UNKNOWN_POT_ID = "11111111111111"; // F7: valid 14-char base58 pot id, never produced in practice
 const SMOKE_AMOUNT = "0.01";
 const SMOKE_REQUEST = {
   recipient: TEAM_WALLET, amount: SMOKE_AMOUNT, token: "USDC",
@@ -168,6 +169,7 @@ export async function runSmoke({ base, strict = false, create = false, id = null
   await page("unknown page is 404", `/smoke-missing-${Date.now().toString(36)}`, { expect: 404, pendingIfMissing: false });
   await page("pay page, unknown id", `/r/${UNKNOWN_ID}`, { expect: 404, mustExist: false });
   await page("ledger page, unknown id", `/l/${UNKNOWN_LEDGER_ID}`, { expect: 404, mustExist: false }); // F6 (0020)
+  await page("pot page, unknown id", `/pot/${UNKNOWN_POT_ID}`, { expect: 404, mustExist: false }); // F7 (0019)
   await page("stateless pay page", `/p?u=${encodeURIComponent(fixtures["status-raw.req"].solana_pay_url)}`);
 
   // ------------------------------------------------------------------------------------------- API, read-only
@@ -231,6 +233,13 @@ export async function runSmoke({ base, strict = false, create = false, id = null
   await api("autopay rejects an unsigned rule", "POST", "/api/v1/autopay", {
     json: { ...fixtures["autopay.create.req"], signature: `${"0".repeat(127)}1` }, expect: 400, shape: "errorRes", refine: invalidCode,
   });
+  // F7 pots (0019): read-only and refused calls only; nothing is created.
+  await api("pot, unknown id", "GET", `/api/v1/pots/${UNKNOWN_POT_ID}`, { expect: 404, shape: "errorRes", refine: notFoundCode });
+  await api("pot, malformed id", "GET", "/api/v1/pots/bad_id-0OIl", { expect: 400, shape: "errorRes", refine: invalidCode });
+  await api("pot create rejects a token account", "POST", "/api/v1/pots", {
+    json: { ...fixtures["pots.create.req"], recipient: TOKEN_ACCOUNT, source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
+  });
+  await api("pot x402 preset, unknown pot", "GET", `/x/pot/${UNKNOWN_POT_ID}/1`, { expect: 404, shape: "errorRes", refine: notFoundCode });
 
   // ------------------------------------------------------------------------------------------- one real request
 

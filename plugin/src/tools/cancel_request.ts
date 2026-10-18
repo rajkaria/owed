@@ -110,6 +110,9 @@ function resolveTarget(link: string, deps: Deps): Target | string {
   } catch (error) {
     return errorText(error, "That isn't an Owed link or request id.");
   }
+  if (parsed.kind === "pot") { // F7 pots
+    return "That is a chip-in pot. A pot can't be cancelled: it stops taking contributions at its deadline. An unpaid contribution expires on its own within 24 hours.";
+  }
   if (parsed.kind !== "owed") {
     return "Only Owed requests (an Owed link or request id) can be cancelled. A plain Solana Pay link isn't stored anywhere, so there is nothing to cancel: just stop sharing it.";
   }

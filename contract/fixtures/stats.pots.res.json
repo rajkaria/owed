@@ -1,0 +1,9 @@
+{
+  "paid_count": 12,
+  "paid_volume_usdc": "180.25",
+  "since": "2026-10-17T00:00:00Z",
+  "pots": {
+    "count": 2,
+    "paid_contributions": 3
+  }
+}

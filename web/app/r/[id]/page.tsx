@@ -7,6 +7,7 @@ import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
 import { SnsBadge } from "@/components/sns-badge"; // W3-S
 import { HandleBadge } from "@/components/handle-badge"; // F1
 import { RequestTermsNotes } from "@/app/i/request-notes"; // F8 invoices
+import { PotNote } from "@/app/pot/pot-note"; // F7 pots
 import type { PublicRequestWithPayer } from "@/lib/requests"; // F1
 import { DepositPay } from "@/components/deposit-pay"; // F3 deposit link
 import { depositOffer } from "@/lib/deposit-link"; // F3 deposit link
@@ -43,6 +44,7 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
       <VerifiedBadge domain={request.from_domain} verifiedAt={request.from_domain_verified_at} />
       <SnsBadge name={request.sns_name} recipient={request.recipient} source={request.sns_source} resolvedAt={request.sns_resolved_at} />
       <HandleBadge handle={(request as PublicRequestWithPayer).requester_handle} />
+      <PotNote pot={(request as PublicRequestWithPayer).pot} />
       <RequestTermsNotes id={request.id} />
     </>
   );

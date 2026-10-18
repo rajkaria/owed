@@ -36,6 +36,7 @@ test("the registry lists the 11 submitted tools, F1's two, F6's four and F8's re
     "refund_payment", // F8 invoices
     "cash_out", // F4 cash out
     "set_autopay", // F5 autopay
+    "start_pot", // F7 pots
   ]) assert.ok(names.includes(name), name);
   assert.equal(new Set(names).size, names.length, "no tool is registered twice");
 });

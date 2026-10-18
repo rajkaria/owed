@@ -142,6 +142,7 @@ export async function writeReminder(args: ReminderInput, deps: Deps = defaultDep
       return refusal(errorText(error, "This isn't an Owed request id, Owed link or Solana Pay link."));
     }
     if (parsed.kind === "transaction") return refusal("This is a Solana Pay checkout link (transaction request), not a payment request Owed can chase.");
+    if (parsed.kind === "pot") return refusal("That is a chip-in pot: nobody owes a pot, so there is nothing to chase. Share the pot's board link instead; check_payments shows what it raised."); // F7 pots
     facts = parsed.kind === "owed"
       ? await owedFacts(parsed.id, owedPathId(input, ctx.hosts, "i") !== null, ctx, deps, budget)
       : await transferFacts(input, ctx, deps);

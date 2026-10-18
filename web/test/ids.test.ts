@@ -53,3 +53,25 @@ test("references are 32 random bytes in base58", () => {
   assert.notEqual(a, b);
   assert.equal(bs58.decode(a).length, 32);
 });
+
+// F7 pots: a pot id commits to recipient + token through the server's nonce; the contract fixture pins the value
+// both sides compute (plugin/src/request-id.ts potIdFor, contract/shapes.mjs potIdFor).
+test("pot ids hash recipient, token and nonce: the contract fixture's id, 14 characters, never a request id", async () => {
+  const { isPotId, newPotNonce, potIdFor, potIdMatchesTerms } = await import("@/lib/ids");
+  const fixture = JSON.parse((await import("node:fs")).readFileSync(new URL("../../contract/fixtures/pots.get.res.json", import.meta.url), "utf8"));
+  assert.equal(potIdFor({ recipient: fixture.recipient, token: "USDC", nonce: fixture.nonce }), "FcPCDyvkUVAUfo");
+  assert.equal(fixture.id, "FcPCDyvkUVAUfo");
+  assert.ok(potIdMatchesTerms(fixture.id, { recipient: fixture.recipient, token: "USDC", nonce: fixture.nonce }));
+  for (const v of [
+    { recipient: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM", token: "USDC" as const, nonce: fixture.nonce },
+    { recipient: fixture.recipient, token: "SOL" as const, nonce: fixture.nonce },
+    { recipient: fixture.recipient, token: "USDC" as const, nonce: newPotNonce() },
+  ]) assert.equal(potIdMatchesTerms(fixture.id, v), false);
+  const ids = new Set(Array.from({ length: 500 }, () => potIdFor({ recipient: RECIPIENT, token: "USDC", nonce: newPotNonce() })));
+  assert.equal(ids.size, 500);
+  for (const id of ids) {
+    assert.ok(isPotId(id) && id.length === 14 && !isRequestId(id), id);
+  }
+  assert.equal(isPotId("JArQ6g9JvoWr"), false);
+  assert.equal(bs58.decode(newPotNonce()).length, 32);
+});

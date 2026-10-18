@@ -1,0 +1,42 @@
+{
+  "id": "bhauSCw1EBjt",
+  "kind": "single",
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "10",
+  "token": "USDC",
+  "payer_name": null,
+  "for": "Farewell gift for Ana",
+  "note": "Card and flowers from the team",
+  "requester_name": "Raj",
+  "status": "paid",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=10&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=HZjkguCD1Mx2qeCa8N9EWwT1yt1Le8dBfJWY5t5NAYvM&label=Raj&message=Farewell%20gift%20for%20Ana&memo=owed%3AbhauSCw1EBjt",
+  "reference": "HZjkguCD1Mx2qeCa8N9EWwT1yt1Le8dBfJWY5t5NAYvM",
+  "x402_url": "https://www.getowed.xyz/x/bhauSCw1EBjt",
+  "created_at": "2026-10-18T09:05:00Z",
+  "paid": {
+    "signature": "5cUbbxwvnajdWAsYMxNLyYLJLWSXYPKwq9RFJTfNZ5ahPGinFSe47cccLjgrKxDxMp3D4Lm8oz1B67QafzUAzJTu",
+    "payer": "AGoFjy5kSeWXdM7KUp8rTsvQD2TVSZYwUeg4DZgznmrw",
+    "amount": "10",
+    "at": "2026-10-18T09:06:12Z",
+    "rail": "solana_pay"
+  },
+  "flags": [],
+  "from_domain": null,
+  "from_domain_verified_at": null,
+  "expires_at": "2026-10-19T09:05:00Z",
+  "cancelled": null,
+  "chain": "solana",
+  "pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=10&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=HZjkguCD1Mx2qeCa8N9EWwT1yt1Le8dBfJWY5t5NAYvM&label=Raj&message=Farewell%20gift%20for%20Ana&memo=owed%3AbhauSCw1EBjt",
+  "matched": null,
+  "rest_of": null,
+  "rest_request": null,
+  "sns_name": null,
+  "sns_source": null,
+  "sns_resolved_at": null,
+  "requester_handle": "rajkaria",
+  "pot": {
+    "id": "FcPCDyvkUVAUfo",
+    "title": "Farewell gift for Ana",
+    "link": "https://www.getowed.xyz/pot/FcPCDyvkUVAUfo"
+  }
+}

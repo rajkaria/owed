@@ -237,7 +237,7 @@ it("GET /api/v1/stats adds cta totals since launch and keeps every field and its
   assert.equal(res.status, 200);
   assert.equal(res.headers.get("cache-control"), "public, s-maxage=10, stale-while-revalidate=50");
   const body = (await res.json()) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(body).sort(), ["cta", "paid_count", "paid_volume_usdc", "since"]);
+  assert.deepEqual(Object.keys(body).sort(), ["cta", "paid_count", "paid_volume_usdc", "pots", "since"]); // F7: + pots (0019)
   assert.deepEqual(body.cta, { paybox_clicks: 7, prompt_copies: 2 });
   assert.equal(body.since, "2026-10-17T00:00:00Z");
   assert.equal(typeof body.paid_count, "number");
@@ -262,7 +262,7 @@ it("stats leaves cta out (and keeps working) while migration 0016 isn't applied 
     const res = await statsRoute();
     assert.equal(res.status, 200);
     const body = (await res.json()) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(body).sort(), ["paid_count", "paid_volume_usdc", "since"]);
+    assert.deepEqual(Object.keys(body).sort(), ["paid_count", "paid_volume_usdc", "pots", "since"]); // F7: + pots (0019)
     assert.deepEqual(check(shapes.statsRes, body).errors, []);
     // The redirect keeps working too: it never waits for the counter.
     assertRedirect(await click(`?r=${UNKNOWN_ID}`));

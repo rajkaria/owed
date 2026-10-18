@@ -25,6 +25,7 @@ test("index registers the Owed tools", () => {
     "refund_payment", // F8 invoices
     "cash_out", // F4 cash out
     "set_autopay", // F5 autopay
+    "start_pot", // F7 pots
   ]);
 });
 
@@ -47,6 +48,8 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   assert.deepEqual(seen.get("refund_payment")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
   // F4 cash out: sends USDC out of the user's wallet (destructive); each call may set up a new sale (not idempotent).
   assert.deepEqual(seen.get("cash_out")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
+  // F7 pots: each call starts a new pot (not idempotent); a pot moves no money (not destructive).
+  assert.deepEqual(seen.get("start_pot")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
   // 0012: confirm records a match and ask_for_rest makes a request (not read-only); doing either twice changes nothing more.
   assert.deepEqual(seen.get("match_payments")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true });
   // F1: the inbox needs a fresh signature each time and can block a requester; pay_all moves money like pay_link.

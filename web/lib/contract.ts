@@ -1179,3 +1179,80 @@ export const AutopayVerdict = z.object({
 });
 export type AutopayVerdict = z.infer<typeof AutopayVerdict>;
 // ---- F5 autopay end ----
+// ---- F7 pots start ----
+// Chip-in pots (decision D15, migration 0019). POST /api/v1/pots, GET /api/v1/pots/:id, POST /api/v1/pots/:id/contributions.
+// A pot id is the last 14 base58 characters of sha256("owed-pot:v1\n" recipient "\n" asset "\n" nonce) (lib/ids.ts).
+// A contribution is an ordinary request (kind 'single') that carries `pot`; nothing else about requests changes.
+export const potId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{14}$/, "must be a 14-character Owed pot id");
+export const POT_DEADLINE_DAYS = { min: 1, max: 90 } as const;
+const potAmountText = z.string().max(40);
+
+export const CreatePotBody = z.object({
+  recipient: base58Key,
+  token: token.default("USDC"),
+  title: z.string().min(1).max(80 * 4),
+  note: untrusted(140),
+  requester_name: untrusted(TEXT_LIMITS.requester_name),
+  requester_handle: requesterHandleBody,
+  target: potAmountText.nullish(),
+  suggested: potAmountText.nullish(),
+  any_amount: z.boolean().nullish(),
+  presets: z.array(potAmountText).max(4, "presets: at most 4 amounts").nullish(),
+  /** An exact end (ISO); or deadline_days; default 30 days. */
+  deadline: isoTime.nullish(),
+  deadline_days: z.number({ error: "deadline_days must be a whole number of days from 1 to 90" }).int("deadline_days must be a whole number of days from 1 to 90")
+    .min(POT_DEADLINE_DAYS.min, "deadline_days must be at least 1").max(POT_DEADLINE_DAYS.max, "deadline_days can be at most 90").nullish(),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type CreatePotBody = z.infer<typeof CreatePotBody>;
+
+export const ContributionBody = z.object({
+  amount: potAmountText.nullish(),
+  source: z.enum(["plugin", "web"]).default("web"),
+});
+export type ContributionBody = z.infer<typeof ContributionBody>;
+
+const potLinkAmount = z.object({ amount: decimal, url: z.string().max(2048) });
+export const PotResponse = z.object({
+  id: potId,
+  link: z.url(),
+  recipient: base58Key,
+  token,
+  nonce: base58Key,
+  title: z.string().min(1).max(120),
+  note: z.string().nullable(),
+  requester_name: z.string().nullable(),
+  requester_handle: handle.nullable(),
+  target: decimal.nullable(),
+  suggested: decimal.nullable(),
+  any_amount: z.boolean(),
+  presets: z.array(decimal).max(4),
+  deadline: isoTime,
+  status: z.enum(["open", "ended"]),
+  created_at: isoTime,
+  flags: z.array(z.string()),
+  totals: z.object({ raised: decimal, count: z.number().int().nonnegative() }),
+  contributions: z.array(z.object({ id: requestId, amount: decimal, payer: base58Key, signature: z.string(), at: isoTime, rail: PaidInfo.shape.rail })).max(100),
+  chain_checked: z.boolean(),
+  links: z.object({ board: z.url(), transaction_request: z.array(potLinkAmount).max(5), x402: z.array(potLinkAmount).max(4) }),
+});
+export type PotResponse = z.infer<typeof PotResponse>;
+
+/** A contribution: a request (GET /api/v1/requests/:id shape) that names its pot. */
+export const PotRef = z.object({ id: potId, title: z.string().min(1).max(120), link: z.url() });
+export const PotContributionResponse = GetRequestResponse.extend({ pot: PotRef });
+export type PotContributionResponse = z.infer<typeof PotContributionResponse>;
+
+/** who_owes_me: a recipient's open pots (POST /api/v1/ledger adds `pots`). */
+export const PotSummary = z.object({
+  id: potId, link: z.url(), title: z.string(), token, raised: decimal, count: z.number().int().nonnegative(),
+  target: decimal.nullable(), deadline: isoTime, flags: z.array(z.string()),
+});
+export const LedgerPotsResponse = LedgerResponse.extend({ pots: z.array(PotSummary).max(20).optional() });
+export type LedgerPotsResponse = z.infer<typeof LedgerPotsResponse>;
+
+/** GET /api/v1/stats adds pots: how many were started and how many contributions were paid (also in paid_count). */
+export const StatsPotsResponse = StatsResponse.extend({
+  pots: z.object({ count: z.number().int().nonnegative(), paid_contributions: z.number().int().nonnegative() }).optional(),
+});
+// ---- F7 pots end ----

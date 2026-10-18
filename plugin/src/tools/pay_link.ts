@@ -31,9 +31,13 @@ import { planIdSchema } from "../contract.js";
 import { FEE_RESERVE_LAMPORTS } from "../chain.js";
 import { markPlanUsed, planFunding, planResult, PLAN_RECORD_BUDGET_MS, PLAN_USED_BUDGET_MS, PRICE_BUDGET_MS, readUsablePrice, recordPlan } from "../funding.js";
 // F2 funding plan end
+// F7 pots start
+import type { PotContributionRes, PotRes } from "../contract.js";
+import { potEnded, potEndedText, potFixedAmounts, potLabel, potTermsProblem } from "../pots.js";
+// F7 pots end
 
 export const inputSchema = z.object({
-  link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), the text of a payment QR code, or an SNS name (example.sns) with amount."), // W3-S: or an SNS name
+  link: z.string().min(1).max(2048).describe("What to pay: an Owed link or request id, a Solana Pay transfer URL (solana:...), the text of a payment QR code, an SNS name (example.sns) with amount, or a chip-in pot (its board link, pot id or QR code) with amount."), // W3-S: or an SNS name; F7: or a pot
   sender: z.union([addressSchema, evmAddressSchema]).describe("The user's own PayBox Solana wallet address that pays (from list_credentials). Use the same wallet you pass as use_plugin.wallet_id. For a request on Base, the user's Base (0x) wallet address."), // W3-B: 0x for Base
   max_amount: decimalSchema.optional().describe("Optional ceiling in the link's token; the tool refuses if the request asks for more."),
   amount: decimalSchema.optional().describe("Only for links that don't set an amount: how much to send, in token units."),
@@ -74,6 +78,7 @@ const DESCRIPTION = [
   "A request on Base (USDC on chain 8453) is paid over x402 from the user's PayBox Base wallet (the facilitator pays the gas); if that can't be offered the tool says how to pay it from a Base wallet. It never builds a Solana transaction for a Base request.", // W3-B
   "To pay an SNS name (\"pay example.sns 2 USDC\"), pass the name as link with amount (and token for SOL): the tool resolves it on Solana itself and proposes a transfer to the wallet it names. A request made for an SNS name is paid only if the name still points to its wallet. .sol names are refused (SNS moved to .sns).", // W3-S
   "If the request carries the requester's X handle, the text ends with a handle check: call PayBox resolve_username with that handle before approving, and don't approve if it resolves to a different wallet than the request pays. To pay several requests with one approval, use pay_all.", // F1
+  "To chip in to a pot (start_pot's board link, its 14-character id, or the text of its QR code), pass amount (or the pot's suggested amount is used; a pot that takes fixed amounts accepts only those): the tool checks the pot's id commits to the wallet and token it pays and that it hasn't ended, then makes one contribution just for this payment and proposes it. Pay a pot with pay_link, never pay_all.", // F7 pots
   "If the wallet can't cover the payment, nothing is proposed: the text gives a funding plan instead, the exact PayBox calls that fix it, best first (swap SOL for USDC, bring USDC over from Base, swap another token, buy with MoonPay through get_buy_link, or pay over x402 when only the network fee is short), each ending with pay_link again with the plan's plan_id. Show the user the options and run only the one they pick, one approval at a time, with PayBox check_operation_readiness before each step. A refused request (paid, cancelled, expired, tampered, sanctioned, a payee that doesn't check out) never gets a plan.", // F2
 ].join(" ");
 
@@ -104,6 +109,8 @@ export interface Resolved {
   /** Who the request was addressed to. */
   payer?: PayerInfo | null;
   // F1 payer inbox end
+  /** F7 pots: the pot being paid (its id checked against its wallet and token); the contribution is minted later. */
+  pot?: { id: string; title: string; deadline: string; recipient: string };
 }
 
 export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
@@ -138,9 +145,13 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     return refusal(errorText(error, "This isn't a payment link Owed can read."));
   }
   if (parsed.kind === "transaction") return refusal(REFUSE_TRANSACTION_REQUEST);
-  if (x402 && parsed.kind !== "owed") return refusal(REFUSE_X402_NOT_OWED);
+  if (x402 && parsed.kind !== "owed" && parsed.kind !== "pot") return refusal(REFUSE_X402_NOT_OWED); // F7: a USDC pot pays over x402 too
 
-  if (parsed.kind === "owed") {
+  if (parsed.kind === "pot") { // F7 pots: checked here; its contribution is minted right before proposing
+    const result = await resolvePot(parsed, args, ctx, deps, () => PAY_BUDGET_MS - (deps.now() - started));
+    if (typeof result === "string") return refusal(result);
+    resolved = result;
+  } else if (parsed.kind === "owed") {
     const result = await resolveOwed(parsed.id, ctx, deps);
     if (typeof result === "string") return refusal(result);
     // W3-B Base requests start
@@ -270,23 +281,25 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     if (readiness.blocker !== "funds" || !readiness.funds) return refusal(reason);
     // The plan's last step pays over x402, so what would refuse x402 refuses now, before anyone funds anything.
     if (x402 && !readiness.recipientAtaExists) return refusal(REFUSE_X402_NO_ACCOUNT);
-    if (x402) {
-      const challenge = await challengeCheck!;
+    if (x402 && challengeCheck) { // F7: a pot's x402 endpoint exists only once its contribution is minted, after funding
+      const challenge = await challengeCheck;
       if (challenge !== true) return refusal(challenge);
     }
     const price = await readUsablePrice(deps, Math.min(PRICE_BUDGET_MS, remaining() - 1000));
-    const { plan_id: planIdIn, ...again } = args;
+    // F7 pots: the plan's last step pays the same pot link with the same amount; no contribution is minted until then.
+    const { plan_id: planIdIn, ...again } = resolved.pot ? { ...args, amount } : args;
     const plan0 = planFunding({
       payTool: "pay_link", payArgs: again, requestIds: resolved.id ? [resolved.id] : [], sender: args.sender,
       sendUsdc: token === "USDC" ? amountAtomic : 0n, sendLamports: token === "SOL" ? amountAtomic : 0n, feeLamports: FEE_RESERVE_LAMPORTS,
       funds: readiness.funds, x402Rail: x402,
-      x402Possible: token === "USDC" && resolved.id !== undefined && readiness.recipientAtaExists,
+      x402Possible: token === "USDC" && (resolved.id !== undefined || resolved.pot !== undefined) && readiness.recipientAtaExists, // F7: + pots
       price,
     });
     if (!plan0) return refusal(reason);
     const plan = await recordPlan(plan0, ctx, planIdIn, Math.min(PLAN_RECORD_BUDGET_MS, remaining() - 300));
     const what = [
       `Paying ${lead}${x402 ? " over x402" : ""}.`,
+      resolved.pot ? potLine(resolved.pot) : "", // F7 pots
       resolved.fiatLine ? `Asked as ${resolved.fiatLine}; a quote, not a guarantee. The USDC amount is what is paid.` : "",
       notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
       name ? `Requester's name, unverified: ${name}.` : "",
@@ -299,20 +312,35 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
   }
 
   const createRecipientAta = token === "USDC" && !readiness.recipientAtaExists;
+  // F7 pots start: every check passed and the wallet can pay, so the contribution is minted now, right before the
+  // proposal (a refused or short payer leaves no row), and checked like any request: its id hashes its terms, which
+  // are the pot's wallet and token and the amount asked.
+  let payRequest = request;
+  let payX402Url = x402Url;
+  if (resolved.pot) {
+    if (x402 && createRecipientAta) return refusal(REFUSE_X402_NO_ACCOUNT);
+    const minted = await mintContribution(resolved.pot, amountAtomic, token, ctx, deps, remaining);
+    if (typeof minted === "string") return refusal(minted);
+    payRequest = minted.request;
+    if (x402) payX402Url = x402UrlFor(ctx.base, minted.id);
+  }
+  // F7 pots end
   let structuredContent;
   if (x402) {
     // An x402 payment can't open the recipient's USDC account the way the Solana Pay transaction does.
     if (createRecipientAta) return refusal(REFUSE_X402_NO_ACCOUNT);
-    const challenge = await challengeCheck!;
+    const challenge = resolved.pot // F7: the minted contribution's own x402 challenge
+      ? await checkX402Challenge(payX402Url!, { recipient: request.recipient, amountAtomic }, deps, Math.min(X402_CHALLENGE_TIMEOUT_MS, remaining()))
+      : await challengeCheck!;
     if (challenge !== true) return refusal(challenge);
     try {
-      structuredContent = proposeX402({ chain: "solana:mainnet", url: x402Url!, maxAmount: amountAtomic.toString() }).structuredContent;
+      structuredContent = proposeX402({ chain: "solana:mainnet", url: payX402Url!, maxAmount: amountAtomic.toString() }).structuredContent;
     } catch (error) {
       return refusal(`Couldn't build the x402 payment: ${errorText(error, "unknown error")}`);
     }
   } else {
     try {
-      const built = deps.buildTransferTx({ sender: args.sender, request, token, amountAtomic, createRecipientAta });
+      const built = deps.buildTransferTx({ sender: args.sender, request: payRequest, token, amountAtomic, createRecipientAta });
       structuredContent = proposeSolana({ transactionBase64: built.transactionBase64 }).structuredContent;
     } catch (error) {
       return refusal(`Couldn't build the payment: ${errorText(error, "unknown error")}`);
@@ -323,6 +351,7 @@ export async function payLink(args: PayInput, deps: Deps = defaultDeps) {
     // W2-H verified payee start
     `Pay ${lead}${x402 ? " over x402" : ""}.`, // W3-S: or the verified SNS name
     // W2-H verified payee end
+    resolved.pot ? potLine(resolved.pot) : "", // F7 pots
     resolved.fiatLine ? `Asked as ${resolved.fiatLine}; a quote, not a guarantee. The USDC amount is what is paid.` : "", // local-currency asks
     notes.length > 0 ? `Requester's note, unverified: ${notes.join(", ")}.` : "",
     name ? `Requester's name, unverified: ${name}.` : "",
@@ -418,6 +447,94 @@ export function checkOwedTerms(rq: GetRequestRes, id: string, ctx: Pick<CallCont
     payer: rq.payer ?? null,
   };
 }
+
+// ---- F7 pots start ----
+
+export const REFUSE_POT_ALL = "pay_all pays requests, not pots: pay a pot with pay_link, one contribution at a time.";
+/** Leaves the rest of the budget for the balance check and the proposal. */
+const POT_READ_BUDGET_MS = 4000;
+const POT_MINT_BUDGET_MS = 3500;
+
+/**
+ * A pot link (board, bare id, or Owed's own pot QR code) checked before anything is minted: the pot's id hashes its
+ * wallet and token (with the server's nonce), it is open by the server's word and this plugin's clock, and the
+ * amount is the one asked (args.amount, the QR code's ?amount=, else the suggested amount) and one the pot takes.
+ * Returns what to pay (the pot's wallet and token, no reference yet) or a refusal.
+ */
+async function resolvePot(link: { id: string; amount?: string }, args: PayInput, ctx: CallContext, deps: Deps, remaining: () => number): Promise<Resolved | string> {
+  let pot: PotRes | null;
+  try {
+    pot = await within(ctx.api.getPot(link.id), Math.min(POT_READ_BUDGET_MS, remaining() - 3000), () => null);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "not_found") return `No Owed pot has the id ${link.id}. Check the link with the person collecting.`;
+    if (error instanceof ApiError && error.httpStatus === 404) return "This Owed server doesn't have chip-in pots yet. Nothing was sent.";
+    if (error instanceof ApiError && error.code !== "upstream_unavailable") return `Owed couldn't load this pot: ${error.message}`;
+    return "Owed's server is unreachable, so this pot can't be checked right now. Nothing was sent; try again shortly.";
+  }
+  if (!pot) return "Owed's server didn't answer in time, so this pot can't be checked right now. Nothing was sent; try again shortly.";
+  const tampered = potTermsProblem(pot, link.id);
+  if (tampered) return tampered;
+  if (potEnded(pot, deps.now())) return potEndedText(pot);
+  const token = pot.token;
+  let asked: bigint | null = null;
+  try {
+    const fromArgs = args.amount === undefined ? null : deps.toAtomic(args.amount, token);
+    const fromLink = link.amount === undefined ? null : deps.toAtomic(link.amount, token);
+    if (fromArgs !== null && fromLink !== null && fromArgs !== fromLink) {
+      return `This pot link asks for ${deps.fromAtomic(fromLink, token)} ${token}; it can't be changed. Use the pot's board link to give another amount. Nothing was sent.`;
+    }
+    asked = fromArgs ?? fromLink ?? (pot.suggested === null ? null : deps.toAtomic(pot.suggested, token));
+  } catch (error) {
+    return `The amount isn't valid: ${errorText(error, "use a positive decimal amount.")}`;
+  }
+  const fixed = potFixedAmounts(pot, deps);
+  if (asked === null) {
+    return `How much ${token} should go to ${potLabel(pot.title)}? Ask the user and pass it as amount${pot.any_amount ? "" : ` (this pot takes ${fixed.map((a) => `${deps.fromAtomic(a, token)} ${token}`).join(", ")} only)`}. Nothing was sent.`;
+  }
+  if (!pot.any_amount && !fixed.includes(asked)) {
+    return `This pot takes ${fixed.map((a) => `${deps.fromAtomic(a, token)} ${token}`).join(", ")} only, not ${deps.fromAtomic(asked, token)} ${token}. Nothing was sent.`;
+  }
+  return {
+    request: { recipient: pot.recipient, amount: deps.fromAtomic(asked, token), references: [], ...(token === "USDC" && { splToken: USDC_MINT }) },
+    token, name: pot.requester_name, notes: [pot.note], flags: pot.flags,
+    requesterHandle: pot.requester_handle,
+    pot: { id: pot.id, title: pot.title, deadline: pot.deadline, recipient: pot.recipient },
+  };
+}
+
+/** "A contribution to the pot "…" (the requester's words, unverified), open until …." */
+function potLine(pot: NonNullable<Resolved["pot"]>): string {
+  return `A contribution to ${potLabel(pot.title)}, which takes contributions until ${pot.deadline}.`;
+}
+
+/**
+ * Mint the contribution (POST /pots/:id/contributions) and check it like any Owed request (checkOwedTerms: open, a
+ * Solana Pay URL paying exactly it, an id that hashes its terms), plus: it pays the pot's wallet and token, the amount
+ * asked, and names this pot. Its reference and memo then go into the proposal.
+ */
+async function mintContribution(
+  pot: NonNullable<Resolved["pot"]>, amountAtomic: bigint, token: Token, ctx: CallContext, deps: Deps, remaining: () => number,
+): Promise<{ id: string; request: TransferRequest } | string> {
+  let rq: PotContributionRes | null;
+  try {
+    rq = await within(ctx.api.contribute(pot.id, { amount: deps.fromAtomic(amountAtomic, token), source: "plugin" }), Math.min(POT_MINT_BUDGET_MS, remaining() - 800), () => null);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "rate_limited") return `Owed is limiting new contributions to this pot right now: ${error.message}. Nothing was sent; try again in a few minutes.`;
+    if (error instanceof ApiError && error.code === "invalid_input") return `Owed refused the contribution: ${error.message} Nothing was sent.`;
+    if (error instanceof ApiError && error.code === "blocked") return `${error.message} Nothing was sent.`;
+    return "Owed's server couldn't make this contribution right now. Nothing was sent; try again shortly.";
+  }
+  if (!rq) return "Owed's server didn't answer in time while making this contribution. Nothing was sent; try again.";
+  const checked = checkOwedTerms(rq, rq.id, ctx, deps);
+  if (typeof checked === "string") return checked;
+  if ("baseRequest" in checked) return "Owed's server returned a contribution on another chain. Nothing was sent.";
+  if (rq.pot.id !== pot.id || checked.request.recipient !== pot.recipient || checked.token !== token
+    || deps.toAtomic(rq.amount, token) !== amountAtomic || (rq.kind ?? "single") !== "single") {
+    return "Owed's server returned a contribution that doesn't match this pot or amount, so it wasn't paid. Nothing was sent.";
+  }
+  return { id: rq.id, request: checked.request };
+}
+// ---- F7 pots end ----
 
 // ---- x402 rail (SPEC §5.2 T2.2) ----
 

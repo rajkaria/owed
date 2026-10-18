@@ -1,0 +1,101 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "caution": "Anyone can create a request that pays your wallet; Owed can't tell which ones you made. Check names and amounts before chasing anyone.",
+  "generated_at": "2026-10-18T10:30:00Z",
+  "chain_checked": true,
+  "open": [],
+  "paid_recently": [
+    {
+      "id": "da3aii6tKZxk",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/da3aii6tKZxk",
+      "amount": "7.5",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": null,
+      "for": "Farewell gift for Ana",
+      "created_at": "2026-10-18T10:01:30Z",
+      "amount_paid": "7.5",
+      "payer": "7hFt6Gvzt1ujcSxHVyCosvkKk4fb1mVPXGFCYxhWBUC",
+      "signature": "2AG5rzw6M51nndLdBBBPYhwMYZzB6EAXx9ne8SSfP4EViySBKYZbe82SoozkiMbAgtE8XyNVXafenQxaUYesNShi",
+      "paid_at": "2026-10-18T10:02:05Z",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": [],
+      "rail": "solana_pay"
+    },
+    {
+      "id": "AU8iLXGykM3C",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/AU8iLXGykM3C",
+      "amount": "25",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": null,
+      "for": "Farewell gift for Ana",
+      "created_at": "2026-10-18T09:19:58Z",
+      "amount_paid": "25",
+      "payer": "GXzvDvhjM1NbgEQ5gxMNxQpUUdyBGqCaFDCxm25gwkHt",
+      "signature": "4CNvjU7vk1pXzGyhVLkuxVtVzBYS6hqQspheEVcne3owo4dY1Zx9LXwgfBsZTyMs29EeiiH5Mtc9aem1eTAaxmBo",
+      "paid_at": "2026-10-18T09:20:40Z",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": [],
+      "rail": "solana_pay"
+    },
+    {
+      "id": "bhauSCw1EBjt",
+      "kind": "single",
+      "link": "https://www.getowed.xyz/r/bhauSCw1EBjt",
+      "amount": "10",
+      "token": "USDC",
+      "status": "paid",
+      "payer_name": null,
+      "for": "Farewell gift for Ana",
+      "created_at": "2026-10-18T09:05:00Z",
+      "amount_paid": "10",
+      "payer": "AGoFjy5kSeWXdM7KUp8rTsvQD2TVSZYwUeg4DZgznmrw",
+      "signature": "5cUbbxwvnajdWAsYMxNLyYLJLWSXYPKwq9RFJTfNZ5ahPGinFSe47cccLjgrKxDxMp3D4Lm8oz1B67QafzUAzJTu",
+      "paid_at": "2026-10-18T09:06:12Z",
+      "group_id": null,
+      "group_title": null,
+      "group_link": null,
+      "invoice_number": null,
+      "due_date": null,
+      "from_domain": null,
+      "flags": [],
+      "rail": "solana_pay"
+    }
+  ],
+  "totals": [
+    {
+      "token": "USDC",
+      "outstanding": "0",
+      "received_30d": "42.5",
+      "open_count": 0,
+      "paid_count": 3
+    }
+  ],
+  "truncated": false,
+  "pots": [
+    {
+      "id": "FcPCDyvkUVAUfo",
+      "link": "https://www.getowed.xyz/pot/FcPCDyvkUVAUfo",
+      "title": "Farewell gift for Ana",
+      "token": "USDC",
+      "raised": "42.5",
+      "count": 3,
+      "target": "100",
+      "deadline": "2026-11-17T09:00:00Z",
+      "flags": []
+    }
+  ]
+}

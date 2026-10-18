@@ -11,13 +11,18 @@ import { basescanTx } from "../evm.js"; // W3-B
 import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
 import type { RefundSummary } from "../contract.js"; // F8 invoices
 import { DEPOSIT_HINT } from "../deposit-link.js"; // F3 deposit link
+// F7 pots start
+import type { PotRes } from "../contract.js";
+import { POT_TITLE_MAX, potEnded, potTermsProblem } from "../pots.js";
+import { clean, quote } from "../text.js";
+// F7 pots end
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
 export const CHECK_BUDGET_MS = 8500;
 
 export const inputSchema = z.object({
   requests: z.array(z.string().min(1).max(2048)).min(1).max(20)
-    .describe("1 to 20 requests to check: Owed request ids (e.g. \"JArQ6g9JvoWr\"), Owed links, or Solana Pay transfer URLs that carry a reference."),
+    .describe("1 to 20 requests to check: Owed request ids (e.g. \"JArQ6g9JvoWr\"), Owed links, chip-in pot ids or board links (F7), or Solana Pay transfer URLs that carry a reference."),
 }).strict();
 
 const resultStatus = z.enum(["open", "paid", "underpaid", "cancelled", "expired", "not_found", "invalid", "unknown"]); // W3-C: + expired
@@ -51,6 +56,12 @@ export const resultSchema = z.object({
   // F3 bank rail
   paid_via: z.string().optional().describe("How a payment that didn't come from the payer's own wallet arrived (by card or bank transfer through MoonPay). Say it as written."),
   deposit_link: z.boolean().optional().describe("The request carries a PayBox Deposit link: a payment through it isn't counted until match_payments matches it."), // F3 deposit link
+  // F7 pots: a pot's board (status open, or expired once its deadline passed); amount_requested is its target, if any.
+  pot: z.object({
+    title: z.string().describe("Written by whoever started the pot; unverified."),
+    raised: z.string(), target: z.string().nullable(), count: z.number().int(), deadline: z.string(), link: z.string(),
+    latest: z.array(z.object({ amount: z.string(), payer: z.string(), at: z.string(), explorer_url: z.string() }).strict()),
+  }).strict().optional().describe("Set when the input is a chip-in pot: what it raised from how many contributions, and the latest ones."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -70,12 +81,14 @@ const DESCRIPTION = [
   "A payment the user matched with match_payments (it carried no reference) is marked matched; say so. For an underpaid request, match_payments with action ask_for_rest makes a new request for exactly the rest; if the payer says they paid but it shows open, match_payments looks for a payment that lost its reference.", // 0012
   "A payment that was partly or fully sent back with refund_payment says \"refunded <amount>\" once Solana confirms the refund.", // F8 invoices
   "An open request that carries a PayBox Deposit link (deposit_link) may have been paid through it, which Owed can't see: if the payer says so, run match_payments.", // F3 deposit link
+  "A chip-in pot (its id or board link, from start_pot) shows what it raised against its target, from how many contributions, the latest ones and its deadline; a pot is never counted as money anyone owes.", // F7 pots
 ].join(" ");
 
 type Parsed =
   | { kind: "owed"; input: string; id: string }
   | { kind: "transfer"; input: string; request: TransferRequest; token: Token }
-  | { kind: "invalid"; input: string; error: string };
+  | { kind: "invalid"; input: string; error: string }
+  | { kind: "pot"; input: string; id: string }; // F7 pots
 
 const TRANSACTION_REQUEST = "This is a Solana Pay checkout link (transaction request). Owed checks transfer links only.";
 const UNREACHABLE = "Owed's server is unreachable right now, so this request couldn't be checked. Try again shortly.";
@@ -111,9 +124,12 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
       ctx.api.refundsFor(ids).then((res) => new Map(res.requests.map((r) => [r.request_id, r] as const)), () => new Map<string, RefundSummary>()),
       Math.min(remaining(), 4000), () => new Map<string, RefundSummary>(),
     );
-  const [owed, refunds, ...transfers] = await Promise.all([
+  // F7 pots: each pot's board, beside the rest.
+  const potLookup = Promise.all(parsed.map((p) => (p.kind === "pot" ? checkPot(p, ctx, deps, remaining) : Promise.resolve(null))));
+  const [owed, refunds, pots, ...transfers] = await Promise.all([
     owedLookup,
     refundLookup, // F8 invoices
+    potLookup, // F7 pots
     ...parsed.map((p) => (p.kind === "transfer" ? checkTransfer(p, ctx, deps, remaining) : Promise.resolve(null))),
   ]);
 
@@ -121,6 +137,7 @@ export async function checkPayments(args: CheckInput, deps: Deps = defaultDeps) 
   const results: CheckResult[] = parsed.map((p, i) => {
     if (p.kind === "invalid") return { input: p.input, status: "invalid", amount_requested: null, token: null, error: p.error };
     if (p.kind === "transfer") return transfers[i] as CheckResult;
+    if (p.kind === "pot") return (pots as Array<CheckResult | null>)[i]!; // F7 pots
     if (typeof owed === "string") return { input: p.input, id: p.id, status: "unknown", amount_requested: null, token: null, error: owed };
     const r = owed.get(p.id);
     if (!r) return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: NOT_FOUND };
@@ -144,6 +161,7 @@ function parse(raw: string, ctx: CallContext, deps: Deps): Parsed {
     return { kind: "invalid", input, error: errorText(error, "This isn't an Owed link, id or Solana Pay transfer URL.") };
   }
   if (link.kind === "owed") return { kind: "owed", input, id: link.id };
+  if (link.kind === "pot") return { kind: "pot", input, id: link.id }; // F7 pots
   if (link.kind === "transaction") return { kind: "invalid", input, error: TRANSACTION_REQUEST };
   const request = link.request;
   if (request.references.length === 0) {
@@ -266,7 +284,10 @@ function distinct(results: CheckResult[]): CheckResult[] {
 }
 
 export function summarize(all: CheckResult[], deps: Deps): string {
-  const results = distinct(all);
+  // F7 pots: a pot is nobody's debt, so it is summed apart from the requests.
+  const potParts = distinct(all).filter((r) => r.pot).map((r) => `pot ${quote(r.pot!.title, POT_TITLE_MAX)}: ${potRaisedText(r)}`);
+  const results = distinct(all).filter((r) => !r.pot);
+  if (results.length === 0 && potParts.length > 0) return potParts.join(" · ");
   const received = new Map<Token, bigint>();
   const outstanding = new Map<Token, bigint>();
   const count = (status: CheckResult["status"]) => results.filter((r) => r.status === status).length;
@@ -292,7 +313,7 @@ export function summarize(all: CheckResult[], deps: Deps): string {
     ["invalid", "invalid"], ["unknown", "couldn't be checked"],
   ];
   for (const [status, label] of extras) if (count(status) > 0) parts.push(`${count(status)} ${label}`);
-  return parts.join(" · ");
+  return [...parts, ...potParts].join(" · ");
 }
 
 function label(r: CheckResult): string {
@@ -309,6 +330,7 @@ function detailLine(r: CheckResult): string[] {
 }
 
 function statusLine(r: CheckResult): string[] {
+  if (r.pot) return potStatusLines(r); // F7 pots
   const from = r.payer ? ` from ${shortAddress(r.payer)}` : "";
   const link = r.explorer_url ? `: ${r.explorer_url}` : "";
   const refunded = r.refunded ? `, refunded ${r.refunded} ${r.token ?? ""}${r.refunded_in_full ? " (in full)" : ""}` : ""; // F8 invoices
@@ -328,6 +350,49 @@ function statusLine(r: CheckResult): string[] {
   if (r.error) return [`${r.status === "unknown" ? "Not checked" : "Skipped"}, ${r.input.length > 60 ? `${r.input.slice(0, 57)}...` : r.input}: ${r.error}`];
   return [];
 }
+
+// ---- F7 pots start ----
+/** A pot's board as a result: checked against its id (wallet + token), never counted as a debt. */
+async function checkPot(p: Extract<Parsed, { kind: "pot" }>, ctx: CallContext, deps: Deps, remaining: () => number): Promise<CheckResult> {
+  const unknown = (error: string): CheckResult => ({ input: p.input, id: p.id, status: "unknown", amount_requested: null, token: null, error });
+  let pot: PotRes | null;
+  try {
+    pot = await within(ctx.api.getPot(p.id), Math.min(remaining(), 6000), () => null);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "not_found") return { input: p.input, id: p.id, status: "not_found", amount_requested: null, token: null, error: "No Owed pot has this id." };
+    if (error instanceof ApiError && error.code !== "upstream_unavailable") return { input: p.input, id: p.id, status: "invalid", amount_requested: null, token: null, error: error.message };
+    return unknown(UNREACHABLE);
+  }
+  if (!pot) return unknown(UNREACHABLE);
+  const wrong = potTermsProblem(pot, p.id);
+  if (wrong) return { input: p.input, id: p.id, status: "invalid", amount_requested: null, token: null, error: wrong };
+  const out: CheckResult = {
+    input: p.input, id: p.id, status: potEnded(pot, deps.now()) ? "expired" : "open", amount_requested: pot.target, token: pot.token,
+    amount_paid: pot.totals.raised, expires_at: pot.deadline,
+    pot: {
+      title: clean(pot.title, POT_TITLE_MAX), raised: pot.totals.raised, target: pot.target, count: pot.totals.count, deadline: pot.deadline, link: pot.link,
+      latest: pot.contributions.slice(0, 5).map((c) => ({ amount: c.amount, payer: c.payer, at: c.at, explorer_url: explorerUrl(c.signature) })),
+    },
+  };
+  if (!pot.chain_checked) out.error = "Solana couldn't be read just now, so the newest contributions may not be counted yet.";
+  return out;
+}
+
+function potRaisedText(r: CheckResult): string {
+  const p = r.pot!;
+  const count = `${p.count} ${p.count === 1 ? "contribution" : "contributions"}`;
+  return `${p.target === null ? `${p.raised} ${r.token}` : `${p.raised} of ${p.target} ${r.token}`} raised from ${count}${r.status === "expired" ? ", ended" : ""}`;
+}
+
+function potStatusLines(r: CheckResult): string[] {
+  const p = r.pot!;
+  const when = r.status === "expired" ? `ended ${p.deadline}; it takes no new contributions` : `takes contributions until ${p.deadline}`;
+  const lines = [`Pot ${r.id} ${quote(p.title, POT_TITLE_MAX)} (written by whoever started it; unverified): ${potRaisedText(r)}, ${when}. Board: ${p.link}`];
+  for (const c of p.latest) lines.push(`  ${c.amount} ${r.token ?? ""} from ${shortAddress(c.payer)} at ${c.at}: ${c.explorer_url}`);
+  if (r.error) lines.push(`  ${r.error}`);
+  return lines;
+}
+// ---- F7 pots end ----
 
 export function register(server: McpServer, deps: Deps = defaultDeps) {
   server.registerTool("check_payments", {

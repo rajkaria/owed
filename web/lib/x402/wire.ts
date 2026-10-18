@@ -96,6 +96,7 @@ export function b64(obj: unknown): string {
 
 /** Fixed text built from the terms only: requester-written words never reach x402 clients. */
 export function describe(t: Terms): string {
+  if (t.id.length === 14) return `Owed pot ${t.id}: a contribution of ${fromAtomic(t.amountAtomic, "USDC")} USDC to ${t.recipient}`; // F7 pots
   return `Owed request ${t.id}: ${fromAtomic(t.amountAtomic, "USDC")} USDC to ${t.recipient}`;
 }
 

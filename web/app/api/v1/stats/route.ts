@@ -2,6 +2,7 @@ import { ctaTotals } from "@/lib/cta";
 import { sql } from "@/lib/db";
 import { json, toErrorResponse } from "@/lib/http";
 import { formatUnits, TOKENS } from "@/lib/money";
+import { potStats } from "@/lib/pots"; // F7 pots
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ const SINCE = "2026-10-17T00:00:00Z";
  */
 export async function GET(): Promise<Response> {
   try {
-    const [[row], cta] = await Promise.all([
+    const [[row], cta, pots] = await Promise.all([
       sql(
         `select count(*)::text as paid_count,
                 coalesce(sum(paid_amount_atomic) filter (where token = 'USDC'), 0)::text as usdc_atomic
@@ -23,6 +24,7 @@ export async function GET(): Promise<Response> {
           where status = 'paid'`,
       ),
       ctaTotals(),
+      potStats(), // F7 pots: optional like cta; a paid contribution is a real paid request, so it is in paid_count too
     ]);
     return json(
       {
@@ -30,6 +32,7 @@ export async function GET(): Promise<Response> {
         paid_volume_usdc: formatUnits(BigInt(row.usdc_atomic!), TOKENS.USDC.decimals),
         since: SINCE,
         ...(cta && { cta }),
+        ...(pots && { pots }),
       },
       { headers: { "Cache-Control": "public, s-maxage=10, stale-while-revalidate=50" } },
     );

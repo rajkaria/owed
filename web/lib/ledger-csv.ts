@@ -144,6 +144,7 @@ export async function ledgerCsv(recipient: string, base: string): Promise<{ text
        left join invoices i on i.id = r.invoice_id
        left join schedule_requests sr on sr.request_id = r.id
       where r.recipient = $1 and r.status in ('open', 'underpaid', 'paid')
+        and (r.pot_id is null or r.status <> 'open') -- F7 pots: an unpaid contribution is a scan or a click, not a debt
       order by r.created_at desc, r.id
       limit $2`,
     [recipient, CSV_MAX_ROWS],

@@ -1135,3 +1135,72 @@ export type AutopayCreateRes = z.infer<typeof autopayCreateResSchema>;
 export type AutopayRevokeRes = z.infer<typeof autopayRevokeResSchema>;
 export type AutopayVerdict = z.infer<typeof autopayVerdictSchema>;
 // ---- F5 autopay end ----
+// ---- F7 pots start ----
+// Chip-in pots (decision D15): POST /pots, GET /pots/:id, POST /pots/:id/contributions. A pot id is the last 14 base58
+// characters of sha256("owed-pot:v1\n" recipient "\n" asset "\n" nonce) (request-id.ts potIdFor); a contribution is an
+// ordinary request (its id hashes its own terms) that names its pot. Replies are not strict, like every reply here.
+export const potIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{14}$/);
+const potAmountLinkSchema = z.object({ amount: decimalSchema, url: z.string().max(2048) });
+
+export const createPotReqSchema = z.object({
+  recipient: addressSchema,
+  token: tokenSchema.optional(),
+  title: z.string().min(1).max(80),
+  note: z.string().max(140).optional(),
+  requester_name: z.string().max(40).optional(),
+  requester_handle: handleSchema.optional(),
+  target: decimalSchema.optional(),
+  suggested: decimalSchema.optional(),
+  any_amount: z.boolean().optional(),
+  presets: z.array(decimalSchema).max(4).optional(),
+  deadline: isoTime.optional(),
+  deadline_days: z.number().int().min(1).max(90).optional(),
+  source: z.enum(["plugin", "web"]),
+}).strict();
+
+export const potResSchema = z.object({
+  id: potIdSchema,
+  link: httpsUrl,
+  recipient: addressSchema,
+  token: tokenSchema,
+  nonce: addressSchema,
+  title: z.string().min(1).max(120),
+  note: z.string().max(140).nullable(),
+  requester_name: z.string().max(40).nullable(),
+  requester_handle: handleSchema.nullable(),
+  target: decimalSchema.nullable(),
+  suggested: decimalSchema.nullable(),
+  any_amount: z.boolean(),
+  presets: z.array(decimalSchema).max(4),
+  deadline: isoTime,
+  status: z.enum(["open", "ended"]),
+  created_at: isoTime,
+  flags: z.array(z.string().max(80)).max(32),
+  totals: z.object({ raised: decimalSchema, count: z.number().int().nonnegative() }),
+  contributions: z.array(z.object({ id: requestIdSchema, amount: decimalSchema, payer: addressSchema, signature: signatureSchema, at: isoTime, rail: railSchema })).max(100),
+  chain_checked: z.boolean(),
+  links: z.object({ board: httpsUrl, transaction_request: z.array(potAmountLinkSchema).max(5), x402: z.array(potAmountLinkSchema).max(4) }),
+});
+
+export const contributionReqSchema = z.object({ amount: decimalSchema.optional(), source: z.enum(["plugin", "web"]).optional() }).strict();
+export const potRefSchema = z.object({ id: potIdSchema, title: z.string().min(1).max(120), link: httpsUrl });
+/** A contribution: GET /requests/:id's shape plus the pot it belongs to. */
+export const potContributionResSchema = getRequestResSchema.extend({ pot: potRefSchema });
+
+export const potSummarySchema = z.object({
+  id: potIdSchema, link: httpsUrl, title: z.string().min(1).max(120), token: tokenSchema, raised: decimalSchema,
+  count: z.number().int().nonnegative(), target: decimalSchema.nullable(), deadline: isoTime, flags: z.array(z.string().max(80)).max(32),
+});
+/** POST /ledger with F8's entries and F7's open pots (left out when the recipient has none). */
+export const ledgerResPotsSchema = ledgerResF8Schema.extend({ pots: z.array(potSummarySchema).max(20).optional() });
+export const statsPotsResSchema = statsResSchema.extend({
+  pots: z.object({ count: z.number().int().nonnegative(), paid_contributions: z.number().int().nonnegative() }).optional(),
+});
+
+export type CreatePotReq = z.infer<typeof createPotReqSchema>;
+export type PotRes = z.infer<typeof potResSchema>;
+export type ContributionReq = z.infer<typeof contributionReqSchema>;
+export type PotContributionRes = z.infer<typeof potContributionResSchema>;
+export type PotSummary = z.infer<typeof potSummarySchema>;
+export type LedgerResPots = z.infer<typeof ledgerResPotsSchema>;
+// ---- F7 pots end ----

@@ -115,6 +115,7 @@ const LIST = `
   (select true as is_open, ${LISTED_COLUMNS}
     where r.recipient = $1 and r.status in ('open', 'underpaid')
       and (r.status <> 'open' or r.expires_at is null or r.expires_at > now()) -- W3-C: an expired request is no longer owed
+      and r.pot_id is null -- F7 pots: nobody owes a pot; an unpaid contribution is a scan or a click, not a debt
     order by r.created_at desc, r.id
     limit $2)
   union all
@@ -131,14 +132,22 @@ const RESTED = `exists (select 1 from requests c where c.rest_of = requests.id
 // Totals for the rows a truncated listing left out, by the same rules as contribution().
 const REST_TOTALS = `
   select token,
-         coalesce(sum(amount_atomic - coalesce(paid_amount_atomic, 0)) filter (where status in ('open', 'underpaid') and not ${RESTED}), 0)::text as outstanding,
-         coalesce(sum(paid_amount_atomic) filter (where status in ('paid', 'underpaid') and paid_at > now() - make_interval(days => $3)), 0)::text as received,
-         count(*) filter (where status in ('open', 'underpaid') and not ${RESTED})::int as open_count,
+         coalesce(sum(amount_atomic - coalesce(paid_amount_atomic, 0)) filter (where status in ('open', 'underpaid') and not ${RESTED} and pot_id is null), 0)::text as outstanding,
+         coalesce(sum(paid_amount_atomic) filter (where status in ('paid', 'underpaid') and paid_at > now() - make_interval(days => $3)
+           and not (pot_id is not null and status = 'underpaid')), 0)::text as received, -- F7: partly paid contributions are added by POT_PARTIAL
+         count(*) filter (where status in ('open', 'underpaid') and not ${RESTED} and pot_id is null)::int as open_count,
          count(*) filter (where status = 'paid' and paid_at > now() - make_interval(days => $3))::int as paid_count
     from requests
    where recipient = $1 and not (id = any($2::text[]))
      and (status in ('open', 'underpaid') or (status = 'paid' and paid_at > now() - make_interval(days => $3)))
      and (status <> 'open' or expires_at is null or expires_at > now()) -- W3-C: an expired request is no longer owed
+   group by token`;
+
+// F7 pots: a partly paid contribution is listed nowhere (nobody owes a pot the rest), but what arrived was received.
+const POT_PARTIAL = `
+  select token, coalesce(sum(paid_amount_atomic), 0)::text as received
+    from requests
+   where recipient = $1 and pot_id is not null and status = 'underpaid' and paid_at > now() - make_interval(days => $2)
    group by token`;
 
 interface Contribution {
@@ -254,6 +263,9 @@ export async function getLedger(recipient: string, { base, now = Date.now(), cha
     for (const t of await sql(REST_TOTALS, [recipient, rows.map((r) => r.id), PAID_WINDOW_DAYS])) {
       add(t.token as Token, { outstanding: BigInt(t.outstanding!), received: BigInt(t.received!), open: Number(t.open_count), paid: Number(t.paid_count) });
     }
+  }
+  for (const t of await sql(POT_PARTIAL, [recipient, PAID_WINDOW_DAYS])) { // F7 pots
+    if (BigInt(t.received!) > 0n) add(t.token as Token, { outstanding: 0n, received: BigInt(t.received!), open: 0, paid: 0 });
   }
 
   const open = rows.filter((r) => (r.status === "open" || r.status === "underpaid") && !restCarried(r)); // 0012

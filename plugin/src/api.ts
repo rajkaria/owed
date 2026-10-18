@@ -15,6 +15,7 @@ import {
   type CreateInvoiceTermsReq, type InvoiceTermsRes, type CreateRefundReq, type CreateRefundRes, type RefundRes, type RefundsLookupRes, type StatementRes, type LedgerResF8, // F8 invoices
   cashOutResSchema, type CashOutRes, type CreateCashOutReq, // F4 cash out
   autopayCreateResSchema, autopayRevokeResSchema, type AutopayCreateReq, type AutopayCreateRes, type AutopayRevokeReq, type AutopayRevokeRes, // F5 autopay
+  potResSchema, potContributionResSchema, ledgerResPotsSchema, type CreatePotReq, type PotRes, type ContributionReq, type PotContributionRes, type LedgerResPots, // F7 pots
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -114,6 +115,16 @@ export interface ApiClient {
   /** End one of the payer's autopay rules, with the payer's signed revoke message. */
   revokeAutopay(body: AutopayRevokeReq): Promise<AutopayRevokeRes>;
   // F5 autopay end
+  // F7 pots start
+  /** Start a chip-in pot; the reply's id must hash its recipient, token and nonce (request-id.ts potIdMatchesTerms). */
+  createPot(body: CreatePotReq): Promise<PotRes>;
+  /** A pot and its board (the server settles the newest contributions from the chain first). */
+  getPot(id: string): Promise<PotRes>;
+  /** Mint one contribution (an ordinary request with a fresh reference) for `amount`, or the pot's suggested amount. */
+  contribute(id: string, body: ContributionReq): Promise<PotContributionRes>;
+  /** The ledger with F8's entries and F7's open pots. */
+  ledgerPots(body: LedgerReq): Promise<LedgerResPots>;
+  // F7 pots end
 }
 
 export interface ApiOptions {
@@ -202,5 +213,11 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     // F4 cash out end
     createAutopay: (body) => call("POST", "/autopay", autopayCreateResSchema, body), // F5 autopay
     revokeAutopay: (body) => call("POST", "/autopay/revoke", autopayRevokeResSchema, body),
+    // F7 pots start
+    createPot: (body) => call("POST", "/pots", potResSchema, body),
+    getPot: (id) => call("GET", `/pots/${encodeURIComponent(id)}`, potResSchema),
+    contribute: (id, body) => call("POST", `/pots/${encodeURIComponent(id)}/contributions`, potContributionResSchema, body),
+    ledgerPots: (body) => call("POST", "/ledger", ledgerResPotsSchema, body),
+    // F7 pots end
   };
 }

@@ -1,0 +1,18 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "title": "Farewell gift for Ana",
+  "note": "Card and flowers from the team",
+  "requester_name": "Raj",
+  "requester_handle": "rajkaria",
+  "target": "100",
+  "suggested": "10",
+  "any_amount": true,
+  "presets": [
+    "5",
+    "10",
+    "20"
+  ],
+  "deadline_days": 30,
+  "source": "plugin"
+}

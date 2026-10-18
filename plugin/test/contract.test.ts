@@ -19,6 +19,7 @@ import { createInvoiceTermsReqSchema, createRefundReqSchema, createRefundResSche
 import { alertTokenReqSchema, confirmAlertResSchema, createAlertReqSchema, createAlertResSchema, unsubscribeAlertResSchema } from "../src/contract.ts"; // S1 alerts
 import { cashOutResSchema, createCashOutReqSchema } from "../src/contract.ts"; // F4 cash out
 import { autopayCreateReqSchema, autopayCreateResSchema, autopayRevokeReqSchema, autopayRevokeResSchema } from "../src/contract.ts"; // F5 autopay
+import { contributionReqSchema, createPotReqSchema, ledgerResPotsSchema, potContributionResSchema, potResSchema, statsPotsResSchema } from "../src/contract.ts"; // F7 pots
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -159,6 +160,32 @@ test("F5/F3: optional autopay and deposit fields, strict bodies", () => {
   assert.equal(autopayCreateReqSchema.safeParse({ ...fixture("autopay.create.req.json"), extra: 1 }).success, false);
   assert.equal(createInvoiceTermsReqSchema.safeParse(fixture("deposit.invoices.create.req.json")).success, true);
   assert.equal(invoiceTermsResSchema.parse(fixture("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+  // F7 pots
+  "pots.create.req.json": createPotReqSchema,
+  "pots.create.res.json": potResSchema,
+  "pots.get.res.json": potResSchema,
+  "pots.contribution.req.json": contributionReqSchema,
+  "pots.contribution.res.json": potContributionResSchema,
+  "pots.get-request.res.json": potContributionResSchema,
+  "ledger.pots.res.json": ledgerResPotsSchema,
+  "stats.pots.res.json": statsPotsResSchema,
+};
+
+// F7 pots: older shapes still read the pot fixtures (new fields are optional or ignored), and pot ids are pinned like request ids.
+test("F7: pot fixtures parse with the older schemas; the pot id hashes its terms; contributions hash theirs", async () => {
+  for (const file of ["pots.contribution.res.json", "pots.get-request.res.json"]) assert.ok(getRequestResSchema.safeParse(fixture(file)).success, file);
+  assert.ok(ledgerResF8Schema.safeParse(fixture("ledger.pots.res.json")).success);
+  assert.ok(ledgerResSchema.safeParse(fixture("ledger.pots.res.json")).success);
+  assert.ok(statsResSchema.safeParse(fixture("stats.pots.res.json")).success);
+  for (const file of ["ledger.res.json", "ledger.schedules.res.json", "fiat.ledger.res.json"]) assert.ok(ledgerResPotsSchema.safeParse(fixture(file)).success, file);
+  const { potIdFor, potIdMatchesTerms, idMatchesTerms } = await import("../src/request-id.ts");
+  const pot = fixture("pots.get.res.json");
+  assert.equal(potIdFor({ recipient: pot.recipient, token: pot.token, nonce: pot.nonce }), pot.id);
+  assert.equal(pot.id, "FcPCDyvkUVAUfo");
+  assert.equal(potIdMatchesTerms(pot.id, { recipient: pot.recipient, token: "SOL", nonce: pot.nonce }), false);
+  const c = fixture("pots.contribution.res.json");
+  assert.ok(idMatchesTerms(c.id, { recipient: c.recipient, token: c.token, amountAtomic: 10_000_000n, reference: c.reference }));
+  assert.equal(c.pot.id, pot.id);
 });
 
 // F8 invoices: the existing invoice and ledger fixtures parse with the terms-aware schemas too (every F8 field is optional).
