@@ -37,3 +37,29 @@ export function requestIdFor(terms: RequestTerms): string {
 export function idMatchesTerms(id: string, terms: RequestTerms): boolean {
   return id.length === VERIFIED_ID_LENGTH && requestIdFor(terms) === id;
 }
+
+// F7 pots start
+// A pot id commits to who the pot pays and in what token: the last 14 base58 characters of
+// sha256("owed-pot:v1\n" recipient "\n" asset "\n" nonce), asset "SOL" or the USDC mint, nonce the 32 random bytes
+// (base58) Owed's server minted and returns with the pot. web/lib/ids.ts computes the same value; contract/fixtures
+// pin both sides. pay_link refuses a pot whose id doesn't hash its recipient, token and nonce.
+export const POT_ID_LENGTH = 14;
+export const POT_ID_RE = new RegExp(`^${BASE58}{${POT_ID_LENGTH}}$`);
+
+export interface PotTerms {
+  recipient: string;
+  token: Token;
+  nonce: string;
+}
+
+export function potIdFor(terms: PotTerms): string {
+  const asset = terms.token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-pot:v1\n${terms.recipient}\n${asset}\n${terms.nonce}`, "utf8").digest();
+  return bs58.encode(digest).slice(-POT_ID_LENGTH);
+}
+
+/** True when the id was derived from exactly these terms. */
+export function potIdMatchesTerms(id: string, terms: PotTerms): boolean {
+  return typeof id === "string" && id.length === POT_ID_LENGTH && potIdFor(terms) === id;
+}
+// F7 pots end

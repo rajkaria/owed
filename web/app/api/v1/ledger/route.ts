@@ -4,6 +4,7 @@ import { getLedger } from "@/lib/ledger";
 import { csvLink } from "@/lib/ledger-csv"; // W3-D
 import { withSchedules } from "@/lib/schedules"; // W3-D
 import { withInvoiceTerms } from "@/lib/invoice-terms"; // F8 invoices
+import { withPots } from "@/lib/pots"; // F7 pots
 import { ledgerPrefix, verifySignedMessage } from "@/lib/verify-signature";
 
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ export async function POST(req: Request): Promise<Response> {
     });
     // W3-D start: monthly schedules and, when asked, a 10-minute CSV link (minted only after the signature check)
     const base = baseUrl(req);
-    const ledger = await withInvoiceTerms(await withSchedules(await getLedger(body.recipient, { base }), { base })); // F8: chase days, reminder due, refunds
+    const ledger = await withPots(await withInvoiceTerms(await withSchedules(await getLedger(body.recipient, { base }), { base })), { base }); // F8: chase days, reminder due, refunds; F7: open pots
     return json(body.csv ? { ...ledger, csv: csvLink(body.recipient, base) } : ledger);
     // W3-D end
   } catch (e) {

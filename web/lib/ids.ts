@@ -41,3 +41,39 @@ export function isRequestId(s: unknown): s is string {
 export function newReference(): string {
   return bs58.encode(crypto.getRandomValues(new Uint8Array(32)));
 }
+
+// F7 pots start
+// A pot id commits to who the pot pays and in what token: the last 14 base58 characters of
+// sha256("owed-pot:v1\n" recipient "\n" asset "\n" nonce), asset "SOL" or the USDC mint, nonce 32 random bytes
+// (base58) minted by this server and returned with the pot. The plugin recomputes it (plugin/src/request-id.ts
+// potIdFor) before it pays a pot, so this server can't swap the wallet or token behind a shared pot link.
+// 14 characters can never be a 10- or 12-character request id, so every link says which one it is.
+export const POT_ID_LENGTH = 14;
+const POT_ID_PATTERN = new RegExp(`^${BASE58}{${POT_ID_LENGTH}}$`);
+
+export interface PotTerms {
+  recipient: string;
+  token: Token;
+  nonce: string;
+}
+
+export function potIdFor(terms: PotTerms): string {
+  const asset = terms.token === "SOL" ? "SOL" : USDC_MINT;
+  const digest = createHash("sha256").update(`owed-pot:v1\n${terms.recipient}\n${asset}\n${terms.nonce}`, "utf8").digest();
+  return bs58.encode(digest).slice(-POT_ID_LENGTH);
+}
+
+/** True when the id was derived from exactly these terms. */
+export function potIdMatchesTerms(id: string, terms: PotTerms): boolean {
+  return typeof id === "string" && id.length === POT_ID_LENGTH && potIdFor(terms) === id;
+}
+
+export function isPotId(s: unknown): s is string {
+  return typeof s === "string" && POT_ID_PATTERN.test(s);
+}
+
+/** A pot's nonce: 32 random bytes, base58 (the same shape as a reference, never used as one). */
+export function newPotNonce(): string {
+  return bs58.encode(crypto.getRandomValues(new Uint8Array(32)));
+}
+// F7 pots end

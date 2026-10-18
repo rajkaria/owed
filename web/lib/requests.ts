@@ -63,6 +63,8 @@ export interface RequestRow {
   restRequest?: { id: string; status: RequestStatus } | null;
   /** Local-currency asks (0013): the quote that locked amountAtomic. Display only; null or absent for USDC/SOL asks. */
   fiat?: FiatQuote | null;
+  /** F7 pots (0019): the pot this contribution belongs to, with its title. Optional like the W2-H fields. */
+  pot?: PotRef | null;
   // W3-S SNS name payee (0015). Optional for the same reason as the W2-H fields.
   snsName?: string | null;
   snsSource?: SnsSource | null;
@@ -81,6 +83,12 @@ export interface PayerRecord {
   wallet: string;
   handle: string | null;
   sns: string | null;
+}
+
+/** F7 pots: a contribution's pot. `title` is requester-written (sanitized): show it quoted. */
+export interface PotRef {
+  id: string;
+  title: string;
 }
 
 /** A payment without the request's reference that the recipient's own wallet attributed to it (0012). */
@@ -117,6 +125,7 @@ export const COLUMNS = `id, kind, recipient, token, mint, decimals, amount_atomi
   from_domain, ${isoUtc("from_domain_verified_at")} as from_domain_verified_at,
   ${isoUtc("expires_at")} as expires_at, ${isoUtc("cancelled_at")} as cancelled_at, cancel_message, cancel_signature,
   chain, chain_cursor::text as chain_cursor, ${MATCH_COLUMNS},
+  pot_id, (select p.title from pots p where p.id = requests.pot_id) as pot_title,
   fiat_currency, fiat_amount, fiat_rate, fiat_rate_source, ${isoUtc("fiat_quoted_at")} as fiat_quoted_at,
   sns_name, sns_source, ${isoUtc("sns_resolved_at")} as sns_resolved_at,
   payer_wallet, payer_handle, payer_sns, requester_handle, paid_instruction`; // W3-B: chain, chain_cursor; 0012: match; 0013: fiat_*; W3-S: sns_*; F1: payer_*
@@ -156,6 +165,7 @@ export function fromRow(r: Row): RequestRow {
     restOf: r.rest_of ?? null,
     restRequest: r.rest_request ? (JSON.parse(r.rest_request) as { id: string; status: RequestStatus }) : null,
     fiat: fiatFromRow(r),
+    pot: r.pot_id ? { id: r.pot_id, title: r.pot_title ?? "" } : null, // F7 pots
     snsName: r.sns_name ?? null, // W3-S
     snsSource: (r.sns_source as SnsSource | null) ?? null,
     snsResolvedAt: r.sns_resolved_at ?? null,
@@ -225,6 +235,8 @@ export function payUrl(row: RequestRow): string {
 export type PublicRequestWithPayer = PublicRequest & {
   payer?: { wallet: string; handle: string | null; sns: string | null };
   requester_handle?: string;
+  /** F7 pots: only on contributions. `title` is requester-written; `link` is the pot's board (when a base is known). */
+  pot?: { id: string; title: string; link?: string };
 };
 
 /** `base` is the public origin for links; without it the x402 URL is left out. */
@@ -269,6 +281,7 @@ export function toPublic(row: RequestRow, base?: string): PublicRequestWithPayer
     rest_of: row.restOf ?? null,
     rest_request: row.restRequest ? { ...row.restRequest, ...(base && { link: `${base}/r/${row.restRequest.id}` }) } : null,
     ...(row.fiat && { fiat: row.fiat }), // local-currency asks: display only, never part of the id
+    ...(row.pot && { pot: { id: row.pot.id, title: row.pot.title, ...(base && { link: `${base}/pot/${row.pot.id}` }) } }), // F7 pots: contributions only
     sns_name: row.snsName ?? null, // W3-S
     sns_source: row.snsSource ?? null,
     sns_resolved_at: row.snsResolvedAt ?? null,

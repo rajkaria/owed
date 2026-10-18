@@ -7,10 +7,17 @@ import type { SettlementCheck } from "./chain";
 import { FacilitatorError, type Facilitator, type Supported } from "./facilitator";
 import type { Store } from "./store";
 import { handleBaseX402, type BaseX402Extras } from "../evm/x402"; // W3-B
-import { inspectTransaction, transactionMismatch } from "./svm";
+import { inspectTransaction, transactionMismatch, type InspectedTx } from "./svm";
+// F7 pots start
+import { ApiError } from "../http";
+import { toAtomic } from "../money";
+import { potEndedText, potX402Url, type PotRow } from "../pots";
+import { sdnEntry } from "../sanctions";
+// F7 pots end
 import {
   b64, decodePayment, EXPOSED_HEADERS, HEADER_PAYMENT_V1, HEADER_PAYMENT_V2, HEADER_REQUIRED, mismatch,
   NETWORK_V1, NETWORK_V2, paymentRequired, requirementsV1, requirementsV2, type SettleResponse, type Terms,
+  type ParsedPayment, type RequirementsV1, type RequirementsV2, // F7 pots: verifyPayment / settleVerified
 } from "./wire";
 
 // GET|POST /x/<id>: pay an Owed request over x402. Unpaid: 402 with both x402 generations.
@@ -69,6 +76,7 @@ export function receiptBody(row: RequestRow, base: string, status: "paid" | "set
     paid_at: settled ? null : row.paidAt,
     explorer_url: signature ? `https://solscan.io/tx/${signature}` : null,
     link: `${base}/r/${row.id}`,
+    ...(row.pot && { pot: { id: row.pot.id, link: `${base}/pot/${row.pot.id}` } }), // F7 pots: a contribution names its pot
   };
 }
 
@@ -113,6 +121,31 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
   if (row.status === "expired") return conflict(EXPIRED); // W3-C: no challenge, no settlement
 
   const resourceUrl = `${base}/x/${row.id}`;
+  // F7 pots: the checks before settlement and the settlement itself are shared with the pot presets (lib/x402/pot.ts).
+  const v = await verifyPayment(req, t, resourceUrl, row.id, deps);
+  if (v instanceof Response) return v;
+  return settleVerified(row, t, v, base, deps);
+}
+
+/** A payment that passed every local check and the facilitator's /verify, ready to settle. */
+export interface VerifiedPayment {
+  supported: Supported;
+  parsed: ParsedPayment;
+  tx: InspectedTx;
+  requirements: RequirementsV1 | RequirementsV2;
+  network: string;
+  verified: Awaited<ReturnType<Facilitator["verify"]>>;
+  resourceUrl: string;
+}
+
+/**
+ * The 402 challenge for `t` at `resourceUrl`, or the payment in the request's header once it passed every local check
+ * (decoded, claims these terms, its transaction pays exactly them, the facilitator's fee payer), the attempt cap
+ * (keyed by `limitKey`) and the facilitator's /verify. Nothing is written before this returns a payment.
+ */
+export async function verifyPayment(
+  req: Request, t: Terms, resourceUrl: string, limitKey: string, deps: Pick<X402Deps, "facilitator" | "limitAttempt">,
+): Promise<VerifiedPayment | Response> {
   let supported: Supported;
   try {
     supported = await deps.facilitator.supported();
@@ -141,7 +174,7 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
 
   // W2-E start: cap the attempts that reach /verify and /settle.
   if (deps.limitAttempt) {
-    const slot = await deps.limitAttempt(row.id);
+    const slot = await deps.limitAttempt(limitKey);
     if (!slot.allowed) {
       return errorResponse("rate_limited", "too many payment attempts for this request, try again shortly", {
         ...BASE_HEADERS, "Retry-After": String(slot.retryAfterSeconds ?? 60),
@@ -157,7 +190,15 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
     return errorResponse("upstream_unavailable", `the x402 facilitator is unavailable: ${e instanceof Error ? e.message : "error"}`, BASE_HEADERS);
   }
   if (!verified.isValid) return challenge(t, resourceUrl, supported, verified.invalidReason ?? "payment_invalid");
+  return { supported, parsed, tx, requirements, network, verified, resourceUrl };
+}
 
+/**
+ * Settle a verified payment for `row`: take the request's lock, ask the facilitator to settle, and mark the request
+ * paid (paid_rail 'x402') only once the chain shows the credit. Paid on another rail meanwhile: the receipt.
+ */
+export async function settleVerified(row: RequestRow, t: Terms, v: VerifiedPayment, base: string, deps: X402Deps): Promise<Response> {
+  const { supported, parsed, tx, requirements, network, verified, resourceUrl } = v;
   const lock = await deps.store.begin({
     requestId: row.id, version: parsed.version, network, amountAtomic: t.amountAtomic,
     payer: tx.transfer?.authority ?? verified.payer ?? null, feePayer: tx.feePayer,
@@ -210,3 +251,54 @@ export async function handleX402(req: Request, id: string, base: string, deps: X
   // Settled but not yet visible on chain: the request flips to paid on the next status check.
   return json(receiptBody(row, base, "settled", { signature: settled.transaction, payer }), { headers });
 }
+
+// ---- F7 pots start ----
+// GET|POST /x/pot/<pot id>/<amount>: a USDC pot's x402 preset. Without a payment: the 402 challenge, built from the
+// pot's terms (its recipient, the preset amount); no row is written. With a payment: the same local checks and
+// /verify as /x/<id> run against those terms first; only a payment that passes them mints a contribution (an
+// ordinary request with a fresh reference), which then settles exactly like /x/<contribution id>.
+
+export interface PotX402Deps {
+  loadPot(id: string): Promise<PotRow | null>;
+  /** Mint the contribution (lib/pots.ts mintContribution); throws ApiError when the pot ended or is rate limited. */
+  mint(pot: PotRow, amountAtomic: bigint): Promise<RequestRow>;
+}
+
+export async function handlePotX402(req: Request, potId: string, amountText: string, base: string, deps: X402Deps & PotX402Deps): Promise<Response> {
+  if (req.method === "POST") {
+    const text = await req.text();
+    if (Buffer.byteLength(text) > MAX_BODY_BYTES) return errorResponse("invalid_input", "request body is too large", BASE_HEADERS);
+  }
+  const pot = await deps.loadPot(potId);
+  if (!pot) return errorResponse("not_found", "no pot with this id", BASE_HEADERS);
+  const page = `${base}/pot/${pot.id}`;
+  if (pot.token !== "USDC") return conflict(`x402 pays USDC pots only; this pot is in ${pot.token}. Contribute at ${page}`, 400);
+  let amountAtomic: bigint | null = null;
+  try {
+    amountAtomic = toAtomic(amountText, "USDC");
+  } catch {
+    amountAtomic = null;
+  }
+  if (amountAtomic === null || !pot.presetsAtomic.includes(amountAtomic)) {
+    const list = pot.presetsAtomic.map((a) => potX402Url(base, pot.id, fromAtomic(a, "USDC"))).join(", ");
+    return errorResponse("not_found", `this pot has no x402 preset for ${amountText.slice(0, 40)} USDC${list ? `; its presets are ${list}` : ""}`, BASE_HEADERS);
+  }
+  if (pot.ended) return conflict(`${potEndedText(pot)} Contribute nothing here.`); // no challenge, no settlement
+  const listed = sdnEntry(pot.recipient);
+  if (listed) return errorResponse("blocked", "this pot pays an address on the U.S. Treasury's OFAC sanctions list; Owed takes no payment for it", BASE_HEADERS);
+
+  const terms: Terms = { id: pot.id, recipient: pot.recipient, amountAtomic };
+  const resourceUrl = potX402Url(base, pot.id, fromAtomic(amountAtomic, "USDC"));
+  const v = await verifyPayment(req, terms, resourceUrl, pot.id, deps);
+  if (v instanceof Response) return v;
+
+  let row: RequestRow;
+  try {
+    row = await deps.mint(pot, amountAtomic);
+  } catch (e) {
+    if (e instanceof ApiError) return errorResponse(e.code, `${e.message} Nothing was taken from this payment.`, { ...BASE_HEADERS, ...e.headers });
+    throw e;
+  }
+  return settleVerified(row, termsOf(row), v, base, deps);
+}
+// ---- F7 pots end ----
