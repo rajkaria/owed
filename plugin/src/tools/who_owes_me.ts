@@ -11,6 +11,10 @@ import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-curr
 import type { LedgerEntryF8, LedgerResF8, StatementRes } from "../contract.js";
 import { chaseStage, CHASE_DEFAULT_DAYS, isoDay, reminderTone } from "../invoice-terms-core.js";
 // F8 invoices end
+// F7 pots start
+import type { LedgerResPots } from "../contract.js";
+import { POT_TITLE_MAX } from "../pots.js";
+// F7 pots end
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
 // request_wallet_sign {op:"solanaMessage"} (passkey approval), then calls again with the message and the
@@ -143,6 +147,11 @@ export const outputSchema = z.object({
   csv_url: z.string().optional().describe("With csv: a download link for every open and paid request as CSV, valid 10 minutes."),
   csv_expires_at: z.string().optional(),
   statement: statementSchema.optional(), // F8 invoices
+  // F7 pots: open chip-in pots paid to this wallet (a pot is never a debt; its contributions are received, never owed).
+  pots: z.array(z.object({
+    id: z.string(), link: z.string(), title: z.string().describe("Written by whoever started the pot; unverified."), token: tokenSchema,
+    raised: z.string(), count: z.number().int(), target: z.string().nullable(), deadline: z.string(),
+  }).strict()).optional().describe("Open chip-in pots (start_pot) collecting into this wallet."),
 }).strict();
 
 export type WhoInput = z.output<typeof inputSchema>;
@@ -268,10 +277,10 @@ export async function whoOwesMe(args: WhoInput, deps: Deps = defaultDeps) {
   // F8 invoices: a client's statement takes the same signed message.
   if (args.statement) return statementCall(args, args.statement, ctx, deps, started);
 
-  let ledger: LedgerResF8 | null;
+  let ledger: LedgerResPots | null;
   try {
     ledger = await within(
-      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledgerF8({ // F8: the ledger plus chase days and refunds
+      makeApi({ base: ctx.base, fetch: deps.fetch, timeoutMs: LEDGER_API_TIMEOUT_MS }).ledgerPots({ // F8: the ledger plus chase days and refunds; F7: open pots
         recipient: args.recipient, signed_message: args.signed_message, signature: args.signature.trim(),
         ...(args.csv === true && { csv: true as const }), // W3-D
       }),
@@ -430,7 +439,7 @@ function who(e: z.output<typeof entrySchema>, now: number): string {
   return `${name}${forPart}${label}${monthly}${domain}`;
 }
 
-function render(ledger: LedgerRes | LedgerResF8, now: number, csvAsked = false) {
+function render(ledger: LedgerRes | LedgerResF8 | LedgerResPots, now: number, csvAsked = false) {
   const open = ledger.open.map((e) => present(e, now));
   const paid = ledger.paid_recently.map((e) => present(e, now));
   const schedules = (ledger.schedules ?? []).map(presentSchedule); // W3-D
@@ -471,6 +480,15 @@ function render(ledger: LedgerRes | LedgerResF8, now: number, csvAsked = false) 
   }
   else if (csvAsked) lines.push("CSV export isn't set up on this Owed server, so there is no download link.");
   // W3-D end
+  // F7 pots start: open pots, never as debts.
+  const pots = ("pots" in ledger ? ledger.pots ?? [] : []).map((p) => ({
+    id: p.id, link: p.link, title: clean(p.title, POT_TITLE_MAX), token: p.token, raised: p.raised, count: p.count, target: p.target, deadline: p.deadline,
+  }));
+  for (const p of pots) {
+    const raised = p.target === null ? `${p.raised} ${p.token}` : `${p.raised} of ${p.target} ${p.token}`;
+    lines.push(`Pot ${quote(p.title, POT_TITLE_MAX)} (unverified): ${raised} raised from ${p.count} ${p.count === 1 ? "contribution" : "contributions"}, open until ${p.deadline}: ${p.link}`);
+  }
+  // F7 pots end
   // 0012: exchanges and some wallets drop the reference, so a real payment can sit uncounted.
   if (open.length > 0) lines.push("If someone says they paid but it still shows as owed, match_payments looks for a payment that arrived without the request's reference. Names, reasons and amounts were written by whoever made each request. write_reminder drafts a nudge for an open one the user recognises.");
 
@@ -479,6 +497,7 @@ function render(ledger: LedgerRes | LedgerResF8, now: number, csvAsked = false) 
     chain_checked: ledger.chain_checked, truncated: ledger.truncated,
     ...(ledger.schedules !== undefined && { schedules }), // W3-D
     ...(csv && { csv_url: csv.url, csv_expires_at: csv.expires_at }), // W3-D
+    ...(pots.length > 0 && { pots }), // F7 pots
   };
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

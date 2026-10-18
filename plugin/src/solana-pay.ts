@@ -17,7 +17,10 @@ export interface TransferRequest {
 export type ParsedLink =
   | { kind: "transfer"; request: TransferRequest }
   | { kind: "transaction"; link: string }
-  | { kind: "owed"; id: string };
+  | { kind: "owed"; id: string }
+  // F7 pots: a pot's board (https://<owed host>/pot/<id>), its bare 14-char id, or Owed's own pot QR code
+  // (solana:https://<owed host>/api/v1/pay/<pot id>?amount=X, the amount optional).
+  | { kind: "pot"; id: string; amount?: string };
 
 /** Message is shown to the user verbatim. */
 export class LinkError extends Error {}
@@ -41,10 +44,11 @@ export function parseLink(input: string, owedHosts: string[]): ParsedLink {
   if (!text) throw new LinkError("Paste an Owed link, a request id or a solana: payment link.");
   if (text.length > MAX_LINK_CHARS) throw new LinkError("That link is too long to be a payment link.");
   if (OWED_ID_RE.test(text)) return { kind: "owed", id: text };
+  if (POT_ID_RE.test(text)) return { kind: "pot", id: text }; // F7 pots
 
   const hosts = normalizeHosts(owedHosts);
   const scheme = SCHEME_RE.exec(text)?.[1]?.toLowerCase();
-  if (scheme === "solana") return parseSolanaUrl(text);
+  if (scheme === "solana") return parseSolanaUrl(text, hosts);
   if (scheme === "https" || scheme === "http") return parseOwedUrl(text, hosts);
   if (scheme === undefined && hosts.some((h) => text.toLowerCase().startsWith(`${h}/`))) {
     return parseOwedUrl(`https://${text}`, hosts);
@@ -119,6 +123,13 @@ function parseOwedUrl(text: string, hosts: string[]): ParsedLink {
     if (!OWED_ID_RE.test(id)) throw new LinkError("That Owed link has an invalid request id.");
     return { kind: "owed", id };
   }
+  // F7 pots: /pot/<id> is a pot's board.
+  const pot = /^\/pot(?:\/([^/]*))?$/.exec(path);
+  if (pot) {
+    const id = pot[1] ?? "";
+    if (!POT_ID_RE.test(id)) throw new LinkError("That Owed pot link has an invalid pot id.");
+    return { kind: "pot", id };
+  }
   if (path === "/p") {
     const inner = url.searchParams.getAll("u");
     const solanaUrl = inner.length === 1 ? (inner[0] ?? "").trim() : "";
@@ -126,12 +137,12 @@ function parseOwedUrl(text: string, hosts: string[]): ParsedLink {
       throw new LinkError("That Owed link is missing its payment details.");
     }
     if (solanaUrl.length > MAX_LINK_CHARS) throw new LinkError("That link is too long to be a payment link.");
-    return parseSolanaUrl(solanaUrl);
+    return parseSolanaUrl(solanaUrl, hosts);
   }
   throw new LinkError("That Owed link isn't a payment request.");
 }
 
-function parseSolanaUrl(text: string): ParsedLink {
+function parseSolanaUrl(text: string, hosts: string[] = []): ParsedLink {
   const rest = text.slice("solana:".length);
   const hash = rest.indexOf("#");
   const body = hash === -1 ? rest : rest.slice(0, hash);
@@ -140,7 +151,11 @@ function parseSolanaUrl(text: string): ParsedLink {
   const query = question === -1 ? "" : body.slice(question + 1);
 
   // Transaction request: the pathname is an HTTPS link, URL-encoded when it has its own query.
-  if (/^https?(:|%3a)/i.test(path)) return { kind: "transaction", link: parseTransactionLink(path) };
+  if (/^https?(:|%3a)/i.test(path)) {
+    // F7 pots: a link pasted without the encoding still carries its own query (Owed's pot QR has ?amount=).
+    const link = parseTransactionLink(path.includes("%") || !query ? path : `${path}?${query}`);
+    return potTransactionLink(link, hosts) ?? { kind: "transaction", link };
+  }
 
   if (!isSolanaAddress(path)) throw new LinkError("The recipient in this link isn't a valid Solana address.");
   const params = new URLSearchParams(query);
@@ -160,6 +175,34 @@ function parseSolanaUrl(text: string): ParsedLink {
   validateTransfer(request);
   return { kind: "transfer", request };
 }
+
+// F7 pots start
+const POT_ID_RE = /^[1-9A-HJ-NP-Za-km-z]{14}$/;
+const AMOUNT_RE = /^(0|[1-9][0-9]*)(\.[0-9]+)?$/;
+
+/**
+ * Owed's own pot QR code: https://<owed host>/api/v1/pay/<14-char pot id>, optionally ?amount=<decimal>. Anything else
+ * (every other transaction request, Owed's request ones included) stays a transaction request, which tools refuse.
+ */
+function potTransactionLink(link: string, hosts: string[]): ParsedLink | null {
+  let url: URL;
+  try {
+    url = new URL(link);
+  } catch {
+    return null;
+  }
+  if (!hosts.includes(url.host.toLowerCase())) return null;
+  const m = /^\/api\/v1\/pay\/([^/]+)\/?$/.exec(url.pathname);
+  if (!m || !POT_ID_RE.test(m[1]!)) return null;
+  const keys = [...url.searchParams.keys()];
+  if (keys.some((k) => k !== "amount")) throw new LinkError("That Owed pot link has parameters Owed doesn't recognise. Use the pot's QR code or board link as shared.");
+  const amounts = url.searchParams.getAll("amount");
+  if (amounts.length > 1) throw new LinkError("This link has more than one amount.");
+  const amount = amounts[0];
+  if (amount !== undefined && (amount.length > 40 || !AMOUNT_RE.test(amount))) throw new LinkError("The amount in this pot link isn't a decimal number.");
+  return amount === undefined ? { kind: "pot", id: m[1]! } : { kind: "pot", id: m[1]!, amount };
+}
+// F7 pots end
 
 function parseTransactionLink(path: string): string {
   let link: string;

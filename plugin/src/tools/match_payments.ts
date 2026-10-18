@@ -180,6 +180,7 @@ function checkSigned(lead: string, message: string, signature: string, signer: s
 
 function resolveId(text: string, ctx: CallContext, deps: Deps): string {
   const parsed = deps.parseLink(text.trim(), ctx.hosts);
+  if (parsed.kind === "pot") throw new Error("That is a chip-in pot, not a request. A contribution that lost its reference can't be matched to a pot; match it to the contribution's own request link if you have it."); // F7 pots
   if (parsed.kind !== "owed") throw new Error("Only Owed requests (an Owed link or request id) have a status Owed can change; a plain Solana Pay link isn't stored anywhere.");
   return parsed.id;
 }

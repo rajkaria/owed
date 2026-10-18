@@ -20,6 +20,8 @@ import { snsSourceSchema } from "../contract.js";
 import { pointsTo, sourceText, type SnsResult } from "../sns.js";
 import { resolveName, SNS_BUDGET_MS } from "../sns-payee.js";
 // W3-S SNS names end
+import type { PotRes } from "../contract.js"; // F7 pots
+import { potTermsProblem } from "../pots.js"; // F7 pots
 
 export const inputSchema = z.object({
   link: z.string().min(1).max(2048).optional().describe("An Owed link or id, or a Solana Pay transfer link (solana:...): checks the domain the request claims against the wallet it pays."),
@@ -224,6 +226,20 @@ async function resolveLink(link: string, ctx: CallContext, deps: Deps): Promise<
     if (!token) return "Owed reads USDC or SOL links only.";
     return { address: parsed.request.recipient, claimed: null, requestId: null, amount: parsed.request.amount ?? null, token };
   }
+  // F7 pots start: a pot names no domain; its wallet is the one its id commits to.
+  if (parsed.kind === "pot") {
+    let pot: PotRes;
+    try {
+      pot = await ctx.api.getPot(parsed.id);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "not_found") return `No Owed pot has the id ${parsed.id}. Check the link with the person collecting.`;
+      return "Owed's server is unreachable, so this pot can't be read right now. Try again shortly, or pass the wallet address and domain instead.";
+    }
+    const wrong = potTermsProblem(pot, parsed.id);
+    if (wrong) return wrong;
+    return { address: pot.recipient, claimed: null, requestId: null, amount: parsed.amount ?? null, token: pot.token };
+  }
+  // F7 pots end
 
   const id = parsed.id;
   if (id.length !== VERIFIED_ID_LENGTH) {

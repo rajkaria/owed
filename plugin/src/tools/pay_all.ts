@@ -111,6 +111,10 @@ export async function payAll(args: PayAllInput, deps: Deps = defaultDeps) {
       skips.push({ id: quote(entry, 40), reason: errorText(error, "not an Owed link or id") });
       continue;
     }
+    if (parsed.kind === "pot") { // F7 pots
+      skips.push({ id: quote(entry, 40), reason: "a chip-in pot: pay a pot with pay_link, one contribution at a time" });
+      continue;
+    }
     if (parsed.kind !== "owed") {
       skips.push({ id: quote(entry, 40), reason: "not an Owed request: pay a Solana Pay link with pay_link" });
       continue;

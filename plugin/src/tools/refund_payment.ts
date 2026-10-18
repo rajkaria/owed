@@ -76,6 +76,7 @@ function resolveTarget(link: string, deps: Deps): Target | string {
   } catch (error) {
     return errorText(error, "That isn't an Owed link or request id.");
   }
+  if (parsed.kind === "pot") return "That is a chip-in pot. Refund one contribution with its own request link (check_payments on the pot lists them)."; // F7 pots
   if (parsed.kind !== "owed") return "Only Owed requests (an Owed link or request id) can be refunded here: a plain Solana Pay link doesn't say who paid.";
   return { id: parsed.id, ctx };
 }
