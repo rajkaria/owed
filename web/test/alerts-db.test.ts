@@ -19,6 +19,7 @@ import { DbError, sql } from "@/lib/db";
 import { requestIdFor } from "@/lib/ids";
 import { TOKENS, type Token } from "@/lib/money";
 import { drain } from "@/lib/notify/defer";
+import { store as x402Store } from "@/lib/x402/store";
 import { deliveryTiming } from "@/lib/notify/webhook";
 import { parseJsonExact } from "@/lib/solana";
 
@@ -555,6 +556,22 @@ it("any rail queues the alert (x402 written directly here); requester text is cl
   // Every tag in the message is one Owed wrote.
   for (const tag of text.match(/<[^>]*>/g) ?? []) assert.match(tag, /^<(\/?(b|code|a)|a href="[^"<>]*")>$/, tag);
   assert.ok(text.includes(`${BASE}/r/${id}`));
+});
+
+it("the x402 paid write kicks the sender itself: the alert goes out after the response, no run needed", async () => {
+  const sub = await activeSubscription(BOB.address);
+  const id = await insertRequest(BOB.address, "USDC", 2_000_000n, bs58.encode(randomBytes(32)));
+  const [receipt] = await sql(
+    `insert into x402_receipts (request_id, state, x402_version, network, amount_atomic, payer) values ($1, 'settled', 2, 'solana', 2000000, $2) returning id::text as id`,
+    [id, OLDEST_OWNER],
+  );
+  const marked = await x402Store.verified({ id: receipt.id!, requestId: id }, { signature: bs58.encode(randomBytes(64)), payer: OLDEST_OWNER, amountAtomic: 2_000_000n, at: "2026-10-18T12:00:00Z", slot: 1 });
+  assert.equal(marked, true);
+  await drain(); // what after() runs once the response is sent
+  const [alert] = sentTo(sub.chat);
+  assert.ok(alert, "sent by the kick");
+  assert.match(alert.text, /^<b>Paid: 2 USDC<\/b>/);
+  assert.match(alert.text, /· x402\n/);
 });
 
 it("turned off after it was queued: skipped, nothing sent", async () => {
