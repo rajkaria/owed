@@ -974,3 +974,65 @@ export const StatementResponse = z.object({
 });
 export type StatementResponse = z.infer<typeof StatementResponse>;
 // ---- F8 invoices end ----
+
+// ---- S1 alerts start: paid alerts (migration 0025, lib/alerts/*) ----
+// POST /api/v1/alerts: the wallet signs "Owed alerts for <wallet> at <ISO time>" (once, within 5 minutes) and names a
+// channel. Telegram answers with a one-time /start code inside a t.me deep link (15 minutes); email (only when the
+// deployment has it configured) sends a confirm link (24 hours). POST /api/v1/alerts/confirm turns an email link on;
+// POST /api/v1/alerts/unsubscribe (also RFC 8058 one-click) turns any alert email's subscription off. Tokens are
+// base64url, 43 characters; Owed stores only their sha256.
+const alertId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character alert id");
+const alertSignedFields = {
+  wallet: base58Key,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+};
+export const ALERT_EMAIL = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+export const CreateAlertBody = z.discriminatedUnion("channel", [
+  z.object({ ...alertSignedFields, channel: z.literal("telegram") }).strict(),
+  z.object({ ...alertSignedFields, channel: z.literal("email"), email: z.string().max(254).regex(ALERT_EMAIL, "must be an email address like you@example.com") }).strict(),
+]);
+export type CreateAlertBody = z.infer<typeof CreateAlertBody>;
+
+const alertPending = {
+  id: alertId,
+  wallet: base58Key,
+  status: z.literal("pending"),
+  created_at: isoTime,
+  /** When the /start code or the confirm link stops working. */
+  expires_at: isoTime,
+  next: z.string().max(300),
+};
+export const CreateAlertResponse = z.discriminatedUnion("channel", [
+  z.object({
+    ...alertPending,
+    channel: z.literal("telegram"),
+    telegram: z.object({ bot: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{3,31}$/), code: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/), link: z.url() }),
+  }),
+  z.object({ ...alertPending, channel: z.literal("email"), email: z.object({ address: z.string().max(254) }) }),
+]);
+export type CreateAlertResponse = z.infer<typeof CreateAlertResponse>;
+
+export const AlertTokenBody = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "must be the token from the link") }).strict();
+export type AlertTokenBody = z.infer<typeof AlertTokenBody>;
+
+export const ConfirmAlertResponse = z.object({
+  id: alertId,
+  wallet: base58Key,
+  channel: z.literal("email"),
+  status: z.literal("active"),
+  activated_at: isoTime,
+  already_active: z.boolean(),
+});
+export type ConfirmAlertResponse = z.infer<typeof ConfirmAlertResponse>;
+
+export const UnsubscribeAlertResponse = z.object({
+  id: alertId,
+  wallet: base58Key,
+  channel: z.enum(["telegram", "email"]),
+  status: z.literal("unsubscribed"),
+  unsubscribed_at: isoTime,
+  already_unsubscribed: z.boolean(),
+});
+export type UnsubscribeAlertResponse = z.infer<typeof UnsubscribeAlertResponse>;
+// ---- S1 alerts end ----

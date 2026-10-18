@@ -1,6 +1,8 @@
 import { errorResponse, json, toErrorResponse } from "@/lib/http";
 import { cronAuthorized, runDueSchedules } from "@/lib/schedules";
 import { runDueInvoiceTerms } from "@/lib/invoice-terms"; // F8 invoices
+import { deliverDueAlerts } from "@/lib/alerts/deliver"; // S1 alerts
+import { purgeExpiredPending } from "@/lib/alerts/subscribe"; // S1 alerts
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +30,15 @@ export async function GET(req: Request): Promise<Response> {
     if ("error" in invoiceTerms) console.error(`cron invoice terms: ${invoiceTerms.error}`);
     else console.log(`cron invoice terms ${invoiceTerms.date}: due ${invoiceTerms.due}, opened ${invoiceTerms.opened.length}, skipped ${invoiceTerms.skipped.length}, waiting ${invoiceTerms.waiting.length}, failed ${invoiceTerms.failed.length}`);
     Object.assign(summary, { invoice_terms: invoiceTerms });
+    // S1 alerts start: alerts still due (retries after a failed send, rows no kick picked up), and pending links that
+    // expired a week ago. Never fails the cron: deliverDueAlerts doesn't throw and does nothing without a channel.
+    const alerts = await deliverDueAlerts({ budgetMs: 10_000 }); // the schedules above may have used 40 s of the 60
+    const purged = await purgeExpiredPending().catch((e: unknown) => {
+      console.error(`cron alerts purge: ${e instanceof Error ? e.message.slice(0, 200) : "error"}`);
+      return 0;
+    });
+    Object.assign(summary, { alerts: { ...alerts, purged_pending: purged } });
+    // S1 alerts end
     if ("error" in invoiceTerms || invoiceTerms.failed.length > 0) return json(summary, { status: 500 });
     // F8 invoices end
     return json(summary, { status: summary.failed.length > 0 ? 500 : 200 });
