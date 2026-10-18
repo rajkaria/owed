@@ -43,6 +43,11 @@ const common = [
 const nextConfig: NextConfig = {
   reactCompiler: true,
   poweredByHeader: false,
+  // SP2: /api/mcp spawns the committed plugin bundle by path (lib/mcp/bundle.ts), which tracing can't see; ship it
+  // and its meta file with that function.
+  outputFileTracingIncludes: {
+    "/api/mcp": ["./mcp/owed-plugin.mjs", "./mcp/owed-plugin.meta.json"],
+  },
   async headers() {
     return [
       { source: "/:path*", headers: common },

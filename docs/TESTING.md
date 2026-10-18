@@ -12,8 +12,15 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 | Web | `(cd web && pnpm lint && pnpm run --if-present test && pnpm build)` | lint, web unit tests, production build | `web` |
 | Tooling | `node --test "e2e/test/*.test.mjs"` | the shapes, tx decoder, smoke grading and e2e harness themselves | `plugin` |
 | MCP e2e | `node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs [tool] [json-args] [--sample]` | the bundle as PayBox runs it: fresh process per call, clean env, 10 s, 256 KiB stdout, schemas, network rules, decoded proposal | `plugin` (sample on the configured hosts, then with every host down) |
+| Remote MCP | `(cd web && pnpm test)` (`web/test/mcp-*.test.ts`); `node scripts/check-mcp-bundle.mjs` after a plugin build | `POST /api/mcp`: JSON-RPC parsing, batches, notifications (202), 405/413/429, version negotiation and 2026-07-28 header checks; the real committed bundle offline (tools/list, check_payments, pay_link's proposal identical to the bundle's own); `web/mcp/owed-plugin.mjs` equals `plugin/dist/plugin.mjs` | `web` (tests), `plugin` (bundle check) |
 | Smoke | `node web/scripts/smoke.mjs https://owed-omega.vercel.app [--strict] [--create \| --id <id>]` | every Tier-1 route and page on a live deployment, JSON shapes from `contract/shapes.mjs` | `smoke.yml` after each production deploy |
 | Golden path | `e2e/golden-path.md` | SPEC §7 rows 1, 5, 7, 8 on mainnet before the portal upload | manual (LEAD) |
+
+## Remote MCP bundle
+
+- `node scripts/sync-mcp-bundle.mjs` builds the plugin (`cd plugin && pnpm run build`) and copies `plugin/dist/plugin.mjs` to `web/mcp/owed-plugin.mjs`, then writes `web/mcp/owed-plugin.meta.json` (sha256, size, protocol version, server version and tool names, read from the bundle with one offline `tools/list`; no timestamps). `--no-build` copies the current build; `--from <file>` copies another one (a CI artifact).
+- `node scripts/check-mcp-bundle.mjs [--built <file>]` exits 1 when the copy or its meta file no longer matches the build (fix: re-run the sync and commit `web/mcp/`), 2 when there is no build to compare with.
+- Run the sync in every sprint that changes `plugin/`, in the same commit.
 
 ## MCP e2e harness
 

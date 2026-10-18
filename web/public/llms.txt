@@ -4,6 +4,8 @@
 
 Owed is submitted to PayBox Chapter 1 and waiting for its listing in the PayBox plugin catalog. Once it is listed: connect PayBox to your agent as an MCP connector (https://api.paybox.sh/mcp) and turn on the Owed plugin in PayBox. Payments your agent proposes are approved by the user with a passkey in PayBox; Owed returns unsigned proposals and never signs anything.
 
+Owed is also a remote MCP server at https://www.getowed.xyz/api/mcp (Streamable HTTP, no auth): add that URL to any MCP client, or to PayBox as a remote plugin, to get every Owed tool. Each tool call runs the same plugin bundle PayBox runs, in a fresh process with a 10 second budget. It speaks MCP 2026-07-28 and accepts `initialize` from 2025-11-25, 2025-06-18 and 2025-03-26 clients; replies are JSON, with no session. `pay_link` returns an unsigned PayBox transaction proposal; outside PayBox, sign and send it with your own wallet.
+
 ## Tools
 
 The plugin has eleven tools. `recipient` and `sender` are the user's own PayBox Solana wallet address (from PayBox's `list_credentials`), or for a Base request their Base (0x) address.

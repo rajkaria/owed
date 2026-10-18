@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The PayBox plugin bundle /api/mcp runs, a byte copy of plugin/dist/plugin.mjs (scripts/sync-mcp-bundle.mjs).
+    "mcp/**",
   ]),
 ]);
 

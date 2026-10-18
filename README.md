@@ -67,6 +67,27 @@ cd plugin && pnpm install --frozen-lockfile && pnpm test   # typecheck, determin
 
 `plugin/dist/plugin.mjs` is the file uploaded to the portal. It needs HTTPS access to `www.getowed.xyz`, `owed-omega.vercel.app`, `solana-rpc.publicnode.com`, `api.mainnet-beta.solana.com`, `cloudflare-dns.com` and `dns.google`, and reads one non-secret variable, `OWED_BASE_URL` (default `https://owed-omega.vercel.app`; the portal sets `https://www.getowed.xyz`).
 
+## Use it from any MCP client, or add it to PayBox by URL
+
+Owed is also a remote MCP server: `https://www.getowed.xyz/api/mcp` (Streamable HTTP, no sign-in). It serves every
+Owed tool, and each call runs the same plugin bundle PayBox runs (`web/mcp/owed-plugin.mjs`, a byte copy of
+`plugin/dist/plugin.mjs` that CI checks), in a fresh process with PayBox's limits: 10 seconds, 256 KiB of output,
+nothing from the server's environment. A new tool is live there the moment it merges, before any portal upload.
+
+- **PayBox:** add `https://www.getowed.xyz/api/mcp` as a remote plugin (no auth). [Not yet verified: whether PayBox
+  opens the passkey sheet for a `pay_link` proposal that comes from a remote plugin. Until FACTS records it, pay through
+  the listed Owed plugin or any Solana wallet.]
+- **Claude Code:** `claude mcp add --transport http owed https://www.getowed.xyz/api/mcp`
+- **Any other client:** add the URL as a Streamable HTTP server. The endpoint speaks MCP 2026-07-28 (per-request
+  `_meta`, `server/discover`) and, for clients that open with `initialize`, 2025-11-25, 2025-06-18 and 2025-03-26. It is
+  stateless: JSON replies, no SSE stream, no session id. Tool calls are limited to 120 a minute per client IP.
+
+Outside PayBox, the tools that only read or create requests (`ask_for_money`, `check_payments`, `split_bill`,
+`create_invoice`, `write_reminder`, `verify_payee`, `ask_every_month`) work as they do in PayBox. `pay_link` returns
+PayBox's `io.paybox/transactionProposal` (an unsigned Solana transaction); a client other than PayBox has to sign and
+send it some other way. `who_owes_me`, `cancel_request` and `match_payments` need a message signed by the wallet, which
+PayBox does with `request_wallet_sign`.
+
 ## Layout
 
 - `plugin/`: the PayBox plugin (TypeScript MCP server over stdio, bundled to `dist/plugin.mjs`), built from the PayBox plugin starter v1.0.2.

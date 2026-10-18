@@ -32,6 +32,8 @@ jobs:
       - name: Typecheck, deterministic double build, conformance (starter)
         working-directory: plugin
         run: pnpm test
+      - name: Remote MCP bundle (web/mcp/owed-plugin.mjs) is this build
+        run: node scripts/check-mcp-bundle.mjs
       - name: Quality tooling tests (shapes, tx decoder, smoke grading, e2e harness)
         run: node --test "e2e/test/*.test.mjs"
       - name: MCP end-to-end, sample call reaching only the configured hosts
