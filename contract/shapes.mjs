@@ -233,7 +233,7 @@ const statusFields = {
   cancelled_at: optional(iso), // W3-C
   chain: optional(oneOf("base")), // W3-B: set on Base requests
   // 0012: the paid rail, the recipient's match (no reference on the payment) and the ask_for_rest links.
-  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched", "moonpay_card")),
+  rail: optional(oneOf("solana_pay", "x402", "base_transfer", "matched", "moonpay_card", "bank_transfer")), // F3 bank rail: + bank_transfer
   matched: optional((value, path, ctx) => matchedLite(value, path, ctx)),
   rest_of: optional(id), rest_request: optional(id),
 };
@@ -262,7 +262,7 @@ export function groupIdFor({ recipient, token, totalAtomic, shareIds }) {
 }
 
 const groupId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 group id" });
-const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }); // 0012: + matched, moonpay_card
+const paidInfo = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card", "bank_transfer") }); // 0012: + matched, moonpay_card; F3 bank rail: + bank_transfer
 
 /** People's amounts fit the token, and explicit amounts never exceed (or, when all are given, equal) the total. */
 function peopleFitTotal(value, path, ctx) {
@@ -448,7 +448,7 @@ const getRequestFields = {
   payer_name: untrusted(40), for: untrusted(80), note: untrusted(140), requester_name: untrusted(40),
   status: oneOf("open", "paid", "underpaid", "cancelled", "expired"), // W3-C: + expired
   solana_pay_url: solanaPayTransfer, reference: pubkey, x402_url: optional(nullable(httpsUrl)), created_at: iso,
-  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }))), // 0012: + matched, moonpay_card
+  paid: optional(nullable(object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card", "bank_transfer") }))), // 0012: + matched, moonpay_card; F3 bank rail: + bank_transfer
   flags: array(flag), from_domain: optional(nullable(domain)), from_domain_verified_at: optional(nullable(iso)),
   expires_at: optional(nullable(iso)), cancelled: optional(nullable(cancelProof)), // W3-C
   chain: optional(oneOf("solana")), pay_url: optional(solanaPayTransfer), // W3-B
@@ -583,7 +583,7 @@ const invoiceQuantity = string({
   max: 20, label: "a positive quantity with at most 4 decimal places",
   test: (text) => AMOUNT_RE.test(text) && /[1-9]/.test(text) && (text.split(".")[1]?.length ?? 0) <= QUANTITY_DECIMALS,
 });
-const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") }); // 0012: + matched, moonpay_card
+const invoicePaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card", "bank_transfer") }); // 0012: + matched, moonpay_card; F3 bank rail: + bank_transfer
 
 /** quantity × unit price in atomic units, or null when it isn't a whole number of atomic units. */
 export function invoiceLineAtomic(quantity, unitPrice, decimals) {
@@ -1516,7 +1516,7 @@ function glConsistent(value, path, ctx) {
   if (value.settled !== square) ctx.errors.push(`${path}.settled: ${value.settled}`);
 }
 
-const glPaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card") });
+const glPaid = object({ signature, payer: pubkey, amount, at: iso, rail: oneOf("solana_pay", "x402", "matched", "moonpay_card", "bank_transfer") }); // F3 bank rail: + bank_transfer
 const glRes = object({
   id: glId, link: httpsUrl, title: string({ min: 1, max: 240 }), owner: pubkey, created_at: iso, version: integer(), flags: array(flag, { max: 32 }),
   caution: string({ max: 400, pattern: /^Names, descriptions and amounts are written by whoever recorded them/, label: "the ledger caution" }),
@@ -1968,3 +1968,74 @@ Object.assign(fixtureShapes, {
   "refunds.lookup.res.json": "refundsLookupRes",
 });
 // ---------------------------------------------------------------------------------------------- F8 invoices end
+
+// ---------------------------------------------------------------------------------------------- F4 cash out start (SP9)
+// POST /api/v1/cash-out, GET /api/v1/cash-out/<id>, POST /api/v1/cash-out/accounts (web/lib/moonpay/cash-out.ts). The user
+// sells USDC to MoonPay; the deposit address only ever comes from MoonPay (its signed sell webhook, or the Enterprise
+// liquidation address the wallet signed for), and only while MoonPay waits for exactly this deposit.
+const cashOutId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 cash-out id" });
+const uuidShape = string({ pattern: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, label: "a lower-case UUID" });
+const SELL_HOSTS = ["sell.moonpay.com", "sell-sandbox.moonpay.com"];
+const payoutCurrency = oneOf("EUR", "USD", "GBP");
+
+function cashOutConsistent(value, path, ctx) {
+  if (value.deposit_address !== null && value.status !== "waiting_for_deposit") ctx.errors.push(`${path}.deposit_address: set for status ${value.status}`);
+  if (value.deposit_address !== null && value.deposit_address === value.wallet) ctx.errors.push(`${path}.deposit_address: the wallet itself`);
+  if (value.deposit_address !== null && value.problem !== null) ctx.errors.push(`${path}.problem: set next to a released deposit address`);
+  if ((value.mode === "enterprise") !== (value.account !== null)) ctx.errors.push(`${path}.account: ${value.mode} cash-out with account ${show(value.account)}`);
+  if (value.mode === "enterprise" && value.deposit_address !== null && value.deposit_address !== value.account.liquidation_address) ctx.errors.push(`${path}.deposit_address: not the signed liquidation address`);
+  if (value.mode === "enterprise" && value.widget_url !== null) ctx.errors.push(`${path}.widget_url: set on an Enterprise cash-out`);
+  if (value.mode === "sell_widget" && (value.amount.split(".")[1]?.length ?? 0) > 2) ctx.errors.push(`${path}.amount: MoonPay sells whole cents`);
+  if (value.widget_url !== null) {
+    const url = new URL(value.widget_url);
+    const p = url.searchParams;
+    if (!SELL_HOSTS.includes(url.host)) ctx.errors.push(`${path}.widget_url: not MoonPay's sell widget`);
+    if (p.get("baseCurrencyCode") !== "usdc_sol") ctx.errors.push(`${path}.widget_url: baseCurrencyCode isn't usdc_sol`);
+    if (p.get("baseCurrencyAmount") !== value.amount) ctx.errors.push(`${path}.widget_url: baseCurrencyAmount isn't .amount`);
+    if (p.get("refundWalletAddress") !== value.wallet) ctx.errors.push(`${path}.widget_url: refundWalletAddress isn't .wallet`);
+    if (p.get("externalTransactionId") !== value.id) ctx.errors.push(`${path}.widget_url: externalTransactionId isn't .id`);
+    if (p.get("lockAmount") !== "true") ctx.errors.push(`${path}.widget_url: the amount isn't locked`);
+    if (!p.get("signature")) ctx.errors.push(`${path}.widget_url: unsigned`);
+    if (value.fiat_currency !== null && p.get("quoteCurrencyCode") !== value.fiat_currency) ctx.errors.push(`${path}.widget_url: quoteCurrencyCode isn't .fiat_currency`);
+  }
+}
+
+Object.assign(shapes, {
+  createCashOutReq: object({
+    wallet: pubkey, amount: optional(positiveAmount), request_ids: optional(array(id, { min: 1, max: 20 })),
+    fiat_currency: optional(string({ pattern: /^[A-Za-z]{3}$/, label: "a 3-letter currency code" })),
+  }, (value, path, ctx) => {
+    if (("amount" in value) === ("request_ids" in value)) ctx.errors.push(`${path}: needs amount or request_ids, not both`);
+  }),
+  cashOutRes: object({
+    id: cashOutId, wallet: pubkey, amount: positiveAmount, token: oneOf("USDC"),
+    fiat_currency: nullable(string({ pattern: /^[a-z]{3}$/, label: "a lower-case currency code" })),
+    request_ids: array(id, { max: 20 }), requests_total: optional(amount),
+    mode: oneOf("sell_widget", "enterprise"),
+    status: oneOf("created", "waiting_for_deposit", "pending", "completed", "failed", "requote_required"),
+    widget_url: nullable(httpsUrl), moonpay_transaction_id: nullable(string({ min: 1, max: 100 })), deposit_address: nullable(pubkey),
+    transfer_signature: nullable(string({ min: 1, max: 120 })), failure_reason: nullable(string({ max: 300 })), problem: nullable(string({ max: 400 })),
+    account: nullable(object({ id: uuidShape, liquidation_address: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) })),
+    created_at: iso, updated_at: iso,
+  }, cashOutConsistent),
+  routeAccountReq: object({ wallet: pubkey, autoramp_id: uuidShape, signed_message: optional(string({ min: 1, max: 200 })), signature: optional(string({ min: 64, max: 200 })) }),
+  cashOutAccountRes: (value, path, ctx) => (value?.step === "sign"
+    ? object({ step: oneOf("sign"), message_to_sign: string({ min: 1, max: 200 }), sign_by: iso, liquidation_address: pubkey, currency: payoutCurrency, payout_rail: string({ min: 1, max: 16 }) })
+    : object({ step: oneOf("stored"), id: uuidShape, wallet: pubkey, liquidation_address: pubkey, currency: payoutCurrency, payout_rail: string({ min: 1, max: 16 }), status: oneOf("active", "closed"), created_at: iso }))(value, path, ctx),
+});
+
+Object.assign(fixtureShapes, {
+  "cash-out.create.req.json": "createCashOutReq",
+  "cash-out.create.res.json": "cashOutRes",
+  "cash-out.status.res.json": "cashOutRes",
+  "cash-out.enterprise.res.json": "cashOutRes",
+});
+// ---------------------------------------------------------------------------------------------- F4 cash out end
+
+// ---------------------------------------------------------------------------------------------- F3 bank rail start (SP9)
+// A request paid by bank transfer to the recipient's MoonPay Enterprise virtual account: the plain request shape, with
+// paid.rail "bank_transfer" (added to every paid-rail list above; it only appears on bank-paid requests).
+Object.assign(fixtureShapes, {
+  "bank.get-request.res.json": "getRequestRes",
+});
+// ---------------------------------------------------------------------------------------------- F3 bank rail end

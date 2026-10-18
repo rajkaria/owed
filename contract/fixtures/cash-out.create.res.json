@@ -1,0 +1,19 @@
+{
+  "id": "Cq7wN2dXk9Hm",
+  "wallet": "SRxf5fukmnFADYWsdsCvUX2VJqTeZnmAU562yv38htT",
+  "amount": "10",
+  "token": "USDC",
+  "fiat_currency": "eur",
+  "request_ids": [],
+  "mode": "sell_widget",
+  "status": "created",
+  "widget_url": "https://sell-sandbox.moonpay.com/?apiKey=pk_test_cashout&baseCurrencyCode=usdc_sol&baseCurrencyAmount=10&lockAmount=true&quoteCurrencyCode=eur&refundWalletAddress=SRxf5fukmnFADYWsdsCvUX2VJqTeZnmAU562yv38htT&showWalletAddressForm=true&externalTransactionId=Cq7wN2dXk9Hm&redirectURL=https%3A%2F%2Fwww.getowed.xyz%2Fcash-out%2FCq7wN2dXk9Hm&unsupportedRegionRedirectUrl=https%3A%2F%2Fwww.getowed.xyz%2Fcash-out%2FCq7wN2dXk9Hm%3Fregion%3D1&signature=IOyEZOvuPhhZ9MIYMrisrOq%2FnWFxYCyA4PDZ9bxG8Jc%3D",
+  "moonpay_transaction_id": null,
+  "deposit_address": null,
+  "transfer_signature": null,
+  "failure_reason": null,
+  "problem": null,
+  "account": null,
+  "created_at": "2026-10-18T12:00:00Z",
+  "updated_at": "2026-10-18T12:00:00Z"
+}

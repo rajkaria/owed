@@ -41,7 +41,7 @@ export interface RequestRow {
   paidPayer: string | null;
   paidAmountAtomic: bigint | null;
   paidAt: string | null;
-  paidRail: "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" | null; // 0012: + matched, moonpay_card
+  paidRail: "solana_pay" | "x402" | "base_transfer" | "matched" | "moonpay_card" | "bank_transfer" | null; // 0012: + matched, moonpay_card; F3 bank rail: + bank_transfer (0023)
   source: "plugin" | "web";
   createdAt: string;
   // W2-H verified payee. Optional so code that builds rows by hand (W2-A's shares, test doubles) needn't set them.

@@ -995,3 +995,51 @@ export type StatementRes = z.infer<typeof statementResSchema>;
 export type LedgerEntryF8 = z.infer<typeof ledgerEntryF8Schema>;
 export type LedgerResF8 = z.infer<typeof ledgerResF8Schema>;
 // ---- F8 invoices end ----
+
+// ---- F4 cash out start (SP9): POST /api/v1/cash-out, GET /api/v1/cash-out/<id>, POST /api/v1/cash-out/accounts ----
+// The user sells USDC to MoonPay, which pays their bank. The server returns MoonPay's deposit address only while MoonPay
+// waits for exactly this deposit; the plugin checks every term again before it proposes a transfer (tools/cash_out.ts).
+export const cashOutIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+export const createCashOutReqSchema = z.object({
+  wallet: addressSchema,
+  amount: decimalSchema.optional(),
+  request_ids: z.array(requestIdSchema).min(1).max(20).optional(),
+  fiat_currency: z.string().regex(/^[A-Za-z]{3}$/).optional(),
+}).strict();
+export const cashOutStatusSchema = z.enum(["created", "waiting_for_deposit", "pending", "completed", "failed", "requote_required"]);
+export const cashOutResSchema = z.object({
+  id: cashOutIdSchema,
+  wallet: addressSchema,
+  amount: decimalSchema,
+  token: z.literal("USDC"),
+  fiat_currency: z.string().regex(/^[a-z]{3}$/).nullable(),
+  request_ids: z.array(requestIdSchema).max(20),
+  requests_total: decimalSchema.optional(),
+  mode: z.enum(["sell_widget", "enterprise"]),
+  status: cashOutStatusSchema,
+  widget_url: httpsUrl.nullable(),
+  moonpay_transaction_id: z.string().max(100).nullable(),
+  deposit_address: addressSchema.nullable(),
+  transfer_signature: z.string().max(120).nullable(),
+  failure_reason: z.string().max(300).nullable(),
+  problem: z.string().max(400).nullable(),
+  account: z.object({ id: uuidSchema, liquidation_address: addressSchema, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable(),
+  created_at: isoTime,
+  updated_at: isoTime,
+});
+export type CreateCashOutReq = z.infer<typeof createCashOutReqSchema>;
+export type CashOutRes = z.infer<typeof cashOutResSchema>;
+export const routeAccountReqSchema = z.object({
+  wallet: addressSchema,
+  autoramp_id: uuidSchema,
+  signed_message: z.string().min(1).max(200).optional(),
+  signature: z.string().min(64).max(200).optional(),
+}).strict();
+export const cashOutAccountResSchema = z.union([
+  z.object({ step: z.literal("sign"), message_to_sign: z.string().max(200), sign_by: isoTime, liquidation_address: addressSchema, currency: z.enum(["EUR", "USD", "GBP"]), payout_rail: z.string().max(16) }),
+  z.object({ step: z.literal("stored"), id: uuidSchema, wallet: addressSchema, liquidation_address: addressSchema, currency: z.enum(["EUR", "USD", "GBP"]), payout_rail: z.string().max(16), status: z.enum(["active", "closed"]), created_at: isoTime }),
+]);
+export type RouteAccountReq = z.infer<typeof routeAccountReqSchema>;
+export type CashOutAccountRes = z.infer<typeof cashOutAccountResSchema>;
+// ---- F4 cash out end ----

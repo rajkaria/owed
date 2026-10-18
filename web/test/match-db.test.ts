@@ -412,6 +412,6 @@ it("/proof lists a team payment matched by the recipient with its own chip, neve
   const id = await insert();
   assert.equal((await match(id, matchBody(TX.a, id))).status, 200);
   const proof = await loadProof();
-  assert.deepEqual(proof.rails, { solana_pay: 0, x402: 0, base_transfer: 0, matched: 1, moonpay_card: 0 });
+  assert.deepEqual(proof.rails, { solana_pay: 0, x402: 0, base_transfer: 0, matched: 1, moonpay_card: 0, bank_transfer: 0 }); // F3 bank rail: + bank_transfer
   assert.deepEqual([proof.payments[0]!.id, proof.payments[0]!.rail, proof.payments[0]!.amount], [id, "matched", "0.01"]);
 });

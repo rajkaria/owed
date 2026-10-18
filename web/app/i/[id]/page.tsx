@@ -9,6 +9,8 @@ import { QrCode } from "@/components/qr-code";
 import { VerifiedBadge } from "@/components/verified-badge";
 import { Wordmark } from "@/components/wordmark";
 import { cardNotice, cardOffer } from "@/lib/moonpay/offer";
+import { BankTransfer } from "@/components/bank-transfer"; // F3 bank rail
+import { bankOffer } from "@/lib/moonpay/bank-offer"; // F3 bank rail
 import { solscanAccount } from "@/lib/view/format";
 import { InvoiceLive } from "./invoice-live";
 import { invoiceDescription, invoiceModel, invoiceTitle, type InvoiceModel } from "./model";
@@ -330,7 +332,7 @@ function Notes({ model }: { model: InvoiceModel }) {
   );
 }
 
-async function PayPanel({ model, card }: { model: InvoiceModel; card?: ReactNode }) {
+async function PayPanel({ model, card, bank }: { model: InvoiceModel; card?: ReactNode; bank?: ReactNode }) {
   return (
     <section aria-labelledby="pay-title" className="rounded-xl border border-line px-4 py-5 sm:px-5 print:rounded-none print:border-x-0 print:border-b-0 print:px-0 print:pb-0 print:pt-3">
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start print:flex-row print:gap-4">
@@ -386,6 +388,7 @@ async function PayPanel({ model, card }: { model: InvoiceModel; card?: ReactNode
               </a>
             </div>
           </div>
+          {bank /* F3 bank rail: pay by bank transfer, when switched on */}
           <p className="mt-4 flex items-center gap-2.5 text-sm print:hidden">
             <span className="relative flex size-2.5 shrink-0" aria-hidden="true">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60" />
@@ -413,6 +416,15 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
     ? await cardOffer({ id: model.payId, token: model.token, amount: model.payAmount, status: model.terms ? "open" : loaded.invoice.status }, "i")
     : null;
   const card = offer ? <CardPay offer={offer} notice={cardNotice((await searchParams).card)} /> : undefined;
+  // F3 bank rail: nothing unless OWED_BANK_RAIL=1 and the recipient registered a signed virtual account in the invoice's
+  // currency. EUR/GBP need the invoice's local-currency quote (plain invoices only); USD is the USDC amount due now.
+  const bankDeal = model.payable
+    ? await bankOffer({
+      recipient: model.recipient, token: model.token, amount: model.payAmount, status: model.terms ? "open" : loaded.invoice.status,
+      fiat: model.terms ? null : (loaded.invoice.fiat ?? null),
+    })
+    : null;
+  const bank = bankDeal ? <BankTransfer offer={bankDeal} /> : undefined;
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col px-4 pb-10 pt-5 sm:px-6 md:pt-8 print:min-h-0 print:max-w-none print:p-0">
@@ -438,7 +450,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
           overdue={model.overdue}
           sender={`“${model.businessName}”`}
           head={<Head model={model} />}
-          pay={model.payable ? <PayPanel model={model} card={card} /> : <Waiting model={model} />}
+          pay={model.payable ? <PayPanel model={model} card={card} bank={bank} /> : <Waiting model={model} />}
           expiresAt={model.expiresAt}
           refreshOnChange={model.refreshOnChange}
           cancelledNote={model.cancelledNote}

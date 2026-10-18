@@ -25,6 +25,7 @@ import { BulkRequestsResponse, InboxBlockBody, InboxBlockResponse, InboxBody, In
 import { CreatePlanBody, CreatePlanResponse, FundingPlanDoc, PlanStatsResponse, PlanUsedBody, PlanUsedResponse } from "@/lib/contract"; // F2
 import { AddExpenseBody, AddExpenseResponse, CreateLedgerBody, GroupLedgerResponse, SettleUpBody, SettleUpResponse } from "@/lib/contract"; // F6 ledger
 import { CreateInvoiceTermsBody, CreateRefundBody, CreateRefundResponse, InvoiceTermsResponse, RefundResponse, RefundsLookupResponse, StatementResponse } from "@/lib/contract"; // F8 invoices
+import { CashOutResponse, CreateCashOutBody } from "@/lib/contract"; // F4 cash out
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -127,6 +128,13 @@ const SCHEMAS: Record<string, ZodType> = {
   "refund.create.res.json": CreateRefundResponse,
   "refund.get.res.json": RefundResponse,
   "refunds.lookup.res.json": RefundsLookupResponse,
+  // F4 cash out
+  "cash-out.create.req.json": CreateCashOutBody,
+  "cash-out.create.res.json": CashOutResponse,
+  "cash-out.status.res.json": CashOutResponse,
+  "cash-out.enterprise.res.json": CashOutResponse,
+  // F3 bank rail: a request paid by bank transfer (paid.rail "bank_transfer")
+  "bank.get-request.res.json": GetRequestResponse,
 };
 
 // F8 invoices: every existing invoice fixture still parses with the terms-aware schemas (all F8 fields are optional).

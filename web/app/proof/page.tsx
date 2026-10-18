@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 
 const KIND: Record<ProofPayment["kind"], string> = { single: "Request", split_share: "Split share", invoice: "Invoice" };
 // 0012: a matched payment is never shown with the Solana Pay chip: it carried no reference.
-const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402", base_transfer: "USDC on Base", matched: "Matched by the recipient (no reference)", moonpay_card: "Card, via MoonPay" };
+const RAIL: Record<ProofPayment["rail"], string> = { solana_pay: "Solana Pay", x402: "x402", base_transfer: "USDC on Base", matched: "Matched by the recipient (no reference)", moonpay_card: "Card, via MoonPay", bank_transfer: "Bank transfer, via MoonPay" }; // F3 bank rail: + bank_transfer
 
 function receiptHref(p: ProofPayment): string {
   if (p.kind === "split_share" && p.groupId) return `/g/${p.groupId}`;
@@ -103,6 +103,7 @@ function Summary({ proof }: { proof: ProofSummary }) {
     ...(proof.rails.base_transfer > 0 ? [["Base", proof.rails.base_transfer] as [string, number]] : []),
     ...(proof.rails.matched > 0 ? [["matched by recipient", proof.rails.matched] as [string, number]] : []),
     ...(proof.rails.moonpay_card > 0 ? [["card via MoonPay", proof.rails.moonpay_card] as [string, number]] : []),
+    ...(proof.rails.bank_transfer > 0 ? [["bank transfer via MoonPay", proof.rails.bank_transfer] as [string, number]] : []), // F3 bank rail
   ];
   const totals = [proof.usdc !== "0" && `${groupDigits(proof.usdc)} USDC`, proof.sol !== "0" && `${groupDigits(proof.sol)} SOL`].filter(Boolean);
   return (

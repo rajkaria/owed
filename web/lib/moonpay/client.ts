@@ -3,6 +3,7 @@ import { toAtomic } from "../money";
 import { MOONPAY_API, MOONPAY_CURRENCY, type MoonpayConfig } from "./config";
 import { DEFAULT_LIMITS, type CardLimits } from "./eligibility";
 import { parseMoonpayList, type MoonpayTx } from "./transaction";
+import { parseSellList, type SellTx } from "./sell"; // F4 cash out
 
 // MoonPay's REST API (https://api.moonpay.com, same host for sandbox and live; the key decides).
 // Errors never carry a key: messages name the endpoint and status only.
@@ -11,7 +12,7 @@ export class MoonpayError extends Error {}
 
 const TIMEOUT_MS = 2500;
 
-async function get(path: string, config: MoonpayConfig, { deadline = Infinity, secret = false } = {}): Promise<Response> {
+async function get(path: string, config: Pick<MoonpayConfig, "publishableKey" | "secretKey">, { deadline = Infinity, secret = false } = {}): Promise<Response> {
   const remaining = deadline - Date.now();
   if (remaining < 250) throw new MoonpayError(`MoonPay ${path.split("?")[0]}: time budget spent`);
   const url = new URL(path, MOONPAY_API);
@@ -79,3 +80,17 @@ export async function cardLimits(config: MoonpayConfig, deadline = Date.now() + 
   }
   return DEFAULT_LIMITS;
 }
+
+// F4 cash out start
+/**
+ * GET /v3/sell_transactions/ext/{externalTransactionId}: every Sell transaction started from a sell widget URL carrying
+ * this cash-out id (https://dev.moonpay.com/api-reference/widget/getselltransactionbyexternalid.md: an array, because
+ * MoonPay can't promise the id is unique). Sent with the secret key as well as the publishable apiKey. 404 means none yet.
+ */
+export async function sellTransactionsFor(cashOutId: string, config: Pick<MoonpayConfig, "publishableKey" | "secretKey">, deadline?: number): Promise<SellTx[]> {
+  const res = await get(`/v3/sell_transactions/ext/${encodeURIComponent(cashOutId)}`, config, { deadline, secret: true });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new MoonpayError(`MoonPay /v3/sell_transactions/ext answered HTTP ${res.status}`);
+  return parseSellList(await res.json());
+}
+// F4 cash out end

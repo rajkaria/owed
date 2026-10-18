@@ -117,7 +117,7 @@ export const PaidInfo = z.object({
   payer: anyAddress, // W3-B
   amount: decimal,
   at: isoTime,
-  rail: z.enum(["solana_pay", "x402", "base_transfer", "matched", "moonpay_card"]), // W3-B: base_transfer; 0012: matched (no reference, see `matched`); moonpay_card: paid by card
+  rail: z.enum(["solana_pay", "x402", "base_transfer", "matched", "moonpay_card", "bank_transfer"]), // W3-B: base_transfer; 0012: matched (no reference, see `matched`); moonpay_card: paid by card; F3 bank rail: bank_transfer (0023, only on bank-paid requests)
 });
 
 // 0012: a payment without the request's reference, attributed by the recipient's own signed message. Display
@@ -974,3 +974,66 @@ export const StatementResponse = z.object({
 });
 export type StatementResponse = z.infer<typeof StatementResponse>;
 // ---- F8 invoices end ----
+
+// ---- F4 cash out start (SP9): /api/v1/cash-out, /api/v1/cash-out/<id>, /api/v1/cash-out/accounts ----
+// The recipient sells USDC to MoonPay, which pays their bank. Owed never holds it: the plugin proposes one transfer from
+// the user's wallet to a deposit address that only ever comes from MoonPay (lib/moonpay/cash-out.ts).
+const cashOutId = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/, "must be a 12-character Owed cash-out id");
+const uuid = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "must be a lower-case UUID");
+export const CreateCashOutBody = z.object({
+  wallet: base58Key,
+  amount: z.string().max(40).optional(),
+  request_ids: z.array(requestId).min(1).max(20).optional(),
+  fiat_currency: z.string().regex(/^[A-Za-z]{3}$/, "must be a 3-letter currency code").optional(),
+}).strict();
+export type CreateCashOutBody = z.infer<typeof CreateCashOutBody>;
+export const CashOutStatusBody = z.object({ wallet: base58Key }).strict();
+export const CashOutResponse = z.object({
+  id: cashOutId,
+  wallet: base58Key,
+  amount: decimal,
+  token: z.literal("USDC"),
+  fiat_currency: z.string().regex(/^[a-z]{3}$/).nullable(),
+  request_ids: z.array(requestId).max(20),
+  requests_total: decimal.optional(),
+  mode: z.enum(["sell_widget", "enterprise"]),
+  status: z.enum(["created", "waiting_for_deposit", "pending", "completed", "failed", "requote_required"]),
+  widget_url: z.url().nullable(),
+  moonpay_transaction_id: z.string().max(100).nullable(),
+  deposit_address: base58Key.nullable(),
+  transfer_signature: z.string().max(120).nullable(),
+  failure_reason: z.string().max(300).nullable(),
+  problem: z.string().max(400).nullable(),
+  account: z.object({ id: uuid, liquidation_address: base58Key, signed_message: z.string().max(200), signature: z.string().max(200) }).nullable(),
+  created_at: isoTime,
+  updated_at: isoTime,
+});
+export type CashOutResponse = z.infer<typeof CashOutResponse>;
+/** POST /api/v1/cash-out/accounts and /api/v1/virtual-accounts: first without, then with, the wallet's signature. */
+export const RouteAccountBody = z.object({
+  wallet: base58Key,
+  autoramp_id: uuid,
+  signed_message: z.string().min(1).max(200).optional(),
+  signature: z.string().min(64).max(200).optional(),
+}).strict();
+export type RouteAccountBody = z.infer<typeof RouteAccountBody>;
+const payoutCurrency = z.enum(["EUR", "USD", "GBP"]);
+export const CashOutAccountResponse = z.union([
+  z.object({ step: z.literal("sign"), message_to_sign: z.string().max(200), sign_by: isoTime, liquidation_address: base58Key, currency: payoutCurrency, payout_rail: z.string().max(16) }),
+  z.object({ step: z.literal("stored"), id: uuid, wallet: base58Key, liquidation_address: base58Key, currency: payoutCurrency, payout_rail: z.string().max(16), status: z.enum(["active", "closed"]), created_at: isoTime }),
+]);
+export type CashOutAccountResponse = z.infer<typeof CashOutAccountResponse>;
+// ---- F4 cash out end ----
+
+// ---- F3 bank rail start (SP9): /api/v1/virtual-accounts. Off unless OWED_BANK_RAIL=1. ----
+const payerRail = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("SEPA"), iban: z.string().max(34), bic: z.string().max(11).nullable(), account_holder: z.string().max(140).nullable(), bank_name: z.string().max(140).nullable() }),
+  z.object({ type: z.enum(["ACH", "Wire", "RTP", "FedNow"]), routing_number: z.string().max(9), account_number: z.string().max(34), account_holder: z.string().max(140).nullable(), bank_name: z.string().max(140).nullable() }),
+  z.object({ type: z.enum(["CHAPS", "FPS"]), sort_code: z.string().max(8), account_number: z.string().max(8), account_holder: z.string().max(140).nullable(), bank_name: z.string().max(140).nullable() }),
+]);
+export const VirtualAccountResponse = z.union([
+  z.object({ step: z.literal("sign"), message_to_sign: z.string().max(200), sign_by: isoTime, currency: payoutCurrency, rails: z.array(payerRail).min(1).max(6) }),
+  z.object({ step: z.literal("stored"), id: uuid, wallet: base58Key, currency: payoutCurrency, rails: z.array(payerRail).min(1).max(6), status: z.enum(["active", "closed"]), created_at: isoTime }),
+]);
+export type VirtualAccountResponse = z.infer<typeof VirtualAccountResponse>;
+// ---- F3 bank rail end ----
