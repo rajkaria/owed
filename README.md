@@ -129,3 +129,7 @@ More: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how it fits together and wha
 ## Built with AI assistance
 
 Code in this repository is written with Claude Code. Design decisions, testing on mainnet and accountability are the author's.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
