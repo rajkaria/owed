@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRightIcon, AtIcon, CardIcon, CoinsIcon, LayersIcon, ListIcon, QrIcon, ReceiptIcon, SearchIcon, UsersIcon, WalletIcon } from "@/components/icons";
+import { ArrowRightIcon, AtIcon, BellIcon, BoxIcon, CalendarIcon, CardIcon, CoinsIcon, LayersIcon, ListIcon, QrIcon, ReceiptIcon, SearchIcon, UsersIcon, WalletIcon } from "@/components/icons";
 import { Container, SectionHeading } from "./ui";
 
 // What shipped after the first release, newest work first. Every "Live" card is on production from main
@@ -9,7 +9,10 @@ import { Container, SectionHeading } from "./ui";
 // X handles) are on the remote MCP endpoint (/api/mcp, the current bundle) from the deploy that ships this copy, and
 // in the PayBox portal build with its next upload; each says so. Their pages and API routes are on production.
 // The card-payment card says "Live" only when MoonPay is configured with live keys (lib/moonpay/config.ts),
-// the same switch that puts "Pay by card (MoonPay)" on the pay page, so the two never disagree.
+// the same switch that puts "Pay by card (MoonPay)" on the pay page, so the two never disagree. Wave 3 (F7 pots, F5
+// one-tap monthly pay, S1 paid alerts, F4 cash-out) leads the list: pots and monthly pay are on the remote MCP endpoint;
+// alerts say "Live" only when a channel is configured (lib/alerts/config.ts, the same switch as the /alerts form);
+// cash-out stays "Next" until MoonPay's live keys and OWED_MOONPAY_SELL are set.
 
 interface Item {
   icon: ReactNode;
@@ -20,8 +23,64 @@ interface Item {
   proof?: { href: string; label: string };
 }
 
-function items(cardLive: boolean): Item[] {
+function items(cardLive: boolean, alertsLive: boolean, cashOutLive: boolean): Item[] {
   return [
+    {
+      icon: <BoxIcon />,
+      title: "Chip-in pots for gifts, dinners and trips",
+      body: (
+        <>
+          Start a pot with a target, a suggested amount and a deadline, and share one board. Anyone chips in from any Solana
+          wallet or their own agent; every scan of the QR code is counted on its own, and the board shows the total against
+          the target as money lands. Every pot ends by its deadline, and Owed never holds the money. On Owed&apos;s remote MCP
+          endpoint now; in the PayBox plugin with its next upload.
+        </>
+      ),
+      tools: ["start_pot", "pay_link", "check_payments"],
+      live: true,
+    },
+    {
+      icon: <CalendarIcon />,
+      title: "One-tap monthly pay within your rule",
+      body: (
+        <>
+          Tell your agent the most it may pay one person each month. When their request arrives, your agent has the exact
+          PayBox payment ready, checked against the rule you signed; anything above it waits for you. Owed never pays
+          anything itself. On Owed&apos;s remote MCP endpoint now; in the PayBox plugin with its next upload.
+        </>
+      ),
+      tools: ["set_autopay", "what_do_i_owe"],
+      live: true,
+    },
+    {
+      icon: <BellIcon />,
+      title: "Paid alerts in Telegram",
+      body: alertsLive ? (
+        <>
+          Link a Telegram chat to the wallet your requests pay, with one signature, and get one message when each request is
+          paid, on every rail. Send /stop to turn it off.
+        </>
+      ) : (
+        <>
+          Link a Telegram chat to the wallet your requests pay, with one signature, and get one message when each request is
+          paid, on every rail. Built; it switches on once the Owed bot is set up on production.
+        </>
+      ),
+      tools: ["/alerts"],
+      live: alertsLive,
+    },
+    {
+      icon: <WalletIcon />,
+      title: "Cash out to your bank",
+      body: (
+        <>
+          Sell the USDC you were paid to MoonPay for your bank account: one transfer from your wallet, approved in PayBox, to
+          the address MoonPay names for that sale and nowhere else.{cashOutLive ? "" : " Built; it switches on once MoonPay's live keys are in."}
+        </>
+      ),
+      tools: ["cash_out"],
+      live: cashOutLive,
+    },
     {
       icon: <UsersIcon />,
       title: "Group ledgers that settle in the fewest payments",
@@ -163,7 +222,7 @@ function items(cardLive: boolean): Item[] {
   ];
 }
 
-export function WhatsNew({ cardLive }: { cardLive: boolean }) {
+export function WhatsNew({ cardLive, alertsLive = false, cashOutLive = false }: { cardLive: boolean; alertsLive?: boolean; cashOutLive?: boolean }) {
   return (
     <section id="new" aria-labelledby="new-title" className="scroll-mt-20 border-t border-line py-20 md:py-28">
       <Container>
@@ -171,10 +230,10 @@ export function WhatsNew({ cardLive }: { cardLive: boolean }) {
           id="new-title"
           eyebrow="What's new"
           title="Shipped since launch."
-          lede="Built in public on Solana mainnet. Each of these is running on production today, except the one marked next."
+          lede="Built in public on Solana mainnet. Each of these is running on production today, except those marked next."
         />
         <ul className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {items(cardLive).map((item) => (
+          {items(cardLive, alertsLive, cashOutLive).map((item) => (
             <li key={item.title} className="flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-6">
               <div className="flex items-center justify-between gap-3">
                 <span className="grid size-10 place-items-center rounded-xl bg-accent-soft text-accent [&_svg]:size-5">{item.icon}</span>

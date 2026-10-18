@@ -16,7 +16,8 @@ import { Container, SectionHeading, StepBadge } from "@/components/marketing/ui"
 import { UseCases } from "@/components/marketing/use-cases";
 import { WhatsNew } from "@/components/marketing/whats-new";
 import { WithWithout } from "@/components/marketing/with-without";
-import { moonpayConfig } from "@/lib/moonpay/config";
+import { moonpayConfig, moonpaySellConfig } from "@/lib/moonpay/config";
+import { alertsConfigured } from "@/lib/alerts/config"; // S1 alerts
 
 // Refresh the live counters and the DNS read at most once a minute.
 export const revalidate = 60;
@@ -182,6 +183,10 @@ export default async function Home() {
   // The same switch as "Pay by card (MoonPay)" on the pay page; sandbox keys never count as live.
   const card = moonpayConfig();
   const cardLive = card !== null && !card.sandbox;
+  // Wave 3: the same switches as the /alerts form and POST /api/v1/cash-out.
+  const alertsLive = alertsConfigured();
+  const sell = moonpaySellConfig();
+  const cashOutLive = sell !== null && !sell.sandbox;
 
   return (
     <>
@@ -193,7 +198,7 @@ export default async function Home() {
           <GoldenPathVideo />
         </Container>
         <HowItWorks />
-        <WhatsNew cardLive={cardLive} />
+        <WhatsNew cardLive={cardLive} alertsLive={alertsLive} cashOutLive={cashOutLive} />
         <UseCases />
         <Toolbox />
         <Developers />

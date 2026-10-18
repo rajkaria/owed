@@ -2,6 +2,22 @@
 
 What reached production, newest first. Times are UTC. Every line is backed by [FACTS.md](FACTS.md), which says how it was verified.
 
+## 2026-10-18 14:58 · main bbefbbb · chip-in pots, one-tap monthly pay, paid alerts, MoonPay rails (off)
+
+- **Chip-in pots** (migration 0019).
+  - `start_pot` starts a pot paid straight to your wallet: optional target, suggested amount, fixed amounts or any amount, up to 4 USDC presets for x402 agents, and a deadline (30 days by default, at most 90: every pot ends).
+  - The pot's id is a hash of the wallet, the token and a nonce, so a payer's agent checks the pot pays you before paying.
+  - Board `/pot/<id>`: the total against the target, every contribution with its transaction, printable QR codes that are Solana Pay transaction requests (each scan makes its own contribution, so everyone is counted once), and a per-click payment link. x402 presets at `/x/pot/<id>/<amount>`.
+  - `pay_link` pays a pot (board link, id or QR text) with an amount, minting one contribution right before it proposes; a short wallet gets the funding plan and mints nothing. `check_payments` shows a pot's board, `who_owes_me` lists your open pots, and nobody is ever shown as owing a pot.
+  - A contribution is an ordinary Owed request, so every rail, refunds and `/proof` work on it unchanged. Past the deadline every way to pay refuses.
+- **One-tap monthly pay within your rule** (migration 0022). `set_autopay` stores a rule the payer signs for one requester's wallet: a maximum per request and per month and an end date. `what_do_i_owe` marks each request eligible, over the limit or not covered, and hands the agent the exact PayBox `pay_x402` call for eligible ones, checked against the signed rule and the request's live x402 challenge. Owed never pays; whether PayBox runs it without a tap under an autonomous grant isn't tested yet.
+- **PayBox Open Deposit link, built and off.** `ask_for_money` and `create_invoice` take a `deposit_url` from PayBox `get_deposit_link` (paybox.sh, USDC on Solana, never part of the id). Pay and invoice pages offer it for 24 hours only with `OWED_DEPOSIT_LINK=1`; a payment through it counts after `match_payments`.
+- **Paid alerts, built** (migration 0025). `/alerts` links a Telegram chat to the wallet your requests pay after one signed message; one message per paid request on every rail, `/stop` to end it. A database trigger queues each alert in the same transaction that records the payment. It switches on when the bot's keys are set; email alerts are built and off until a sending key exists.
+- **MoonPay rails, built and off** (migrations 0023, 0024).
+  - `cash_out` sells USDC to MoonPay for a bank payout: MoonPay's signed sell link for the exact amount, then one USDC transfer to the deposit address only MoonPay's signed webhook names, re-checked with MoonPay before release. No input takes an address. Off until `OWED_MOONPAY_SELL=1` with live keys.
+  - Pay by bank transfer on invoices, to the recipient's own MoonPay virtual account, counted only after Solana shows MoonPay's USDC delivery (rail `bank_transfer`); the Enterprise cash-out route. Both off until MoonPay Enterprise access exists.
+- The remote MCP endpoint now serves 21 tools (bundle sha256 `1f24a80a…4e730`). The PayBox portal build cecfbd2 keeps 11 until the next upload.
+
 ## 2026-10-18 10:10 · main 390547d · funding plans, group ledgers, merchant-grade invoices
 
 - **Funding plan** (migration 0018). When the payer can't cover a payment, `pay_link` and `pay_all` return the exact PayBox calls that fix it, plus a `plan_id` the server records. The options are:

@@ -93,6 +93,20 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Pots, autopay, alerts and MoonPay rails on production (wave 3, main bbefbbb, 2026-10-18 ~14:58Z)
+- Pushed 14:57:29Z; production served the new routes at 14:58:35Z (`GET /api/v1/pots/<id>` answered from `/api/v1/pots/[id]`). The build applied migrations 0019, 0022, 0023, 0024 and 0025 itself (D10: a failed migration fails the build, and this build went live).
+- Production build of bbefbbb, checked from this machine with Node fetch, 2026-10-18 ~15:00–15:10Z:
+  - `POST /api/mcp` `initialize` (2025-06-18) then `tools/list` → 21 tools, including `start_pot`, `set_autopay` and `cash_out`.
+  - `GET /api/v1/stats` → `pots {count 0, paid_contributions 0}` before the check pot below, so 0019 is applied.
+  - `smoke.mjs --strict --id qNaosx73zzt3`: 36 pass, 0 fail (pots, autopay and alerts checks included).
+  - Switched-off features answer as designed: `POST /api/v1/alerts` → 503 "Telegram alerts aren't switched on", `POST /api/hooks/telegram` → 404, `POST /api/v1/cash-out` → 503 "cash-out isn't switched on yet", `POST /api/hooks/moonpay-enterprise` → 404.
+- Production pot, no money moved: `start_pot` through `/api/mcp` (1,254 ms) made pot `Cx9PuHwCMmDik6` ("Owed pot acceptance check", USDC to the team wallet, suggested 0.03, preset 0.02, target 0.2, deadline 2026-10-20T14:59:33Z, nonce `4y6n7QUg1viJ6uYpy45xuT7rRWuEwDr9DxMBkatYrYBc`); the tool checked the id against the wallet, token and nonce. Its board `/pot/Cx9PuHwCMmDik6` answers 200; `/x/pot/Cx9PuHwCMmDik6/0.02` → 402 whose v1 and v2 challenges pay 20000 atomic USDC to the team wallet; a non-preset amount → 404; `check_payments` on the board link → "0 of 0.2 USDC raised from 0 contributions".
+- `pay_link` on that pot with amount 0.03 from `ASTW…4rEg` (0 USDC, 3.92 SOL) → a funding plan (swap SOL for USDC, 1,373 ms) and no proposal, so a short wallet mints no contribution.
+- Gates on bbefbbb from a clean clone: plugin unit 799/799; plugin gate passed (21 tools, byte-identical double build); contract 123/123 fixtures, both mirrors strict; e2e tooling 83/83; web lint clean, 888/888, build ok; remote bundle 1,486,988 bytes, sha256 `1f24a80a5d2968249384a0def6cdfce41d989d168adbfab18007f51c0ce4e730`.
+- Not run on mainnet yet: a pot contribution, an autopay payment, a Telegram alert, a cash-out, a card payment, a bank transfer, the deposit-link stranger test.
+- Production example of a local-currency ask (spec S3), no money moved: `ask_for_money` through `/api/mcp` (1,363 ms) made request `CzEsuh95afjU`, ₹10 = 0.105308 USDC to the team wallet at 1 USDC = ₹94.95975 ("api.coinbase.com, checked against open.er-api.com", locked 2026-10-18T15:04:08Z), expiring in 7 days.
+- PayBox catalog, 2026-10-18 ~15:05Z: PayBox's MCP `discover_plugins` returned no plugin for "owed" or "owed payment requests", so README, llms.txt and the landing page keep "waiting for its listing".
+
 ## Funding plans, ledgers, invoice terms on production (main 390547d, 2026-10-18 ~10:10Z)
 - Production build of 390547d, checked from this machine:
   - `POST /api/mcp` `tools/list` → 18 tools.

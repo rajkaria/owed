@@ -3,10 +3,11 @@ import { Container, SectionHeading } from "./ui";
 
 // The plugin's tools, one line each, condensed from the DESCRIPTION in plugin/src/tools/<name>.ts.
 // The first eleven are the ones in the build submitted in the PayBox developer portal (docs/FACTS.md, build cecfbd2).
-// The seven marked `remote` (F1 what_do_i_owe and pay_all, 0017; F6 start_ledger, add_expense, ledger_balances and
-// settle_up, 0020; F8 refund_payment, 0021) are on the remote MCP endpoint (/api/mcp, the current bundle) and go into the
-// portal build with its next upload. Newer behaviour of the first eleven (F2 funding plans in pay_link, F8 terms in
-// create_invoice, reminders and statements in who_owes_me) is named in its summary with the same qualifier.
+// The ten marked `remote` (F1 what_do_i_owe and pay_all, 0017; F6 start_ledger, add_expense, ledger_balances and
+// settle_up, 0020; F8 refund_payment, 0021; F7 start_pot, 0019; F5 set_autopay, 0022; F4 cash_out, 0024) are on the remote
+// MCP endpoint (/api/mcp, the current bundle) and go into the portal build with its next upload. Newer behaviour of the
+// first eleven (F2 funding plans and F7 pots in pay_link, F8 terms in create_invoice, reminders and statements in
+// who_owes_me) is named in its summary with the same qualifier.
 
 export const TOOLS: { name: string; summary: string; remote?: true }[] = [
   {
@@ -22,7 +23,7 @@ export const TOOLS: { name: string; summary: string; remote?: true }[] = [
   {
     name: "pay_link",
     summary:
-      "Pay an Owed link, any Solana Pay transfer link or an .sns name (USDC or SOL): checks it is still open, the payee is who it claims and the wallet can cover it, then returns an unsigned transaction to approve in PayBox. On Owed's remote MCP endpoint, a wallet that is short gets the exact PayBox steps that fix it instead (swap SOL or another token, bring USDC over from Base, buy the shortfall with MoonPay), each approved by you, ending with the same checked payment.",
+      "Pay an Owed link, any Solana Pay transfer link or an .sns name (USDC or SOL): checks it is still open, the payee is who it claims and the wallet can cover it, then returns an unsigned transaction to approve in PayBox. On Owed's remote MCP endpoint, a wallet that is short gets the exact PayBox steps that fix it instead (swap SOL or another token, bring USDC over from Base, buy the shortfall with MoonPay), each approved by you, ending with the same checked payment. It also pays a chip-in pot (its board link, id or QR code) with the amount you choose.",
   },
   {
     name: "verify_payee",
@@ -106,6 +107,24 @@ export const TOOLS: { name: string; summary: string; remote?: true }[] = [
       "Send all or part of a payment back to the wallet that paid it: you sign one message, then approve one transfer in PayBox. Refunds never add up to more than was paid, and count once Solana confirms them.",
     remote: true,
   },
+  {
+    name: "start_pot",
+    summary:
+      "Start a chip-in pot for a gift, a dinner or a trip kitty, paid straight to your wallet: an optional target, a suggested amount or fixed amounts, and a deadline (every pot ends). Share the board: each scan of its QR code counts on its own, anyone's agent can pay it with pay_link, and the board shows the total against the target.",
+    remote: true,
+  },
+  {
+    name: "set_autopay",
+    summary:
+      "One-tap monthly pay within your rule: sign a rule for one person's wallet with the most per request and per month and an end date. what_do_i_owe then hands your agent the exact PayBox payment for requests within it; anything above your rule waits for you. Owed never pays anything itself.",
+    remote: true,
+  },
+  {
+    name: "cash_out",
+    summary:
+      "Cash out USDC to your bank through MoonPay: MoonPay's sell link for the exact amount, then one transfer from your wallet to the address MoonPay named for that sale, approved in PayBox. Built, and switched off until MoonPay's live keys are set.",
+    remote: true,
+  },
 ];
 
 export function Toolbox() {
@@ -116,10 +135,10 @@ export function Toolbox() {
           <SectionHeading
             id="tools-title"
             eyebrow="The toolbox"
-            title="Eighteen tools your agent can call."
+            title="Twenty-one tools your agent can call."
             lede={
               <>
-                Each one is an MCP tool. Eleven are in the Owed plugin submitted to PayBox. The seven marked{" "}
+                Each one is an MCP tool. Eleven are in the Owed plugin submitted to PayBox. The ten marked{" "}
                 <span className="whitespace-nowrap font-medium text-fg">remote MCP</span> are on Owed&apos;s remote MCP endpoint,{" "}
                 <code className="break-all font-mono text-[0.9em] text-fg">{REMOTE_MCP_URL}</code>, and join the plugin with its
                 next upload. <code className="font-mono text-[0.9em] text-fg">recipient</code>,{" "}
