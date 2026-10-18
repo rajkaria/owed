@@ -1,13 +1,16 @@
+import { REMOTE_MCP_URL } from "./site";
 import { Container, SectionHeading } from "./ui";
 
 // The plugin's tools, one line each, condensed from the DESCRIPTION in plugin/src/tools/<name>.ts.
-// The eleven here are the ones in the build submitted in the PayBox developer portal (docs/FACTS.md, build cecfbd2).
+// The first eleven are the ones in the build submitted in the PayBox developer portal (docs/FACTS.md, build cecfbd2).
+// what_do_i_owe and pay_all (F1, migration 0017) are on the remote MCP endpoint (/api/mcp, the current bundle) and go
+// into the portal build with its next upload; their summaries say so.
 
 export const TOOLS: { name: string; summary: string }[] = [
   {
     name: "ask_for_money",
     summary:
-      "Create a payment request and get a short link with a QR code that anyone can pay from a Solana wallet or their own PayBox agent, plus a ready-to-send message. Ask in USDC, SOL or your own currency (locked to USDC at a live rate), to your wallet or your .sns name, on Solana or in USDC on Base.",
+      "Create a payment request and get a short link with a QR code that anyone can pay from a Solana wallet or their own PayBox agent, plus a ready-to-send message. Ask in USDC, SOL or your own currency (locked to USDC at a live rate), to your wallet or your .sns name, on Solana or in USDC on Base. Address it to someone's X handle and it shows up in their own agent's what_do_i_owe.",
   },
   {
     name: "check_payments",
@@ -59,6 +62,16 @@ export const TOOLS: { name: string; summary: string }[] = [
     summary:
       "Find money that reached your wallet without the request's reference (exchanges drop it): transfers of exactly the amount still owed, with reasons and warnings. It counts one only after you sign that it is yours, and can ask for exactly the rest of an underpaid request.",
   },
+  {
+    name: "what_do_i_owe",
+    summary:
+      "See what you owe: every open request, split share and invoice someone addressed to your wallet by your X handle, .sns name or wallet, after you sign one message. Names, handles and reasons are the requester's own words, unverified; first-time requesters are marked, and you can block one. On Owed's remote MCP endpoint now; in the PayBox plugin with its next upload.",
+  },
+  {
+    name: "pay_all",
+    summary:
+      "Pay several requests with one approval: one Solana transaction, every request checked like pay_link (open, payee, sanctions), capped at the total you agreed to. Requests on Base or with a brand-word caution are skipped with the reason. On Owed's remote MCP endpoint now; in the PayBox plugin with its next upload.",
+  },
 ];
 
 export function Toolbox() {
@@ -69,10 +82,14 @@ export function Toolbox() {
           <SectionHeading
             id="tools-title"
             eyebrow="The toolbox"
-            title="Eleven tools your agent can call."
+            title="Thirteen tools your agent can call."
             lede={
               <>
-                Each one is an MCP tool in the Owed plugin. <code className="font-mono text-[0.9em] text-fg">recipient</code> and{" "}
+                Each one is an MCP tool. Eleven are in the Owed plugin submitted to PayBox;{" "}
+                <code className="font-mono text-[0.9em] text-fg">what_do_i_owe</code> and{" "}
+                <code className="font-mono text-[0.9em] text-fg">pay_all</code> are on Owed&apos;s remote MCP endpoint,{" "}
+                <code className="break-all font-mono text-[0.9em] text-fg">{REMOTE_MCP_URL}</code>, and join the plugin with its
+                next upload. <code className="font-mono text-[0.9em] text-fg">recipient</code> and{" "}
                 <code className="font-mono text-[0.9em] text-fg">sender</code> are always your own PayBox wallet, so money can
                 only ever be asked for into it or paid from it with your approval.
               </>

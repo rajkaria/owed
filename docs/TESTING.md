@@ -41,6 +41,8 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - `pay_link` proposals are decoded and checked against what is being paid (the `solana:` URL, or
   `GET /api/v1/requests/<id>` for Owed links): fee payer, size, legacy format, amount, mint, recipient account,
   references read-only, memo.
+- `pay_all` proposals are decoded with every request's terms from `GET /api/v1/requests?ids=`: each transfer must carry
+  exactly one request's references and pay exactly its terms, and the memo must name every request.
 
 ## Local-currency asks
 
@@ -49,6 +51,17 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
 - `web/test/fiat-db.test.ts`: migration 0013 on PGlite, then `/requests`, `/groups`, `/invoices`, `/status`, `/schedules`, the ledger, the CSV and the page models with `currency`.
 - `node --test e2e/test/fiat-shapes.test.mjs`: `contract/shapes.mjs` rejects a quote that doesn't give its USDC.
 - Against a local server: `next start` with a `NODE_OPTIONS=--import` preload that answers the Neon SQL-over-HTTP calls from an in-memory PGlite (all migrations), behind an HTTPS proxy on a throwaway CA; then `node e2e/plugin-e2e.mjs plugin/dist/plugin.mjs ask_for_money '{"recipient":…,"amount":"1200","currency":"INR"}' --base-url https://localhost:<port> --env NODE_EXTRA_CA_CERTS=<ca.pem> --hosts any` (the guard only allows port 443, so `--hosts any`; its report still lists every connection).
+
+## Payer inbox and pay_all (F1)
+
+- `plugin/test/payer.test.ts`: handles (optional `@`, lower case, 1 to 15 characters), `{handle, wallet}` kept as a label, `{sns}` resolved on Solana, refusals (the recipient as payer, a token account, a handle without its wallet), the handle-check line, and `ask_for_money` refusing a reply that didn't store the payer.
+- `plugin/test/what_do_i_owe.test.ts`: both calls against the contract fixtures (a real ed25519 signature): the message to sign, the inbox with unverified labels, first-time marks, Base apart, cautions kept out of `pay_all_ids`, local refusals (stale, future, wrong wording, wrong signer), and block.
+- `plugin/test/pay_all.test.ts`: two same-amount USDC requests to one recipient plus a SOL one in one transaction, a missing USDC account opened once, `max_total` and balance refusals, every skip reason (SOL without `max_total_sol`, Base, paid, tampered, unknown, own, cautioned, DNS), the handle check, chunking at 1,232 bytes, and the per-id fallback for a server without the bulk route.
+- `plugin/test/batch_chain.test.ts`: the plugin's direct check pairs each reference with its own transfer (USDC, and SOL with the second read), `readBatchAccounts`, `assessBatch`, `buildBatchTx` and `planBatch`. `plugin/test/pay_link_f1.test.ts`: `pay_link`'s handle check and its note for a request addressed to another wallet.
+- `web/test/pairing.test.ts`: paid detection on constructed multi-transfer transactions (USDC and SOL, the SOL second read, stored claims), plus the real mainnet captures, which pair the way the old rule credited them.
+- `web/test/inbox-db.test.ts`: migration 0017 on PGlite, payer fields on every create route (requests, split shares, invoices, schedules), the signed inbox and block routes, bulk terms (`GET /requests?ids=`), the addressed-request limit, and two same-amount requests settled by one transaction.
+- `node --test e2e/test/pay-all-tx.test.mjs e2e/test/inbox-shapes.test.mjs e2e/test/tool-list.test.mjs`: the decoder on a `pay_all` transaction built by the plugin's real batch builder, the inbox fixture shapes (signatures, totals, blocked requesters), and the bundle listing 13 tools.
+- Contract fixtures for F1 are written by `node contract/inbox-fixtures.mjs` (deterministic: a fixed-seed ed25519 key signs the inbox and block messages).
 
 ## Fixtures
 
@@ -66,7 +79,7 @@ Everything else below has no extra dependencies. Tests use doubles only inside t
   from the U.S. Treasury's OFAC SDN list (Solana and EVM digital currency addresses, with the list's publish date).
   Re-run it before a release; `web/test/sanctions.test.ts` checks both copies are identical.
 - Pay with PayBox (SP1): `web/test/cta-db.test.ts` runs migration 0016 on PGlite, the counting redirect, the prompt-copy POST and `/api/v1/stats`; `web/test/cta-view.test.ts` checks when the pay page shows the section, its exact prompt, and the `OWED_PAYBOX_CTA` switch.
-- Postgres: `web/test/x402-store.test.ts` and `web/test/payee-db.test.ts` run the migrations and SQL on PGlite and skip
+- Postgres: `web/test/x402-store.test.ts`, `web/test/payee-db.test.ts` and `web/test/inbox-db.test.ts` run the migrations and SQL on PGlite and skip
   until the devDependency `@electric-sql/pglite` is installed.
 
 ## Smoke

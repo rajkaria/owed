@@ -6,6 +6,8 @@ export const CANONICAL_ORIGIN = "https://www.getowed.xyz";
 export const REPO_URL = "https://github.com/rajkaria/owed";
 export const PAYBOX_MCP_URL = "https://api.paybox.sh/mcp";
 export const PAYBOX_PLUGINS_URL = "https://app.paybox.sh/plugins";
+/** Owed's own remote MCP server: the current plugin bundle over Streamable HTTP (README, "Use it from any MCP client"). */
+export const REMOTE_MCP_URL = "https://www.getowed.xyz/api/mcp";
 
 /** The team's domain and the wallet its `_owed` TXT record publishes (docs/FACTS.md, Domain). */
 export const DEMO_DOMAIN = "getowed.xyz";

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRightIcon, AtIcon, CardIcon, CoinsIcon, LayersIcon, QrIcon, SearchIcon } from "@/components/icons";
+import { ArrowRightIcon, AtIcon, CardIcon, CoinsIcon, LayersIcon, ListIcon, QrIcon, SearchIcon } from "@/components/icons";
 import { Container, SectionHeading } from "./ui";
 
 // What shipped after the first release, newest work first. Every "Live" card is on production from main
 // cecfbd2 (docs/FACTS.md, "Web production: main cecfbd2"); the proof links point at real mainnet payments.
+// The first card (F1: what_do_i_owe, pay_all, X handles) ships with the same deploy as this copy: on the remote MCP
+// endpoint (/api/mcp, the current bundle) at once, in the PayBox portal build with its next upload, and it says so.
 // The card-payment card says "Live" only when MoonPay is configured with live keys (lib/moonpay/config.ts),
 // the same switch that puts "Pay by card (MoonPay)" on the pay page, so the two never disagree.
 
@@ -19,6 +21,20 @@ interface Item {
 
 function items(cardLive: boolean): Item[] {
   return [
+    {
+      icon: <ListIcon />,
+      title: "Ask by X handle, pay them all at once",
+      body: (
+        <>
+          Ask @sam and the request shows up in Sam&apos;s own agent when he asks &ldquo;what do I owe?&rdquo;, with no link to paste.
+          He picks what to pay, and his agent checks each request on its own, then pays them all in one Solana transaction
+          with one approval. Handles are labels Owed never verifies: his agent checks them with PayBox before paying. On
+          Owed&apos;s remote MCP endpoint now; in the PayBox plugin with its next upload.
+        </>
+      ),
+      tools: ["what_do_i_owe", "pay_all", "ask_for_money"],
+      live: true,
+    },
     {
       icon: <SearchIcon />,
       title: "Find payments that lost their link",

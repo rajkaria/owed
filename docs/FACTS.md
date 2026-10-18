@@ -93,6 +93,15 @@ Each line ran the real bundle through `e2e/plugin-e2e.mjs` (fresh process, 10 s,
 - Production, 2026-10-17 ~22:10Z: the pay page `/r/ux9oshckE4` contains no "MoonPay" (Node fetch), so the feature is off. No card payment exists on mainnet.
 - MoonPay facts read 2026-10-18 IST from dev.moonpay.com and api.moonpay.com/v3/currencies (recorded in `web/lib/moonpay/config.ts`): USDC on Solana is `usdc_sol`, buy limits 4.99 to 30,000 USDC, buying refused in Canada and the US Virgin Islands on top of countries where MoonPay allows no purchases.
 
+## Remote MCP endpoint (SP2, on production from main d864a4c, 2026-10-18 07:40Z)
+- `POST https://www.getowed.xyz/api/mcp`, checked 2026-10-18 07:49Z from this machine:
+  - `initialize` (2025-06-18) → 200 in 558 ms;
+  - `tools/list` → 200, 11 tools;
+  - `tools/call check_payments ["qNaosx73zzt3"]` → 200, status `paid`, in 963 ms. That proves the bundle runs as a child process on Vercel.
+- The bundle `web/mcp/owed-plugin.mjs` has sha256 `95d86a9b139579d91b79c820e8fa3edc9e7091061f971d7bd7b469c9ef54d7d7`, the same digest as the portal build cecfbd2.
+- `smoke.mjs https://www.getowed.xyz --strict`: 15 pass, 0 fail.
+- Not verified yet: adding the URL in PayBox as a remote plugin, and whether PayBox opens its passkey sheet for a proposal that comes from it.
+
 ## Pay with PayBox on the pay page (SP1, migration 0016; tests only until it is deployed)
 - On PGlite (`web/test/cta-db.test.ts`, `web/test/cta-view.test.ts`, 20/20): 0016 applies after 0001–0015.
 - `GET /api/v1/cta/paybox?r=<id>` always answers 302 to https://app.paybox.sh with `Cache-Control: no-store`. It counts one `paybox_click` only for a request that exists. Malformed, missing or unknown ids count nothing, and with the database down it still redirects.

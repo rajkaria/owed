@@ -2,6 +2,11 @@
 
 What reached production, newest first. Times are UTC. Every line is backed by [FACTS.md](FACTS.md), which says how it was verified.
 
+## 2026-10-18 07:40 · main d864a4c · remote MCP endpoint, Pay with PayBox (off)
+
+- **Remote MCP endpoint** (`POST /api/mcp`). Any MCP client can add `https://www.getowed.xyz/api/mcp` and get every Owed tool. Each tool call runs the committed plugin bundle (`web/mcp/owed-plugin.mjs`) in a fresh process with PayBox's limits (10 s, 256 KiB, clean environment), and `tools/list` is the bundle's own. Supports MCP 2026-07-28 plus clients that open with `initialize` (2025-11-25, 2025-06-18, 2025-03-26). Stateless JSON, no sessions, 120 tool calls a minute per IP. CI fails when the copy drifts from the plugin build.
+- **"New to crypto? Pay with PayBox"** on open pay pages (migration 0016), built and switched off (`OWED_PAYBOX_CTA`) until a newcomer can turn Owed on in PayBox. Owed's server counts clicks and prompt copies, with no IP, no user agent and no third-party analytics. `GET /api/v1/stats` adds `cta` totals once 0016 is applied.
+
 ## 2026-10-17 21:56 · main cecfbd2 · 11 tools, submitted
 
 - **`match_payments`** (11th tool, migration 0012). Finds money that reached the recipient's wallet without the request's Solana Pay reference (exchanges and some wallets drop it): transfers of exactly the amount still owed, made after the request and counted nowhere else, ranked with reasons and ambiguity warnings. It marks nothing until the recipient signs a match; the server re-checks the transaction on chain and labels the request "matched by the recipient (no reference on the payment)". `ask_for_rest` makes one request for exactly what an underpaid request still owes.

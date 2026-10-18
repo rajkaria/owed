@@ -86,7 +86,7 @@ function Hero() {
         <div>
           <p className="animate-rise inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-surface/70 px-3 py-1 text-sm font-medium text-ink-muted">
             <span className="animate-pulse-dot size-1.5 rounded-full bg-ink-accent" aria-hidden="true" />
-            PayBox plugin · Solana and Base · 11 tools
+            PayBox plugin · MCP server · Solana and Base
           </p>
           <h1
             id="hero-title"

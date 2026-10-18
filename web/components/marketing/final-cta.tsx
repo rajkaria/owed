@@ -20,6 +20,9 @@ const TRY = [
   { say: "Bill Alex 20 USDC on Base", tool: "ask_for_money" },
   { say: "Pay bonfida.sns 2 USDC", tool: "pay_link" },
   { say: "Sam says he paid from Coinbase, but it still shows open", tool: "match_payments" },
+  { say: "Ask @sam for 10 USDC", tool: "ask_for_money" },
+  { say: "What do I owe?", tool: "what_do_i_owe" },
+  { say: "Pay them all", tool: "pay_all" },
 ];
 
 export function FinalCta() {
@@ -105,6 +108,11 @@ export function FinalCta() {
                 </li>
               ))}
             </ul>
+            <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+              Asking by X handle, <code className="font-mono text-ink-fg">what_do_i_owe</code> and{" "}
+              <code className="font-mono text-ink-fg">pay_all</code> are on Owed&apos;s remote MCP endpoint now and come to the
+              PayBox plugin with its next upload.
+            </p>
           </div>
         </div>
       </Container>

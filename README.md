@@ -8,8 +8,9 @@ Owed never holds money and charges no fees. Every payment goes from the payer's 
 
 ## What's new
 
-Everything below is on production from `main` cecfbd2 (2026-10-17 21:56 UTC). The full list, with dates, is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
+The first item is on the [remote MCP endpoint](#use-it-from-any-mcp-client-or-add-it-to-paybox-by-url) and goes into the PayBox portal build with its next upload; everything else is on production from `main` cecfbd2 (2026-10-17 21:56 UTC). The full list, with dates, is in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
+- **Ask by X handle; pay several requests with one approval.** Ask `@sam` and Sam's agent finds it in `what_do_i_owe` without a pasted link; `pay_all` pays several requests in one Solana transaction, every request checked like `pay_link`. Handles are labels Owed never verifies; the payer's agent checks them with PayBox `resolve_username` before paying.
 - **Find payments that lost their link** (`match_payments`). Exchanges and some wallets drop the Solana Pay reference, so the money arrives and the request stays open. Owed lists transfers of exactly the amount still owed, with reasons and ambiguity warnings, and counts one only after the recipient signs that it is theirs. For an underpaid request it asks for exactly the rest.
 - **Ask in your own currency.** `ask_for_money`, `split_bill` and `create_invoice` take `currency` (38 ISO 4217 codes): "ask Priya for ₹1,200" locks 12.636934 USDC at a live rate, rounded up, and every page shows both amounts.
 - **Get paid to an `.sns` name.** Owed resolves Solana Name Service names on Solana itself, shows "To bonfida.sns · verified on-chain", and `pay_link` refuses if the name has moved to another wallet since. `.sol` is refused: SNS moved to `.sns` in August 2026.
@@ -20,21 +21,23 @@ Everything below is on production from `main` cecfbd2 (2026-10-17 21:56 UTC). Th
 
 ## What's live
 
-Eleven tools, submitted to PayBox Chapter 1: the build of `main` cecfbd2 passed the developer portal's hosted checks with 11 tools (see [docs/FACTS.md](docs/FACTS.md)).
+Thirteen tools. Eleven are in the build submitted to PayBox Chapter 1: `main` cecfbd2 passed the developer portal's hosted checks with 11 tools (see [docs/FACTS.md](docs/FACTS.md)). `what_do_i_owe` and `pay_all` are on the [remote MCP endpoint](#use-it-from-any-mcp-client-or-add-it-to-paybox-by-url) and go into the portal build with its next upload.
 
 | Tool | What it does |
 |---|---|
-| `ask_for_money` | Creates a request and returns a short link, a QR code and a ready-to-send message. Anyone can pay it by scanning the QR with a Solana wallet app or from their own PayBox agent. Ask in USDC, SOL or your own `currency`; to a wallet or an `.sns` name; with `chain: "base"`, in USDC on Base. |
+| `ask_for_money` | Creates a request and returns a short link, a QR code and a ready-to-send message. Anyone can pay it by scanning the QR with a Solana wallet app or from their own PayBox agent. Ask in USDC, SOL or your own `currency`; to a wallet or an `.sns` name; with `chain: "base"`, in USDC on Base. With `payer` (an X handle resolved by PayBox, an `.sns` name or a wallet) it lands in that person's `what_do_i_owe` inbox. |
 | `check_payments` | Checks up to 20 requests on Solana mainnet (and Base, for Base requests): open, paid, underpaid, cancelled, expired, not found, with payer, amount and transaction once paid. A payment matched by the recipient says so. |
 | `pay_link` | Pays an Owed link, any Solana Pay transfer link or an `.sns` name with one unsigned transaction for the user to approve in PayBox. It refuses checkout links (transaction requests), paid requests, amounts above `max_amount` and names that no longer point to the request's wallet. With `rail: "x402"`, it pays an Owed USDC request over x402 instead: PayBox pays the request's x402 endpoint and the facilitator covers the network fee. |
 | `verify_payee` | Checks whether a domain publishes the wallet a request pays, reading DNS from the plugin itself, or which wallet an `.sns` name points to on Solana. |
-| `split_bill` | Splits a bill into one request per person and a live board that shows who has paid. In your own currency, every share is locked to USDC at one rate. |
-| `create_invoice` | Creates a printable invoice with line items, due date and invoice number, payable by QR, link or the client's agent. Lines can be priced in your own currency; the total is locked to USDC. |
+| `split_bill` | Splits a bill into one request per person and a live board that shows who has paid. In your own currency, every share is locked to USDC at one rate. With a `payer` per person, each share lands in that person's `what_do_i_owe` inbox. |
+| `create_invoice` | Creates a printable invoice with line items, due date and invoice number, payable by QR, link or the client's agent. Lines can be priced in your own currency; the total is locked to USDC. With the client as `payer`, it lands in their `what_do_i_owe` inbox. |
 | `who_owes_me` | Lists your open and recently paid requests with totals, after you sign one message with your PayBox wallet (no money moves). Anyone can create a request that pays your wallet, so it marks requester text unverified. |
 | `write_reminder` | Drafts a polite, firm or formal reminder with the link and days outstanding; it reads the status first and drafts nothing for a paid request. |
-| `ask_every_month` | Asks someone for the same amount every month: stores a monthly schedule and opens a new Owed request on that day (UTC); each month's request works with every other tool. |
+| `ask_every_month` | Asks someone for the same amount every month: stores a monthly schedule and opens a new Owed request on that day (UTC); each month's request works with every other tool. With `payer`, every month's request lands in that person's `what_do_i_owe` inbox. |
 | `cancel_request` | Cancels one of your own requests, shares or invoices after you sign one message with the wallet it pays: its page shows Cancelled and `pay_link` refuses it. A paid request can't be cancelled. |
 | `match_payments` | Finds money that reached your wallet but was never counted: exchanges and some wallets drop the Solana Pay reference. It lists transfers of exactly the amount still owed, with reasons and ambiguity warnings, and marks nothing until you sign that one is yours; the request then shows "matched by the recipient (no reference on the payment)". For an underpaid request it asks for exactly the rest. |
+| `what_do_i_owe` | Lists the open requests, split-bill shares and invoices someone addressed to your wallet (by your X handle, `.sns` name or wallet), after you sign one message with your PayBox wallet (no money moves): who asked (their words, unverified), what for, how long it has waited, due dates and totals, with Base requests listed apart. Marks first-time requesters; `block` hides every request from one requester wallet. Remote MCP endpoint now; portal build from the next upload. |
+| `pay_all` | Pays several requests with one approval: up to 20 ids, in one Solana transaction, each request checked like `pay_link` (id, open, sanctions, DNS, `.sns`), capped by `max_total`. Requests with a brand-word caution are skipped unless the user names them, and Base requests are left to `pay_link`. A transaction holds 1,232 bytes (about 6 to 9 payments), so it pays the first ones and names the rest. Remote MCP endpoint now; portal build from the next upload. |
 
 Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status and receipt; a board per split (`/g/<id>`); a printable invoice (`/i/<id>`); a Solana Pay transaction request per request (`/api/v1/pay/<id>`, what the QR encodes); an x402 endpoint per request (`/x/<id>`) that any x402 agent can pay; a stateless page for raw Solana Pay links (`/p`); and [/proof](https://www.getowed.xyz/proof), which lists payments made from the team's own wallets on every rail, with their transactions, and what Owed refuses.
 
@@ -45,6 +48,7 @@ Pages: a pay page per request (`/r/<id>`) with QR, wallet button, live status an
 - **The x402 rail.** With `rail: "x402"`, your agent checks the id and the request's live x402 challenge against the request before it proposes the payment. PayBox fetches the challenge again when it pays, so "the server can't change who gets paid" stays a Solana Pay guarantee. First mainnet settle: request `FeJG9SuofqWU` through PayBox `pay_x402` (see [docs/FACTS.md](docs/FACTS.md)).
 - **Names are checked on chain, every time.** An `.sns` name is resolved by the plugin itself from Solana (the name's SOL record, else its owner). The server re-resolves it when a request is made, the pay page on every render, and `pay_link` before every payment, so a request made for a name is paid only while the name still points to its wallet. Tokenized names and names with lookalike characters are refused.
 - **Owed never guesses who paid.** A transfer without the request's reference is never counted on its own. `match_payments` only proposes candidates; the recipient signs which one is theirs, and the server re-checks the transaction on chain (confirmed, exactly the amount due, after the request, not counted anywhere else) before marking it "matched by the recipient (no reference on the payment)".
+- **Handles are claims, not identities.** A request may carry the requester's X handle; the pay page shows it as "not verified by Owed", and `pay_link` / `pay_all` hand the payer's agent a check: call PayBox `resolve_username` and refuse if the handle doesn't resolve to the wallet the request pays. Anyone can address a request to anyone, so `what_do_i_owe` marks first-time requesters and says that names, handles and reasons are the requester's own words.
 - **Requester text is quoted, never trusted.** Names and notes are stripped of links and invisible characters, capped, shown in quotes as "written by the requester", and flagged when they mention a brand.
 
 Example record (live): `_owed.getowed.xyz` TXT `owed-pay=FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs`.
@@ -72,10 +76,11 @@ cd plugin && pnpm install --frozen-lockfile && pnpm test   # typecheck, determin
 Owed is also a remote MCP server: `https://www.getowed.xyz/api/mcp` (Streamable HTTP, no sign-in). It serves every
 Owed tool, and each call runs the same plugin bundle PayBox runs (`web/mcp/owed-plugin.mjs`, a byte copy of
 `plugin/dist/plugin.mjs` that CI checks), in a fresh process with PayBox's limits: 10 seconds, 256 KiB of output,
-nothing from the server's environment. A new tool is live there the moment it merges, before any portal upload.
+nothing from the server's environment. A new tool is live there the moment it merges, before any portal upload: `what_do_i_owe`
+and `pay_all` are there now, and the PayBox portal build gets them with its next upload.
 
 - **PayBox:** add `https://www.getowed.xyz/api/mcp` as a remote plugin (no auth). [Not yet verified: whether PayBox
-  opens the passkey sheet for a `pay_link` proposal that comes from a remote plugin. Until FACTS records it, pay through
+  opens the passkey sheet for a `pay_link` or `pay_all` proposal that comes from a remote plugin. Until FACTS records it, pay through
   the listed Owed plugin or any Solana wallet.]
 - **Claude Code:** `claude mcp add --transport http owed https://www.getowed.xyz/api/mcp`
 - **Any other client:** add the URL as a Streamable HTTP server. The endpoint speaks MCP 2026-07-28 (per-request
@@ -83,10 +88,10 @@ nothing from the server's environment. A new tool is live there the moment it me
   stateless: JSON replies, no SSE stream, no session id. Tool calls are limited to 120 a minute per client IP.
 
 Outside PayBox, the tools that only read or create requests (`ask_for_money`, `check_payments`, `split_bill`,
-`create_invoice`, `write_reminder`, `verify_payee`, `ask_every_month`) work as they do in PayBox. `pay_link` returns
-PayBox's `io.paybox/transactionProposal` (an unsigned Solana transaction); a client other than PayBox has to sign and
-send it some other way. `who_owes_me`, `cancel_request` and `match_payments` need a message signed by the wallet, which
-PayBox does with `request_wallet_sign`.
+`create_invoice`, `write_reminder`, `verify_payee`, `ask_every_month`) work as they do in PayBox. `pay_link` and `pay_all`
+return PayBox's `io.paybox/transactionProposal` (an unsigned Solana transaction); a client other than PayBox has to sign
+and send it some other way. `who_owes_me`, `what_do_i_owe`, `cancel_request` and `match_payments` need a message signed
+by the wallet, which PayBox does with `request_wallet_sign`.
 
 ## Layout
 
