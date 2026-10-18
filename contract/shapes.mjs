@@ -1968,3 +1968,172 @@ Object.assign(fixtureShapes, {
   "refunds.lookup.res.json": "refundsLookupRes",
 });
 // ---------------------------------------------------------------------------------------------- F8 invoices end
+
+// ---------------------------------------------------------------------------------------------- F5 autopay start
+// set_autopay: POST /api/v1/autopay stores a payer's rule; the payer's wallet signs (checked for real here)
+//   "Owed autopay for <payer>: pay <requester> up to <max> USDC per request and <max_month> USDC per month until <YYYY-MM-DD> (at <ISO>)"
+// with the amounts as fromAtomic writes them; POST /api/v1/autopay/revoke ends one ("Owed autopay revoke <id> for <payer> at <ISO>").
+// The signed inbox then carries the payer's live rules and a verdict per line. F3: a request may carry a PayBox Open
+// Deposit link (deposit_url, https on paybox.sh, USDC on Solana), never part of its id. Fixtures: contract/autopay-fixtures.mjs.
+
+const ruleIdShape = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-character autopay rule id" });
+const AUTOPAY_RULE_TEXT = /^Owed autopay for ([1-9A-HJ-NP-Za-km-z]{32,44}): pay ([1-9A-HJ-NP-Za-km-z]{32,44}) up to ((?:0|[1-9][0-9]*)(?:\.[0-9]+)?) USDC per request and ((?:0|[1-9][0-9]*)(?:\.[0-9]+)?) USDC per month until (\d{4}-\d{2}-\d{2}) \(at (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z)\)$/;
+const canonicalUsdc = (text) => fromAtomic(toAtomic(text, 6), 6);
+
+/** A rule's signed text must name exactly these fields (amounts canonical) and verify for the payer. */
+function ruleSigned(fields, path, ctx) {
+  const m = AUTOPAY_RULE_TEXT.exec(fields.signed_message);
+  if (!m) return void ctx.errors.push(`${path}.signed_message: must read "Owed autopay for <payer>: pay <requester> up to <max> USDC per request and <max_month> USDC per month until <date> (at <UTC time>)"`);
+  const [, payer, requester, max, month, ends] = m;
+  if (payer !== fields.payer) ctx.errors.push(`${path}.signed_message: names payer ${payer}, not ${fields.payer}`);
+  if (requester !== fields.requester) ctx.errors.push(`${path}.signed_message: names requester ${requester}, not ${fields.requester}`);
+  try {
+    if (max !== canonicalUsdc(fields.max_per_request)) ctx.errors.push(`${path}.signed_message: says ${max} USDC per request, not ${canonicalUsdc(fields.max_per_request)}`);
+    if (month !== canonicalUsdc(fields.max_per_month)) ctx.errors.push(`${path}.signed_message: says ${month} USDC per month, not ${canonicalUsdc(fields.max_per_month)}`);
+    if (toAtomic(fields.max_per_month, 6) < toAtomic(fields.max_per_request, 6)) ctx.errors.push(`${path}.max_per_month: below max_per_request`);
+  } catch (error) {
+    ctx.errors.push(`${path}: ${error.message}`);
+  }
+  if (ends !== fields.ends) ctx.errors.push(`${path}.signed_message: ends ${ends}, not ${fields.ends}`);
+  if (/^(0x)?[0-9a-fA-F]{128}$/.test(fields.signature) && !ed25519Verifies(fields.signed_message, fields.signature, fields.payer)) {
+    ctx.errors.push(`${path}.signature: does not verify for ${fields.payer} over signed_message`);
+  }
+}
+
+const autopayRule = object({
+  id: ruleIdShape, payer: pubkey, requester: object({ wallet: pubkey, handle: nullable(handle), sns: nullable(snsName) }),
+  token: oneOf("USDC"), max_per_request: positiveAmount, max_per_month: positiveAmount, ends: invoiceDate, ends_at: iso, created_at: iso,
+  status: oneOf("active", "ended", "revoked"), revoked_at: nullable(iso), replaced_by: nullable(ruleIdShape),
+  month: string({ pattern: /^\d{4}-(0[1-9]|1[0-2])$/, label: "a month written YYYY-MM" }), used_this_month: amount,
+  signed_message: string({ min: 1, max: 300 }), signature: string({ min: 64, max: 200 }),
+}, (value, path, ctx) => {
+  ruleSigned({ ...value, requester: value.requester.wallet }, path, ctx);
+  if (value.requester.wallet === value.payer) ctx.errors.push(`${path}.requester.wallet: the payer's own wallet`);
+  if (Date.parse(value.ends_at) !== Date.parse(`${value.ends}T00:00:00Z`) + 86_400_000) ctx.errors.push(`${path}.ends_at: not the start of the day after ends`);
+  if ((value.status === "revoked") !== (value.revoked_at !== null)) ctx.errors.push(`${path}.revoked_at: ${value.revoked_at === null ? "missing" : "set"} for status ${value.status}`);
+  if (value.replaced_by !== null && value.status !== "revoked") ctx.errors.push(`${path}.replaced_by: set on a ${value.status} rule`);
+});
+
+const autopayVerdict = object({
+  status: oneOf("eligible", "over_limit", "not_covered"), rule_id: optional(ruleIdShape), reason: string({ min: 1, max: 300 }),
+}, (value, path, ctx) => {
+  if (value.status !== "not_covered" && !value.rule_id) ctx.errors.push(`${path}.rule_id: missing for ${value.status}`);
+});
+
+/** A shape plus extra fields: the extras are checked here and stripped before the base shape sees the rest. */
+function withFields(base, fields, refine) {
+  return (value, path, ctx) => {
+    if (kind(value) !== "object") return base(value, path, ctx);
+    const rest = { ...value };
+    for (const [key, shape] of Object.entries(fields)) {
+      if (!(key in rest)) {
+        if (!shape.optional) ctx.errors.push(`${path}.${key}: missing`);
+        continue;
+      }
+      shape(rest[key], `${path}.${key}`, ctx);
+      delete rest[key];
+    }
+    base(rest, path, ctx);
+    if (refine) refine(value, path, ctx);
+  };
+}
+
+const depositUrl = string({
+  max: 512, label: "an https PayBox Deposit link on paybox.sh",
+  test: (text) => {
+    try {
+      const u = new URL(text);
+      return u.protocol === "https:" && !u.username && !u.password && !u.port && (u.hostname === "paybox.sh" || u.hostname.endsWith(".paybox.sh")) && u.href === text;
+    } catch {
+      return false;
+    }
+  },
+});
+/** F3: a deposit link is for USDC requests on Solana only. */
+function depositUsdcOnSolana(value, path, ctx) {
+  if ("deposit_url" in value && (value.token !== "USDC" || (value.chain ?? "solana") !== "solana" || "currency" in value)) {
+    ctx.errors.push(`${path}.deposit_url: only on a USDC request on Solana, asked in USDC`);
+  }
+}
+
+const autopayInboxEntries = (value, path, ctx) => {
+  for (const list of ["owed", "base"]) {
+    (value[list] ?? []).forEach((e, i) => {
+      if (kind(e) !== "object" || !("autopay" in e)) return;
+      autopayVerdict(e.autopay, `${path}.${list}[${i}].autopay`, ctx);
+      if (e.autopay.status === "eligible" && (e.chain !== "solana" || e.token !== "USDC" || e.status !== "open")) ctx.errors.push(`${path}.${list}[${i}].autopay: eligible but not an open USDC request on Solana`);
+      if (e.autopay.rule_id && !(value.autopay_rules ?? []).some((r) => r.id === e.autopay.rule_id) && e.autopay.status !== "not_covered") {
+        ctx.errors.push(`${path}.${list}[${i}].autopay.rule_id: names a rule the inbox doesn't list`);
+      }
+    });
+  }
+};
+/** The inbox with autopay: rules and verdicts checked, then the F1 inbox shape on the rest. */
+function autopayInboxRes(value, path, ctx) {
+  if (kind(value) !== "object") return inboxRes(value, path, ctx);
+  const strip = (e) => {
+    if (kind(e) !== "object") return e;
+    const { autopay: _autopay, ...rest } = e;
+    return rest;
+  };
+  const { autopay_rules, ...rest } = value;
+  if (autopay_rules !== undefined) array(autopayRule, { max: 20 })(autopay_rules, `${path}.autopay_rules`, ctx);
+  autopayInboxEntries(value, path, ctx);
+  inboxRes({ ...rest, owed: (rest.owed ?? []).map(strip), base: (rest.base ?? []).map(strip) }, path, ctx);
+  for (const r of Array.isArray(autopay_rules) ? autopay_rules : []) if (r?.payer !== value.payer) ctx.errors.push(`${path}.autopay_rules: a rule for another payer`);
+}
+
+Object.assign(shapes, {
+  autopayCreateReq: object({
+    payer: pubkey, requester: object({ wallet: pubkey, handle: optional(handleIn), sns: optional(string({ min: 1, max: 140 })) }), token: optional(oneOf("USDC")),
+    max_per_request: positiveAmount, max_per_month: positiveAmount, ends: invoiceDate, signed_message: string({ min: 1, max: 300 }), signature: string({ min: 64, max: 200 }),
+  }, (value, path, ctx) => {
+    ruleSigned({ ...value, requester: value.requester.wallet }, path, ctx);
+    if (value.requester.wallet === value.payer) ctx.errors.push(`${path}.requester.wallet: the payer's own wallet`);
+  }),
+  autopayCreateRes: object({ rule: autopayRule, replaced: nullable(ruleIdShape) }, (value, path, ctx) => {
+    if (value.rule.status !== "active") ctx.errors.push(`${path}.rule.status: ${value.rule.status} right after it was made`);
+    if (value.replaced === value.rule.id) ctx.errors.push(`${path}.replaced: the rule itself`);
+  }),
+  autopayRevokeReq: object({ payer: pubkey, rule_id: ruleIdShape, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) },
+    (value, path, ctx) => signedAs(`Owed autopay revoke ${value.rule_id} for ${value.payer} at `, value.payer, value, path, ctx)),
+  autopayRevokeRes: object({ rule: autopayRule, already_revoked: oneOf(true, false) }, (value, path, ctx) => {
+    if (value.rule.status !== "revoked") ctx.errors.push(`${path}.rule.status: ${value.rule.status} after a revoke`);
+  }),
+  autopayInboxRes,
+  depositCreateRequestReq: withFields(shapes.createRequestReq, { deposit_url: depositUrl }, depositUsdcOnSolana),
+  depositCreateRequestRes: withFields(shapes.createRequestRes, { deposit_url: depositUrl }),
+  depositGetRequestRes: withFields(shapes.getRequestRes, { deposit_url: depositUrl, deposit_url_added_at: iso }, (value, path, ctx) => {
+    depositUsdcOnSolana(value, path, ctx);
+    if (Date.parse(value.deposit_url_added_at) < Date.parse(value.created_at)) ctx.errors.push(`${path}.deposit_url_added_at: before created_at`);
+  }),
+  depositStatusRes: (value, path, ctx) => {
+    if (kind(value) !== "object" || !Array.isArray(value.results)) return shapes.statusRes(value, path, ctx);
+    const results = value.results.map((r, i) => {
+      if (kind(r) !== "object" || !("deposit_link" in r)) return r;
+      oneOf(true)(r.deposit_link, `${path}.results[${i}].deposit_link`, ctx);
+      const { deposit_link: _d, ...rest } = r;
+      return rest;
+    });
+    shapes.statusRes({ ...value, results }, path, ctx);
+  },
+  depositCreateInvoiceReq: withFields(shapes.createInvoiceReq, { deposit_url: depositUrl }, depositUsdcOnSolana),
+  depositInvoiceRes: withFields(shapes.invoiceRes, { deposit_url: depositUrl }, depositUsdcOnSolana),
+});
+
+Object.assign(fixtureShapes, {
+  "autopay.create.req.json": "autopayCreateReq",
+  "autopay.create.res.json": "autopayCreateRes",
+  "autopay.revoke.req.json": "autopayRevokeReq",
+  "autopay.revoke.res.json": "autopayRevokeRes",
+  "autopay.inbox.req.json": "inboxReq",
+  "autopay.inbox.res.json": "autopayInboxRes",
+  "autopay.requests.bulk.res.json": "bulkRequestsRes",
+  "deposit.create-request.req.json": "depositCreateRequestReq",
+  "deposit.create-request.res.json": "depositCreateRequestRes",
+  "deposit.get-request.res.json": "depositGetRequestRes",
+  "deposit.status.res.json": "depositStatusRes",
+  "deposit.invoices.create.req.json": "depositCreateInvoiceReq",
+  "deposit.invoices.create.res.json": "depositInvoiceRes",
+});
+// ---------------------------------------------------------------------------------------------- F5 autopay end

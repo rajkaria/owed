@@ -33,6 +33,7 @@ import {
   chaseInput, checkTerms, earlyDiscountInput, hasTermsArgs, installmentsInput, lateFeeInput, payAtomicOf, planLocal, termsLines, termsSentence, type LocalPlan,
 } from "../invoice-terms.js";
 // F8 invoices end
+import { checkDepositUrl, depositLines, depositUrlInput, REFUSE_DEPOSIT_NOT_STORED } from "../deposit-link.js"; // F3 deposit link
 
 /** PayBox gives a call 10 s; screening, the DNS check and the API call share it. */
 const CALL_BUDGET_MS = 9500;
@@ -79,6 +80,7 @@ export const inputSchema = z.object({
   late_fee: lateFeeInput.optional(),
   chase: chaseInput.optional(),
   // F8 invoices end
+  deposit_url: depositUrlInput.optional(), // F3 deposit link (plain USDC invoices only)
 }).strict();
 
 const itemOutput = z.object({
@@ -113,6 +115,7 @@ export const outputSchema = z.object({
   // F8 invoices: the invoice as a whole. With installments or an early price, `id`'s own request asks for installment 1 or
   // the early price (pay_now); `total` is still the whole invoice.
   terms: invoiceTermsSchema.optional().describe("Installments, the early and full price, the late fee and the chase days, as Owed stored them."),
+  deposit_url: z.string().optional().describe("The PayBox Open Deposit link stored with the invoice. A payment through it counts only after match_payments."), // F3 deposit link
 }).strict();
 
 export type InvoiceInput = z.output<typeof inputSchema>;
@@ -128,6 +131,7 @@ const DESCRIPTION = [
   // F8 invoices start
   "Merchant terms, all optional: installments {count 2-12, interval \"monthly\" or days} splits the total into that many requests (the first due on due_date and payable now, each later one opening 7 days before its own due date; the invoice shows Paid only when all are); early_discount {amount or percent, until} asks a lower price until a date and the full price after (paying one cancels the other); late_fee {amount or percent} is printed now and opened once as its own request the day after the due date, only if it wasn't paid on time; chase sets the days after the due date when who_owes_me says a polite, firm or formal reminder is due (default 3, 7, 14; false for none). Every amount-changing term is a new request, so no link ever changes its amount.",
   // F8 invoices end
+  "If the user wants clients without a wallet to pay through PayBox Deposit, call PayBox get_deposit_link with amount_usd = the invoice total and pass its deposit_url (a plain USDC invoice: no installments, early price or local currency). Owed can't check where that link pays, so such a payment counts only after match_payments.", // F3 deposit link
 ].join(" ");
 
 // ---- pure: amounts and dates (bigint only) ----
@@ -256,6 +260,17 @@ export async function createInvoice(
   if (dueProblem) return refusal(dueProblem);
   const expiryEarly = expiryBeforeDue(args.due_date, args.expires_in_days, started); // W3-C
   if (expiryEarly) return refusal(expiryEarly);
+  // F3 deposit link start: a plain USDC invoice only (the link's amount is the total), checked before anything is created.
+  let depositUrl: string | undefined;
+  if (args.deposit_url !== undefined) {
+    const checked = checkDepositUrl(args.deposit_url, { token, ...(args.currency !== undefined && { currency: args.currency }), what: "invoice" });
+    if (!checked.ok) return refusal(checked.message);
+    if (args.installments !== undefined || args.early_discount !== undefined) {
+      return refusal("An invoice with installments or an early-pay price asks a different amount first, so it can't carry a PayBox Deposit link. Add the link to a plain invoice, or leave deposit_url out. Nothing was created.");
+    }
+    depositUrl = checked.url;
+  }
+  // F3 deposit link end
 
   // Local-currency invoice: items are priced in the currency's minor units; the server locks the USDC total.
   let code: FiatCode | undefined;
@@ -356,6 +371,7 @@ export async function createInvoice(
     ...(code && { currency: code }), // local-currency invoice
     ...(payer && { payer: payer.body }), // F1
     ...(requesterHandle && { requester_handle: requesterHandle }),
+    ...(depositUrl && { deposit_url: depositUrl }), // F3 deposit link
   };
   // F8 invoices: the terms ride along; a plain invoice is created exactly as before.
   const termsBody: CreateInvoiceTermsReq | null = plan
@@ -409,6 +425,7 @@ export async function createInvoice(
   const mismatch = checkInvoice(res, body, priced, ctx, deps, code ? { code, payAtomic } : undefined, ownAtomic);
   if (mismatch) return refusal(mismatch);
   if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer).replace("the request", "the invoice")); // F1
+  if (depositUrl && res.deposit_url !== depositUrl) return refusal(REFUSE_DEPOSIT_NOT_STORED.replace("the request", "the invoice")); // F3 deposit link
   const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now()); // W3-C
   if (expiry) return refusal(expiry);
 
@@ -447,6 +464,7 @@ export async function createInvoice(
     ...(payer && { payer: payer.payer }), // F1
     ...(requesterHandle && { requester_handle: requesterHandle }),
     ...(plan && terms && { terms: invoiceTermsSchema.parse(terms) }), // F8 invoices
+    ...(depositUrl && { deposit_url: depositUrl }), // F3 deposit link
   };
 
   const count = res.items.length;
@@ -462,6 +480,7 @@ export async function createInvoice(
   if (caution) lines.push(caution.replace("this request", "this invoice"));
   if (screening.screening === "unavailable") lines.push("Recipient screening was unavailable, so this address wasn't screened.");
   if (plan && terms) lines.push(...termsLines(terms)); // F8 invoices
+  if (depositUrl) lines.push(...depositLines("invoice")); // F3 deposit link
   lines.push("Use check_payments with the id to see whether it's paid.");
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

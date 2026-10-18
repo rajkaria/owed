@@ -35,6 +35,7 @@ import {
   samePayer, type PayerResolution,
 } from "../payer.js";
 // F1 payer inbox end
+import { checkDepositUrl, depositLines, depositUrlInput, REFUSE_DEPOSIT_NOT_STORED } from "../deposit-link.js"; // F3 deposit link
 
 export const inputSchema = z.object({
   recipient: z.union([addressSchema, evmAddressSchema, snsNameSchema]).describe("The user's own PayBox Solana wallet address (from list_credentials), or with chain \"base\" their Base (0x) address. The money is paid to this address. If the user names their wallet by an SNS name (\"pay to example.sns\"), pass the name: Owed resolves it on Solana itself and payers see it as verified on-chain."), // W3-B: 0x with chain base; W3-S: an SNS name
@@ -54,6 +55,7 @@ export const inputSchema = z.object({
   currency: currencyInput.optional(), // local-currency asks
   payer: payerInput.optional(), // F1
   requester_handle: requesterHandleInput.optional(), // F1
+  deposit_url: depositUrlInput.optional(), // F3 deposit link
 }).strict();
 
 export const outputSchema = z.object({
@@ -88,6 +90,7 @@ export const outputSchema = z.object({
   // W3-S SNS names end
   payer: payerOutput.optional().describe("Who the request is addressed to: it is in their what_do_i_owe inbox. Absent offline."), // F1
   requester_handle: z.string().optional().describe("The user's own X handle as payers see it (not verified by Owed)."), // F1
+  deposit_url: z.string().optional().describe("The PayBox Open Deposit link stored with the request (absent offline). A payment through it counts only after match_payments."), // F3 deposit link
 }).strict();
 
 export type AskInput = z.output<typeof inputSchema>;
@@ -116,6 +119,7 @@ const DESCRIPTION = [
   BASE_DESCRIPTION, // W3-B
   "If the user gives their wallet as an SNS name (example.sns), pass it as recipient: Owed resolves it on Solana (the name's SOL record, else its owner), screens and pays that wallet, and the request shows the name as verified on-chain. Owed refuses .sol names (SNS moved to .sns; .sol isn't resolvable today), tokenized names and names with lookalike characters.", // W3-S
   "To ask someone by X handle (\"ask @sam for 10 USDC\"), call PayBox resolve_username with the handle first, tell the user which handle resolved to which wallet, and pass payer {handle, wallet}: the request then shows up in their what_do_i_owe inbox. payer also takes {sns} or {wallet}. Pass requester_handle with the user's own X handle if they want payers to see it.", // F1
+  "If the user wants people without a wallet to pay through PayBox Deposit, call PayBox get_deposit_link with amount_usd = the request's USDC amount and pass its deposit_url (USDC on Solana only). Owed can't check where that link pays, so such a payment counts only after match_payments.", // F3 deposit link
 ].join(" ");
 
 export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
@@ -145,6 +149,14 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     ask = parsed.ask;
   }
   // Local-currency asks end
+  // F3 deposit link start: checked before anything is created (paybox.sh, USDC on Solana, asked in USDC).
+  let depositUrl: string | undefined;
+  if (args.deposit_url !== undefined) {
+    const checked = checkDepositUrl(args.deposit_url, { token: args.token, chain: args.chain, ...(args.currency !== undefined && { currency: args.currency }) });
+    if (!checked.ok) return refusal(checked.message);
+    depositUrl = checked.url;
+  }
+  // F3 deposit link end
   // W3-B Base requests start
   if (args.chain === "base") return askForMoneyOnBase({ ...args, payerCheck, requesterHandle }, deps); // F1: + payer
   if (args.recipient.startsWith("0x")) return refusal('That is a Base (0x) address. To ask for USDC on Base, pass chain: "base"; for Solana, use the user\'s Solana wallet address.');
@@ -218,6 +230,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     ...(sns && { sns_name: sns.name }), // W3-S
     ...(payer && { payer: payer.body }), // F1: who it is addressed to (never part of the id)
     ...(requesterHandle && { requester_handle: requesterHandle }),
+    ...(depositUrl && { deposit_url: depositUrl }), // F3 deposit link (never part of the id)
   };
 
   let created: { id: string | null; mode: "hosted" | "offline"; link: string; solana_pay_url: string; qr_url: string | null; reference: string };
@@ -243,6 +256,10 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     }
     // F1: the server must have addressed it as asked, or the payer's inbox won't list it.
     if (payer && !samePayer(res.payer, payer.payer)) return refusal(REFUSE_PAYER_NOT_STORED(payer.payer));
+    // F3 deposit link: the server must have stored the link as given (an older server drops it).
+    if (depositUrl && res.deposit_url !== depositUrl) return refusal(REFUSE_DEPOSIT_NOT_STORED);
+    // F3 deposit link: the server must have stored it as given, or the pay page won't offer it.
+    if (depositUrl && res.deposit_url !== depositUrl) return refusal("Owed's server didn't store the PayBox Deposit link with the request, so the link wasn't used. Try again, or ask without deposit_url.");
     // W3-C: the server must have set the expiry that was asked for.
     const expiry = expiryProblem(args.expires_in_days, res.expires_at, deps.now());
     if (expiry) return refusal(expiry);
@@ -279,6 +296,7 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
     ...(sns && created.mode === "hosted" && { sns_name: sns.name, sns_source: sns.source }), // W3-S
     ...(payer && created.mode === "hosted" && { payer: payer.payer }), // F1
     ...(requesterHandle && created.mode === "hosted" && { requester_handle: requesterHandle }),
+    ...(depositUrl && created.mode === "hosted" && { deposit_url: depositUrl }), // F3 deposit link
   };
   const from = text.payerName ? ` from ${text.payerName}` : "";
   const forPart = text.forText ? ` for ${quote(text.forText, 80)}` : "";
@@ -305,6 +323,9 @@ export async function askForMoney(args: AskInput, deps: Deps = defaultDeps) {
   if (payer && created.mode === "offline") lines.push(OFFLINE_NOT_ADDRESSED(payer.payer));
   if (requesterHandle && created.mode === "hosted") lines.push(`Payers see "@${requesterHandle}" as your handle, marked not verified by Owed; their agent checks it with PayBox resolve_username before paying.`);
   // F1 payer inbox end
+  // F3 deposit link
+  if (depositUrl && created.mode === "hosted") lines.push(...depositLines());
+  if (depositUrl && created.mode === "offline") lines.push("Owed's server didn't answer, so this offline link carries no PayBox Deposit link; send the deposit link separately if you want to.");
   // W2-E sanctions screen start
   if (screening.screening === "unavailable") lines.push(SCREENING_UNAVAILABLE_LINE);
   // W2-E sanctions screen end

@@ -13,6 +13,7 @@ import {
   addExpenseResSchema, groupLedgerResSchema, settleUpResSchema, type AddExpenseReq, type AddExpenseRes, type CreateGroupLedgerReq, type GroupLedgerRes, type SettleUpReq, type SettleUpRes, // F6 ledger
   invoiceTermsResSchema, createRefundResSchema, refundResSchema, refundsLookupResSchema, statementResSchema, ledgerResF8Schema, // F8 invoices
   type CreateInvoiceTermsReq, type InvoiceTermsRes, type CreateRefundReq, type CreateRefundRes, type RefundRes, type RefundsLookupRes, type StatementRes, type LedgerResF8, // F8 invoices
+  autopayCreateResSchema, autopayRevokeResSchema, type AutopayCreateReq, type AutopayCreateRes, type AutopayRevokeReq, type AutopayRevokeRes, // F5 autopay
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -100,6 +101,12 @@ export interface ApiClient {
   /** The ledger with F8's optional fields on each entry (chase days, the reminder due, refunds). */
   ledgerF8(body: LedgerReq): Promise<LedgerResF8>;
   // F8 invoices end
+  // F5 autopay start
+  /** Store a payer's autopay rule, with the payer's signed rule message; replaces the live rule for that requester. */
+  createAutopay(body: AutopayCreateReq): Promise<AutopayCreateRes>;
+  /** End one of the payer's autopay rules, with the payer's signed revoke message. */
+  revokeAutopay(body: AutopayRevokeReq): Promise<AutopayRevokeRes>;
+  // F5 autopay end
 }
 
 export interface ApiOptions {
@@ -182,5 +189,7 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     statement: (q) => call("GET", `/statements?${new URLSearchParams({ recipient: q.recipient, client: q.client, ...(q.month && { month: q.month }), signed_message: q.signed_message, signature: q.signature })}`, statementResSchema),
     ledgerF8: (body) => call("POST", "/ledger", ledgerResF8Schema, body),
     // F8 invoices end
+    createAutopay: (body) => call("POST", "/autopay", autopayCreateResSchema, body), // F5 autopay
+    revokeAutopay: (body) => call("POST", "/autopay/revoke", autopayRevokeResSchema, body),
   };
 }

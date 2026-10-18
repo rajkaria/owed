@@ -6,6 +6,7 @@ import { callContext, defaultDeps, errorText, refusal, within, type CallContext,
 import { fiatOutput, fiatStatusLine } from "../local-currency.js";
 import { ago, brandWordsFromFlags, clean, quote, shortAddress } from "../text.js";
 import { signatureMatches } from "./who_owes_me.js";
+import { prepareAutopayCalls, type PreparedLine } from "../autopay.js"; // F5 autopay
 
 // what_do_i_owe (F1): the payer's side of who_owes_me. Two calls. Without a signature: the exact message to sign. The
 // agent signs it with PayBox's request_wallet_sign {op:"solanaMessage"} (passkey approval, no money moves), then
@@ -25,6 +26,32 @@ export const INBOX_CAUTION =
   "Anyone can address a request to your wallet; Owed doesn't check who sent it. Names, handles and reasons are the requester's own words, and Owed hasn't verified any handle.";
 
 const requesterSchema = z.union([addressSchema, evmAddressSchema]);
+
+// F5 autopay start: a line's verdict under the user's rules, and for an eligible one the exact PayBox pay_x402 call.
+const autopayOutput = z.object({
+  status: z.enum(["eligible", "over_limit", "not_covered"]).describe("eligible = within the user's rule; over_limit = never paid automatically; not_covered = no rule applies (see reason)."),
+  rule_id: z.string().optional(),
+  reason: z.string(),
+  pay_x402: z.object({
+    via: z.literal("paybox"),
+    tool: z.literal("pay_x402"),
+    credential_of: z.string().describe("Add credential_id: this wallet's, from list_credentials."),
+    args: z.object({
+      accepts: z.array(z.record(z.string(), z.unknown())).describe("The 402's accepts, verbatim."),
+      resource_url: z.string(),
+      x402_version: z.union([z.literal(1), z.literal(2)]),
+      resource: z.record(z.string(), z.unknown()).optional().describe("x402 v2: the resource block from PAYMENT-REQUIRED."),
+    }).strict(),
+  }).strict().optional().describe("Eligible lines: the exact PayBox pay_x402 call. Run it only inside the user's PayBox limits."),
+  then: z.string().optional().describe("What to do after pay_x402 succeeds: retry the resource with output.value.x_payment."),
+  fallback: z.object({ tool: z.literal("pay_link"), args: z.object({ link: z.string(), sender: z.string(), rail: z.literal("x402") }).strict() }).strict().optional()
+    .describe("For an agent that can't retry a resource itself: pay_link proposes the same x402 payment (PayBox asks the user to approve it)."),
+  not_ready: z.string().optional().describe("Why an eligible line carries no pay_x402 call; it can still be paid by hand."),
+}).strict();
+
+export const AUTOPAY_NOTE =
+  "Owed never pays anything itself. The agent may pay an eligible request only inside the user's PayBox autonomous limits, with the exact pay_x402 call given (then retry its resource with output.value.x_payment); if PayBox asks for approval, it's one tap a month. Over-limit requests are never paid automatically: show them to the user.";
+// F5 autopay end
 
 export const inputSchema = z.object({
   payer: addressSchema.describe("The user's own PayBox Solana wallet address (from list_credentials): whose inbox to show."),
@@ -61,6 +88,7 @@ const entrySchema = z.object({
   first_time: z.boolean().describe("True when the user has never paid this recipient wallet through Owed."),
   caution: z.string().optional().describe("Set when the request mentions a brand word scams use; pay_all skips it unless the user names it."),
   fiat: fiatOutput.optional(),
+  autopay: autopayOutput.optional(), // F5 autopay
 }).strict();
 
 export const outputSchema = z.object({
@@ -79,6 +107,13 @@ export const outputSchema = z.object({
   blocked_requesters: z.array(z.string()).optional(),
   chain_checked: z.boolean().optional().describe("false = Solana couldn't be read just now; entries show the last known state."),
   truncated: z.boolean().optional(),
+  // F5 autopay
+  autopay_rules: z.array(z.object({
+    id: z.string(), requester: z.object({ wallet: z.string(), handle: z.string().nullable(), sns: z.string().nullable() }).strict(),
+    max_per_request: z.string(), max_per_month: z.string(), ends: z.string(), status: z.enum(["active", "ended", "revoked"]),
+    month: z.string(), used_this_month: z.string(),
+  }).strict()).optional().describe("The user's autopay rules (set_autopay): who, the limits in USDC, the last day, and what this UTC month already used."),
+  autopay_note: z.string().optional(),
 }).strict();
 
 export type OweInput = z.output<typeof inputSchema>;
@@ -92,6 +127,7 @@ const DESCRIPTION = [
   "Then call what_do_i_owe again with payer, signed_message (the same text) and signature (from the request's output). The message is valid for 5 minutes and works once. Only the wallet's owner sees its inbox.",
   "Anyone can address a request to anyone: names, handles and reasons are the requester's words, unverified, and first-time requesters are marked. To pay, use pay_all with the ids the user picks (one approval for all), or pay_link for one.",
   "To hide every request from one requester, pass block with that requester's wallet (its recipient) on both calls; unblock shows them again.",
+  "If the user has autopay rules (set_autopay), each line says eligible, over_limit or not_covered, and eligible lines carry the exact PayBox pay_x402 call (accepts, resource_url, x402_version, resource): the agent may run it only inside the user's PayBox limits, then retry the resource with output.value.x_payment. Owed never pays anything itself, and over-limit lines are never paid automatically.", // F5 autopay
 ].join(" ");
 
 export function inboxMessage(payer: string, nowMs: number): string {
@@ -185,14 +221,16 @@ export async function whatDoIOwe(args: OweInput, deps: Deps = defaultDeps) {
   }
   if (!inbox) return refusal("Owed's server didn't answer in time. Call what_do_i_owe with only payer for a fresh message and try again.");
   if (inbox.payer !== args.payer) return refusal("Owed's server answered for a different wallet, so the inbox wasn't used.");
-  return render(inbox, deps.now(), blocked);
+  // F5 autopay: the pay_x402 calls for lines the server marked eligible, inside what is left of the budget.
+  const prepared = inbox.autopay_rules ? await prepareAutopayCalls(inbox, ctx, deps, INBOX_BUDGET_MS - (deps.now() - started)) : new Map<string, PreparedLine>();
+  return render(inbox, deps.now(), blocked, prepared);
 }
 
 const KINDS = ["single", "split_share", "invoice"] as const;
 const VALID_DOMAIN = (d: string | null | undefined): d is string => !!d && /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(d) && d.includes(".");
 const VALID_HANDLE = (h: string | null | undefined): h is string => !!h && /^[a-z0-9_]{1,15}$/.test(h);
 
-function present(e: InboxEntry, now: number): z.output<typeof entrySchema> {
+function present(e: InboxEntry, now: number, prepared: Map<string, PreparedLine> = new Map()): z.output<typeof entrySchema> {
   const kind = (KINDS as readonly string[]).includes(e.kind) ? (e.kind as (typeof KINDS)[number]) : "single";
   const out: z.output<typeof entrySchema> = {
     id: e.id, kind, link: e.link, status: e.status, amount: e.amount, amount_due: e.amount_due, token: e.token, chain: e.chain,
@@ -219,6 +257,16 @@ function present(e: InboxEntry, now: number): z.output<typeof entrySchema> {
   if (brands.length > 0) out.caution = `It mentions ${brands.map((w) => `"${w}"`).join(", ")}, a word scams use to look official; pay_all skips it unless the user names it.`;
   if (e.fiat && fiatStatusLine(e.fiat, e.amount)) {
     out.fiat = { currency: e.fiat.currency, amount: e.fiat.amount, rate: e.fiat.rate, rate_source: e.fiat.rate_source, quoted_at: e.fiat.quoted_at };
+  }
+  // F5 autopay: the server's verdict (its reason is Owed's own fixed words), and the call only when it checked out here.
+  if (e.autopay) {
+    const p = prepared.get(e.id) ?? {};
+    const eligible = e.autopay.status === "eligible";
+    out.autopay = {
+      status: e.autopay.status, ...(e.autopay.rule_id && { rule_id: e.autopay.rule_id }), reason: clean(e.autopay.reason, 300) || e.autopay.status,
+      ...(eligible && p.pay_x402 && { pay_x402: p.pay_x402, then: p.then, fallback: p.fallback }),
+      ...(eligible && !p.pay_x402 && { not_ready: p.not_ready ?? "No payment call could be prepared; read the inbox again." }),
+    };
   }
   return out;
 }
@@ -251,12 +299,16 @@ function line(e: z.output<typeof entrySchema>, now: number): string {
   const waited = e.waited ? `, waiting ${e.waited}` : "";
   const first = e.first_time ? " First request from this wallet: the user has never paid it through Owed." : "";
   const caution = e.caution ? ` Caution: ${e.caution}` : "";
-  return `Owe: ${amount}${asked ? ` (asked as ${asked}, a quote)` : ""}${who}${handle}${what}${label}${badge}${waited}. Id ${e.id}: ${e.link}${first}${caution}`;
+  // F5 autopay: the line's verdict under the user's rules.
+  const autopay = e.autopay
+    ? ` Autopay ${e.autopay.status.replace("_", " ")}: ${e.autopay.reason}${e.autopay.pay_x402 ? " Its pay_x402 call is below." : e.autopay.not_ready ? ` No payment call: ${e.autopay.not_ready}` : ""}`
+    : "";
+  return `Owe: ${amount}${asked ? ` (asked as ${asked}, a quote)` : ""}${who}${handle}${what}${label}${badge}${waited}. Id ${e.id}: ${e.link}${first}${caution}${autopay}`;
 }
 
-function render(inbox: InboxRes, now: number, blocked?: OweOutput["blocked"]) {
-  const owed = inbox.owed.map((e) => present(e, now));
-  const base = inbox.base.map((e) => present(e, now));
+function render(inbox: InboxRes, now: number, blocked?: OweOutput["blocked"], prepared: Map<string, PreparedLine> = new Map()) {
+  const owed = inbox.owed.map((e) => present(e, now, prepared));
+  const base = inbox.base.map((e) => present(e, now, prepared));
   const totals = inbox.totals.map((t) => ({ token: t.token, chain: t.chain, amount_due: t.amount_due, count: t.count }));
   const outstanding_total = totals.length
     ? totals.map((t) => `${t.amount_due} ${t.token} on ${t.chain === "base" ? "Base" : "Solana"}`).join(" + ")
@@ -286,12 +338,30 @@ function render(inbox: InboxRes, now: number, blocked?: OweOutput["blocked"]) {
   if (owed.length > 0) {
     lines.push(`To pay several with one approval: pay_all with sender (this wallet), ids and max_total (the most USDC the user agrees to). Pay only the ones the user recognises; to hide a requester, call what_do_i_owe with block and its recipient wallet.`);
   }
+  // F5 autopay start: the user's rules, what Owed does and doesn't do, and each eligible line's exact pay_x402 call.
+  const rules = inbox.autopay_rules?.map((r) => ({
+    id: r.id, requester: { wallet: r.requester.wallet, handle: r.requester.handle, sns: r.requester.sns },
+    max_per_request: r.max_per_request, max_per_month: r.max_per_month, ends: r.ends, status: r.status, month: r.month, used_this_month: r.used_this_month,
+  }));
+  if (rules) {
+    lines.push(rules.length === 0
+      ? "Autopay: the user has no live rule (set_autopay makes one)."
+      : `Autopay rules: ${rules.map((r) => `${r.id} pays ${r.requester.handle ? `@${r.requester.handle} (${shortAddress(r.requester.wallet)})` : r.requester.sns ?? shortAddress(r.requester.wallet)} up to ${r.max_per_request} USDC each and ${r.max_per_month} USDC a month until ${r.ends}${r.status === "ended" ? " (ended)" : `, ${r.used_this_month} USDC used in ${r.month}`}`).join("; ")}.`);
+    lines.push(AUTOPAY_NOTE);
+    for (const e of owed) {
+      const call = e.autopay?.pay_x402;
+      if (!call) continue;
+      lines.push(`pay_x402 for ${e.id} (${e.amount} USDC): PayBox pay_x402 ${JSON.stringify({ credential_id: "<this wallet's credential_id>", ...call.args })}. ${e.autopay!.then ?? ""} If the agent can't retry a resource itself: pay_link ${JSON.stringify(e.autopay!.fallback?.args ?? {})} (PayBox asks the user to approve it).`);
+    }
+  }
+  // F5 autopay end
   const output: OweOutput = {
     step: "inbox", payer: inbox.payer, caution: INBOX_CAUTION, owed, base, totals, outstanding_total,
     ...(payable.length > 0 && { pay_all_ids: payable.slice(0, 20) }),
     ...(blocked && { blocked }),
     blocked_hidden: inbox.blocked_hidden, blocked_requesters: inbox.blocked_requesters.slice(0, 50),
     chain_checked: inbox.chain_checked, truncated: inbox.truncated,
+    ...(rules && { autopay_rules: rules, autopay_note: AUTOPAY_NOTE }), // F5 autopay
   };
   return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: output };
 }

@@ -74,6 +74,7 @@ export const createRequestReqSchema = z.object({
   sns_name: z.string().min(1).max(140).optional(), // W3-S: the plugin resolved it to recipient first
   payer: payerReqSchema.optional(), // F1
   requester_handle: handleSchema.optional(),
+  deposit_url: httpsUrl.optional(), // F3 deposit link: PayBox get_deposit_link's URL (src/deposit-link.ts checks it first)
 }).strict();
 
 export const createRequestResSchema = z.object({
@@ -95,6 +96,7 @@ export const createRequestResSchema = z.object({
   sns_source: snsSourceSchema.nullable().optional(),
   payer: payerInfoSchema.nullable().optional(), // F1
   requester_handle: handleSchema.nullable().optional(),
+  deposit_url: httpsUrl.optional(), // F3 deposit link: as stored
 });
 
 export const paidInfoSchema = z.object({
@@ -159,6 +161,9 @@ export const getRequestResSchema = z.object({
   // F1: who it is addressed to, and the requester's own X handle (labels: pay_link asks the agent to check the handle).
   payer: payerInfoSchema.nullable().optional(),
   requester_handle: handleSchema.nullable().optional(),
+  // F3 deposit link: the requester's PayBox Open Deposit URL and when it was added (display only; never pays anything).
+  deposit_url: httpsUrl.optional(),
+  deposit_url_added_at: isoTime.optional(),
 });
 
 export const statusReqSchema = z.object({ ids: z.array(requestIdSchema).min(1).max(20) }).strict();
@@ -189,6 +194,7 @@ export const statusResultSchema = z.object({
   rest_of: requestIdSchema.optional(),
   rest_request: requestIdSchema.optional(),
   fiat: fiatQuoteSchema.optional(), // local-currency asks
+  deposit_link: z.boolean().optional(), // F3 deposit link: carries a PayBox Deposit link (check_payments hints at match_payments)
 }).superRefine((r, ctx) => {
   if (r.status === "not_found" || r.status === "invalid") return;
   for (const key of ["amount_requested", "token"] as const) {
@@ -298,6 +304,7 @@ export const createInvoiceReqSchema = z.object({
   currency: currencySchema.optional(), // local-currency invoice: every unit_price is in this currency
   payer: payerReqSchema.optional(), // F1: the client as a payer
   requester_handle: handleSchema.optional(),
+  deposit_url: httpsUrl.optional(), // F3 deposit link: plain USDC invoices only
 }).strict();
 
 export const invoiceResSchema = z.object({
@@ -335,6 +342,7 @@ export const invoiceResSchema = z.object({
   fiat: fiatQuoteSchema.optional(),
   payer: payerInfoSchema.optional(), // F1
   requester_handle: handleSchema.optional(),
+  deposit_url: httpsUrl.optional(), // F3 deposit link
 });
 
 export type Token = z.infer<typeof tokenSchema>;
@@ -397,6 +405,7 @@ export const ledgerEntrySchema = z.object({
   rest_of: requestIdSchema.optional(),
   rest_request: requestIdSchema.optional(),
   fiat: fiatQuoteSchema.optional(), // local-currency asks
+  deposit_link: z.boolean().optional(), // F3 deposit link: who_owes_me hints at match_payments while it is open
 });
 
 // W3-D: a monthly schedule as the ledger lists it.
@@ -583,6 +592,7 @@ export const inboxEntrySchema = z.object({
   first_time: z.boolean(),
   flags: z.array(z.string().max(80)).max(32),
   fiat: fiatQuoteSchema.optional(),
+  autopay: z.lazy(() => autopayVerdictSchema).optional(), // F5 autopay: only when the payer has a rule (schemas at the end)
 });
 
 export const inboxResSchema = z.object({
@@ -596,6 +606,7 @@ export const inboxResSchema = z.object({
   blocked_hidden: z.number().int().nonnegative(),
   blocked_requesters: z.array(anyAddress).max(50),
   truncated: z.boolean(),
+  autopay_rules: z.array(z.lazy(() => autopayRuleSchema)).max(20).optional(), // F5 autopay: the payer's live rules
 });
 
 // POST /api/v1/inbox/block. The payer's wallet signs "Owed block <requester> for <payer> at <ISO>" (or unblock); the reply carries the inbox after it.
@@ -995,3 +1006,58 @@ export type StatementRes = z.infer<typeof statementResSchema>;
 export type LedgerEntryF8 = z.infer<typeof ledgerEntryF8Schema>;
 export type LedgerResF8 = z.infer<typeof ledgerResF8Schema>;
 // ---- F8 invoices end ----
+
+// ---- F5 autopay start: payer rules (POST /api/v1/autopay, /api/v1/autopay/revoke; verdicts in the signed inbox) ----
+// The payer's wallet signs "Owed autopay for <payer>: pay <requester> up to <max> USDC per request and <max_month> USDC per
+// month until <YYYY-MM-DD> (at <ISO>)" (src/autopay.ts builds it), or "Owed autopay revoke <rule id> for <payer> at <ISO>".
+// A rule matches the requester's wallet only; handle and sns are labels. Owed never pays: what_do_i_owe hands the agent
+// the PayBox pay_x402 call for eligible lines, and PayBox's own limits stay the hard cap.
+export const autopayRuleIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+export const autopayCreateReqSchema = z.object({
+  payer: addressSchema,
+  requester: z.object({ wallet: addressSchema, handle: handleSchema.optional(), sns: z.string().min(1).max(140).optional() }).strict(),
+  token: z.literal("USDC").optional(),
+  max_per_request: decimalSchema,
+  max_per_month: decimalSchema,
+  ends: isoDateSchema,
+  signed_message: z.string().min(1).max(300),
+  signature: z.string().min(64).max(200),
+}).strict();
+export const autopayRevokeReqSchema = z.object({
+  payer: addressSchema,
+  rule_id: autopayRuleIdSchema,
+  signed_message: z.string().min(1).max(200),
+  signature: z.string().min(64).max(200),
+}).strict();
+export const autopayRuleSchema = z.object({
+  id: autopayRuleIdSchema,
+  payer: addressSchema,
+  requester: z.object({ wallet: addressSchema, handle: handleSchema.nullable(), sns: z.string().max(140).nullable() }),
+  token: z.literal("USDC"),
+  max_per_request: decimalSchema,
+  max_per_month: decimalSchema,
+  ends: isoDateSchema,
+  ends_at: isoTime,
+  created_at: isoTime,
+  status: z.enum(["active", "ended", "revoked"]),
+  revoked_at: isoTime.nullable(),
+  replaced_by: autopayRuleIdSchema.nullable(),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  used_this_month: decimalSchema,
+  signed_message: z.string().max(300),
+  signature: z.string().max(200),
+});
+export const autopayCreateResSchema = z.object({ rule: autopayRuleSchema, replaced: autopayRuleIdSchema.nullable() });
+export const autopayRevokeResSchema = z.object({ rule: autopayRuleSchema, already_revoked: z.boolean() });
+export const autopayVerdictSchema = z.object({
+  status: z.enum(["eligible", "over_limit", "not_covered"]),
+  rule_id: autopayRuleIdSchema.optional(),
+  reason: z.string().max(300),
+});
+export type AutopayCreateReq = z.infer<typeof autopayCreateReqSchema>;
+export type AutopayRevokeReq = z.infer<typeof autopayRevokeReqSchema>;
+export type AutopayRule = z.infer<typeof autopayRuleSchema>;
+export type AutopayCreateRes = z.infer<typeof autopayCreateResSchema>;
+export type AutopayRevokeRes = z.infer<typeof autopayRevokeResSchema>;
+export type AutopayVerdict = z.infer<typeof autopayVerdictSchema>;
+// ---- F5 autopay end ----

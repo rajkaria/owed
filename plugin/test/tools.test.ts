@@ -23,6 +23,7 @@ test("index registers the Owed tools", () => {
     "what_do_i_owe", "pay_all", // F1
     "start_ledger", "add_expense", "ledger_balances", "settle_up", // F6 ledger
     "refund_payment", // F8 invoices
+    "set_autopay", // F5 autopay
   ]);
 });
 
@@ -48,11 +49,13 @@ test("annotations are exactly the SPEC §5.1 hints", () => {
   // F1: the inbox needs a fresh signature each time and can block a requester; pay_all moves money like pay_link.
   assert.deepEqual(seen.get("what_do_i_owe")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
   assert.deepEqual(seen.get("pay_all")!.config.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true });
+  // F5 autopay: writes (or ends) a rule with a fresh signature each time; moves no money.
+  assert.deepEqual(seen.get("set_autopay")!.config.annotations, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true });
 });
 
 test("schemas convert to strict JSON Schema; pay_link outputs the starter's Solana or x402 proposal", () => {
   const seen = registerAll();
-  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month", "match_payments", "what_do_i_owe", "pay_all"]) {
+  for (const name of ["ask_for_money", "check_payments", "pay_link", "verify_payee", "split_bill", "create_invoice", "write_reminder", "who_owes_me", "cancel_request", "ask_every_month", "match_payments", "what_do_i_owe", "pay_all", "set_autopay"]) {
     const { config } = seen.get(name)!;
     const input = z.toJSONSchema(config.inputSchema, { io: "input" }) as { additionalProperties?: boolean; required?: string[] };
     assert.equal(input.additionalProperties, false, `${name} input must be strict`);
