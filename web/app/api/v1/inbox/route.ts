@@ -2,6 +2,7 @@ import { InboxBody, type InboxResponse } from "@/lib/contract";
 import { baseUrl, json, readJson, toErrorResponse } from "@/lib/http";
 import { getInbox, INBOX_PURPOSE, inboxPrefix } from "@/lib/inbox";
 import { verifySignedMessage } from "@/lib/verify-signature";
+import { withAutopay } from "@/lib/autopay"; // F5 autopay
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,8 @@ export async function POST(req: Request): Promise<Response> {
       signer: body.payer,
       prefix: inboxPrefix(body.payer),
     });
-    const res: InboxResponse = await getInbox(body.payer, { base: baseUrl(req) });
+    // F5 autopay: with the payer's rules and a verdict per line (the inbox exactly as before for a payer without one).
+    const res: InboxResponse = await withAutopay(await getInbox(body.payer, { base: baseUrl(req) }));
     return json(res);
   } catch (e) {
     return toErrorResponse(e);

@@ -27,6 +27,7 @@ import { AddExpenseBody, AddExpenseResponse, CreateLedgerBody, GroupLedgerRespon
 import { CreateInvoiceTermsBody, CreateRefundBody, CreateRefundResponse, InvoiceTermsResponse, RefundResponse, RefundsLookupResponse, StatementResponse } from "@/lib/contract"; // F8 invoices
 import { AlertTokenBody, ConfirmAlertResponse, CreateAlertBody, CreateAlertResponse, UnsubscribeAlertResponse } from "@/lib/contract"; // S1 alerts
 import { CashOutResponse, CreateCashOutBody } from "@/lib/contract"; // F4 cash out
+import { AutopayCreateBody, AutopayCreateResponse, AutopayRevokeBody, AutopayRevokeResponse } from "@/lib/contract"; // F5 autopay
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -145,7 +146,34 @@ const SCHEMAS: Record<string, ZodType> = {
   "cash-out.enterprise.res.json": CashOutResponse,
   // F3 bank rail: a request paid by bank transfer (paid.rail "bank_transfer")
   "bank.get-request.res.json": GetRequestResponse,
+  // F5 autopay + F3 deposit link
+  "autopay.create.req.json": AutopayCreateBody,
+  "autopay.create.res.json": AutopayCreateResponse,
+  "autopay.revoke.req.json": AutopayRevokeBody,
+  "autopay.revoke.res.json": AutopayRevokeResponse,
+  "autopay.inbox.req.json": InboxBody,
+  "autopay.inbox.res.json": InboxResponse,
+  "autopay.requests.bulk.res.json": BulkRequestsResponse,
+  "deposit.create-request.req.json": CreateRequestBody,
+  "deposit.create-request.res.json": CreateRequestResponse,
+  "deposit.get-request.res.json": GetRequestResponse,
+  "deposit.status.res.json": StatusResponse,
+  "deposit.invoices.create.req.json": CreateInvoiceBody,
+  "deposit.invoices.create.res.json": InvoiceResponse,
 };
+
+// F5/F3: the new fields are optional, so every older shape still parses, and the new ones keep every field they carry.
+test("F5/F3: autopay verdicts, rules and deposit links survive parsing; the plain shapes still parse", () => {
+  const read = (file: string) => JSON.parse(readFileSync(new URL(file, dir), "utf8"));
+  const inbox = InboxResponse.parse(read("autopay.inbox.res.json"));
+  assert.deepEqual(inbox.owed.map((e) => e.autopay?.status), ["eligible", "over_limit", "not_covered"]);
+  assert.equal(inbox.autopay_rules?.[0]?.max_per_request, "1500");
+  assert.equal(GetRequestResponse.parse(read("deposit.get-request.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+  assert.equal(StatusResponse.parse(read("deposit.status.res.json")).results[0]!.deposit_link, true);
+  assert.equal(CreateInvoiceTermsBody.parse(read("deposit.invoices.create.req.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+  assert.equal(InvoiceTermsResponse.parse(read("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+  assert.equal(InboxResponse.parse(read("inbox.res.json")).autopay_rules, undefined);
+});
 
 // F8 invoices: every existing invoice fixture still parses with the terms-aware schemas (all F8 fields are optional).
 test("F8: existing invoice fixtures parse as InvoiceTermsResponse and CreateInvoiceTermsBody", () => {

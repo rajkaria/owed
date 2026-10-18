@@ -10,6 +10,7 @@ import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-curr
 // F8 invoices start
 import type { LedgerEntryF8, LedgerResF8, StatementRes } from "../contract.js";
 import { chaseStage, CHASE_DEFAULT_DAYS, isoDay, reminderTone } from "../invoice-terms-core.js";
+import { DEPOSIT_HINT } from "../deposit-link.js"; // F3 deposit link
 // F8 invoices end
 
 // Two calls. Without a signature: the exact message to sign. The agent signs it with PayBox's
@@ -89,6 +90,7 @@ const entrySchema = z.object({
       .describe("The write_reminder call that drafts it (polite is write_reminder's \"friendly\"). Owed never sends anything."),
   }).strict().optional().describe("Invoices past their due date: the reminder due today by the invoice's chase days (default 3, 7, 14)."),
   refunded: z.string().optional().describe("Confirmed refunds of this payment back to the payer."),
+  deposit_link: z.boolean().optional().describe("The request carries a PayBox Deposit link: a payment through it isn't counted until match_payments matches it."), // F3 deposit link
 }).strict();
 
 // F8 invoices: a client's monthly statement.
@@ -338,6 +340,7 @@ function present(e: LedgerEntry | LedgerEntryF8, now: number): z.output<typeof e
     if (stage) out.reminder_due = { tone: stage.tone, days_overdue: stage.daysOverdue, write_reminder: { request: e.link, tone: reminderTone(stage.tone) } };
   }
   if (f8.refunded) out.refunded = f8.refunded;
+  if (e.deposit_link === true) out.deposit_link = true; // F3 deposit link
   return out;
 }
 
@@ -450,7 +453,7 @@ function render(ledger: LedgerRes | LedgerResF8, now: number, csvAsked = false) 
     const restOf = e.rest_of ? ` (the rest of request ${e.rest_of})` : ""; // 0012
     const asked = fiatStatusLine(e.fiat, e.amount); // local-currency asks: "₹1,200 · 12.6 USDC (rate locked …)"
     const reminder = e.reminder_due ? ` Reminder due: ${e.reminder_due.tone} (${e.reminder_due.days_overdue} days overdue); draft it with write_reminder (request ${e.link}, tone "${e.reminder_due.write_reminder.tone}").` : ""; // F8
-    detail.push(`Owed: ${due}${restOf}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}${reminder}`);
+    detail.push(`Owed: ${due}${restOf}${asked ? ` (asked as ${asked}, a quote)` : ""}${who(e, now)}${e.waited ? `, waiting ${e.waited}` : ""}: ${e.link}${e.caution ? ` Caution: ${e.caution}` : ""}${reminder}${e.deposit_link && e.status === "open" ? ` ${DEPOSIT_HINT}` : ""}`); // F3: + the deposit-link hint
   }
   for (const e of paid) {
     const by = e.payer ? ` by ${shortAddress(e.payer)}` : "";

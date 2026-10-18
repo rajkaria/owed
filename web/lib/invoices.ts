@@ -575,6 +575,8 @@ export interface PublicInvoice {
   /** F1: who it is addressed to, and the requester's own X handle; only when set. */
   payer?: PayerRecord;
   requester_handle?: string;
+  /** F3 deposit link: the requester's PayBox Open Deposit URL on the invoice's own request; only when set. */
+  deposit_url?: string;
 }
 
 export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: string): PublicInvoice {
@@ -615,6 +617,7 @@ export function toPublicInvoice({ invoice, request }: InvoiceWithRequest, base: 
     ...(request.fiat && { fiat: request.fiat }),
     ...(request.payer && { payer: { wallet: request.payer.wallet, handle: request.payer.handle, sns: request.payer.sns } }), // F1
     ...(request.requesterHandle && { requester_handle: request.requesterHandle }),
+    ...(request.depositUrl && { deposit_url: request.depositUrl }), // F3 deposit link
   };
 }
 

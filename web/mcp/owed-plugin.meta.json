@@ -1,8 +1,8 @@
 {
   "$comment": "Written by scripts/sync-mcp-bundle.mjs from the bundle next to it. Do not edit; re-run the script.",
   "file": "owed-plugin.mjs",
-  "bytes": 1431397,
-  "sha256": "b26bc4da91b39cc059baf349be57f452d79b847abd6e1afc867c93b22f1ec888",
+  "bytes": 1447714,
+  "sha256": "7775772d48ecef094e3d0f8e2c4a9b52387de6b944419ff5451ba098358697ad",
   "protocolVersion": "2026-07-28",
   "server": {
     "name": "owed",
@@ -27,6 +27,6 @@
     "ledger_balances",
     "settle_up",
     "refund_payment",
-    "cash_out"
+    "set_autopay"
   ]
 }

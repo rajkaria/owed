@@ -1,0 +1,13 @@
+{
+  "payer": "3qCx3RG39KXcVhmicFmZBByw4AnqFwdwNRDvko9tjfXW",
+  "requester": {
+    "wallet": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+    "handle": "landlord_bob"
+  },
+  "token": "USDC",
+  "max_per_request": "1500",
+  "max_per_month": "1500",
+  "ends": "2027-10-18",
+  "signed_message": "Owed autopay for 3qCx3RG39KXcVhmicFmZBByw4AnqFwdwNRDvko9tjfXW: pay FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs up to 1500 USDC per request and 1500 USDC per month until 2027-10-18 (at 2026-10-18T10:15:00Z)",
+  "signature": "d3650e458b8fc9e7084500418244df61934e216406629f1173b4aed46ba82c669eae5d9eb84c3132a66370d903ba84918258b0d2b5c87cdfde02c5648dd3db0b"
+}

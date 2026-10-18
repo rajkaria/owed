@@ -1,0 +1,6 @@
+{
+  "payer": "3qCx3RG39KXcVhmicFmZBByw4AnqFwdwNRDvko9tjfXW",
+  "rule_id": "Rk7mPq2xLw9a",
+  "signed_message": "Owed autopay revoke Rk7mPq2xLw9a for 3qCx3RG39KXcVhmicFmZBByw4AnqFwdwNRDvko9tjfXW at 2026-10-18T10:20:00Z",
+  "signature": "5c9270c2179c56640066af7ddc4ddc565f44a860e4d66faf112843d569812b380a77ae183ec8a58de3c88eca73ba1ae653fb0a84010535d5eeaa2b158d3a830b"
+}

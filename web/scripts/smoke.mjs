@@ -227,6 +227,10 @@ export async function runSmoke({ base, strict = false, create = false, id = null
     json: { ...fixtures["ledgers.create.req"], owner: TOKEN_ACCOUNT, source: "web" }, expect: 400, shape: "errorRes", refine: invalidCode,
   });
   await api("refund, unknown id", "GET", `/api/v1/refunds/${UNKNOWN_LEDGER_ID}`, { expect: 404, shape: "errorRes", refine: notFoundCode }); // F8 (0021)
+  // F5 (0022): a rule whose signature doesn't verify is refused before anything is stored.
+  await api("autopay rejects an unsigned rule", "POST", "/api/v1/autopay", {
+    json: { ...fixtures["autopay.create.req"], signature: `${"0".repeat(127)}1` }, expect: 400, shape: "errorRes", refine: invalidCode,
+  });
 
   // ------------------------------------------------------------------------------------------- one real request
 

@@ -18,6 +18,7 @@ import { addExpenseReqSchema, addExpenseResSchema, createGroupLedgerReqSchema, g
 import { createInvoiceTermsReqSchema, createRefundReqSchema, createRefundResSchema, invoiceTermsResSchema, ledgerResF8Schema, refundResSchema, refundsLookupResSchema, statementResSchema } from "../src/contract.ts"; // F8 invoices
 import { alertTokenReqSchema, confirmAlertResSchema, createAlertReqSchema, createAlertResSchema, unsubscribeAlertResSchema } from "../src/contract.ts"; // S1 alerts
 import { cashOutResSchema, createCashOutReqSchema } from "../src/contract.ts"; // F4 cash out
+import { autopayCreateReqSchema, autopayCreateResSchema, autopayRevokeReqSchema, autopayRevokeResSchema } from "../src/contract.ts"; // F5 autopay
 import { fixture } from "./helpers.ts";
 
 const SCHEMAS: Record<string, z.ZodType> = {
@@ -135,7 +136,30 @@ const SCHEMAS: Record<string, z.ZodType> = {
   "cash-out.enterprise.res.json": cashOutResSchema,
   // F3 bank rail: a request paid by bank transfer (paid.rail "bank_transfer")
   "bank.get-request.res.json": getRequestResSchema,
+  // F5 autopay + F3 deposit link
+  "autopay.create.req.json": autopayCreateReqSchema,
+  "autopay.create.res.json": autopayCreateResSchema,
+  "autopay.revoke.req.json": autopayRevokeReqSchema,
+  "autopay.revoke.res.json": autopayRevokeResSchema,
+  "autopay.inbox.req.json": inboxReqSchema,
+  "autopay.inbox.res.json": inboxResSchema,
+  "autopay.requests.bulk.res.json": bulkRequestsResSchema,
+  "deposit.create-request.req.json": createRequestReqSchema,
+  "deposit.create-request.res.json": createRequestResSchema,
+  "deposit.get-request.res.json": getRequestResSchema,
+  "deposit.status.res.json": statusResSchema,
+  "deposit.invoices.create.req.json": createInvoiceReqSchema,
+  "deposit.invoices.create.res.json": invoiceResSchema,
 };
+
+// F5/F3: older replies (no autopay, no deposit link) still parse; the request bodies stay strict.
+test("F5/F3: optional autopay and deposit fields, strict bodies", () => {
+  assert.equal(inboxResSchema.parse(fixture("inbox.res.json")).autopay_rules, undefined);
+  assert.equal(createRequestReqSchema.safeParse({ ...fixture("deposit.create-request.req.json"), deposit_link: true }).success, false);
+  assert.equal(autopayCreateReqSchema.safeParse({ ...fixture("autopay.create.req.json"), extra: 1 }).success, false);
+  assert.equal(createInvoiceTermsReqSchema.safeParse(fixture("deposit.invoices.create.req.json")).success, true);
+  assert.equal(invoiceTermsResSchema.parse(fixture("deposit.invoices.create.res.json")).deposit_url, "https://deposit.paybox.sh/d/7f3a9c2e");
+});
 
 // F8 invoices: the existing invoice and ledger fixtures parse with the terms-aware schemas too (every F8 field is optional).
 test("F8: existing invoice and ledger fixtures parse with the terms-aware schemas", () => {

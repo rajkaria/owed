@@ -1,0 +1,9 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "amount": "12",
+  "token": "USDC",
+  "for": "team lunch",
+  "requester_name": "Raj",
+  "source": "plugin",
+  "deposit_url": "https://deposit.paybox.sh/d/7f3a9c2e"
+}

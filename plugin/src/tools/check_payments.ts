@@ -10,6 +10,7 @@ import { ago, explorerUrl, MATCHED_LABEL, shortAddress } from "../text.js";
 import { basescanTx } from "../evm.js"; // W3-B
 import { fiatOutput, fiatStatusLine } from "../local-currency.js"; // local-currency asks
 import type { RefundSummary } from "../contract.js"; // F8 invoices
+import { DEPOSIT_HINT } from "../deposit-link.js"; // F3 deposit link
 
 /** Leaves room for process start-up and output inside PayBox's 10 s per-call limit. */
 export const CHECK_BUDGET_MS = 8500;
@@ -49,6 +50,7 @@ export const resultSchema = z.object({
   refund_pending: z.string().optional().describe("Refunds proposed but not landed yet."),
   // F3 bank rail
   paid_via: z.string().optional().describe("How a payment that didn't come from the payer's own wallet arrived (by card or bank transfer through MoonPay). Say it as written."),
+  deposit_link: z.boolean().optional().describe("The request carries a PayBox Deposit link: a payment through it isn't counted until match_payments matches it."), // F3 deposit link
 }).strict();
 
 export const outputSchema = z.object({
@@ -67,6 +69,7 @@ const DESCRIPTION = [
   "Returns each request's status (open, paid, underpaid, cancelled, expired, not_found, invalid, or unknown if it couldn't be checked) with the payer, amount and transaction link when paid, plus a one-line summary. Show the user the summary and the explorer link for each payment.",
   "A payment the user matched with match_payments (it carried no reference) is marked matched; say so. For an underpaid request, match_payments with action ask_for_rest makes a new request for exactly the rest; if the payer says they paid but it shows open, match_payments looks for a payment that lost its reference.", // 0012
   "A payment that was partly or fully sent back with refund_payment says \"refunded <amount>\" once Solana confirms the refund.", // F8 invoices
+  "An open request that carries a PayBox Deposit link (deposit_link) may have been paid through it, which Owed can't see: if the payer says so, run match_payments.", // F3 deposit link
 ].join(" ");
 
 type Parsed =
@@ -182,6 +185,7 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
   // F3 bank rail: payments MoonPay delivered from its own wallet are labelled with how the payer paid.
   if (r.rail === "bank_transfer") out.paid_via = BANK_TRANSFER_LABEL;
   else if (r.rail === "moonpay_card") out.paid_via = CARD_LABEL;
+  if (r.deposit_link === true) out.deposit_link = true; // F3 deposit link
   if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
     const waited = ago(r.created_at, now);
     if (waited) out.waited = waited;
@@ -297,6 +301,8 @@ function label(r: CheckResult): string {
 
 function detailLine(r: CheckResult): string[] {
   const lines = statusLine(r);
+  // F3 deposit link: an open request with a PayBox Deposit link may have been paid through it, which Owed can't see.
+  if (r.deposit_link && r.status === "open" && lines.length > 0) lines.push(`  ${DEPOSIT_HINT}`);
   // Local-currency asks: the quote under the status line, labelled as one.
   const quoted = lines.length > 0 ? fiatStatusLine(r.fiat, r.amount_requested ?? undefined) : null;
   return quoted ? [...lines, `  Asked as ${quoted}; a quote, not a guarantee.`] : lines;

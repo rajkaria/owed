@@ -1,0 +1,17 @@
+{
+  "id": "95H2uRR8Mxao",
+  "link": "https://www.getowed.xyz/r/95H2uRR8Mxao",
+  "solana_pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=12&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=9uaqcD2gC96mnz9TcsNJUWkMzrFAbNRu6LAywWCNS4y9&label=Raj&message=team%20lunch&memo=owed%3A95H2uRR8Mxao",
+  "qr_url": "https://www.getowed.xyz/api/qr/95H2uRR8Mxao.png",
+  "reference": "9uaqcD2gC96mnz9TcsNJUWkMzrFAbNRu6LAywWCNS4y9",
+  "x402_url": "https://www.getowed.xyz/x/95H2uRR8Mxao",
+  "created_at": "2026-10-18T11:00:00Z",
+  "flags": [],
+  "from_domain": null,
+  "expires_at": null,
+  "chain": "solana",
+  "pay_url": "solana:FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs?amount=12&spl-token=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&reference=9uaqcD2gC96mnz9TcsNJUWkMzrFAbNRu6LAywWCNS4y9&label=Raj&message=team%20lunch&memo=owed%3A95H2uRR8Mxao",
+  "sns_name": null,
+  "sns_source": null,
+  "deposit_url": "https://deposit.paybox.sh/d/7f3a9c2e"
+}

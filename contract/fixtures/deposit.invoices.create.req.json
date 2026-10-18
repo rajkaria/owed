@@ -1,0 +1,28 @@
+{
+  "recipient": "FN6G4CQkrM55pnT4npu1U8xegZk7AMnp3ApGvkM4cbvs",
+  "token": "USDC",
+  "business_name": "Northwind Translation",
+  "client_name": "Lena",
+  "items": [
+    {
+      "description": "Translation, English to Hindi (pages)",
+      "quantity": "3",
+      "unit_price": "0.2"
+    },
+    {
+      "description": "Proofreading",
+      "quantity": "1",
+      "unit_price": "0.25"
+    },
+    {
+      "description": "Call to review terms (hours)",
+      "quantity": "1.5",
+      "unit_price": "0.1"
+    }
+  ],
+  "due_date": "2026-10-31",
+  "invoice_number": "NT-2026-017",
+  "notes": "Thanks, Lena. Payment within 14 days, please.",
+  "source": "plugin",
+  "deposit_url": "https://deposit.paybox.sh/d/7f3a9c2e"
+}

@@ -1,0 +1,12 @@
+{
+  "results": [
+    {
+      "id": "95H2uRR8Mxao",
+      "status": "open",
+      "amount_requested": "12",
+      "token": "USDC",
+      "created_at": "2026-10-18T11:00:00Z",
+      "deposit_link": true
+    }
+  ]
+}
