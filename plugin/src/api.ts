@@ -13,6 +13,7 @@ import {
   addExpenseResSchema, groupLedgerResSchema, settleUpResSchema, type AddExpenseReq, type AddExpenseRes, type CreateGroupLedgerReq, type GroupLedgerRes, type SettleUpReq, type SettleUpRes, // F6 ledger
   invoiceTermsResSchema, createRefundResSchema, refundResSchema, refundsLookupResSchema, statementResSchema, ledgerResF8Schema, // F8 invoices
   type CreateInvoiceTermsReq, type InvoiceTermsRes, type CreateRefundReq, type CreateRefundRes, type RefundRes, type RefundsLookupRes, type StatementRes, type LedgerResF8, // F8 invoices
+  cashOutResSchema, type CashOutRes, type CreateCashOutReq, // F4 cash out
 } from "./contract.js";
 
 export const DEFAULT_BASE_URL = "https://owed-omega.vercel.app";
@@ -100,6 +101,12 @@ export interface ApiClient {
   /** The ledger with F8's optional fields on each entry (chase days, the reminder due, refunds). */
   ledgerF8(body: LedgerReq): Promise<LedgerResF8>;
   // F8 invoices end
+  // F4 cash out start
+  /** Start a cash-out (sell USDC to MoonPay); answers with the signed sell widget link, or the Enterprise route. */
+  createCashOut(body: CreateCashOutReq): Promise<CashOutRes>;
+  /** Where a cash-out stands; the deposit address only while MoonPay waits for exactly this deposit. */
+  getCashOut(id: string, wallet: string): Promise<CashOutRes>;
+  // F4 cash out end
 }
 
 export interface ApiOptions {
@@ -182,5 +189,9 @@ export function makeApi(options: ApiOptions = {}): ApiClient {
     statement: (q) => call("GET", `/statements?${new URLSearchParams({ recipient: q.recipient, client: q.client, ...(q.month && { month: q.month }), signed_message: q.signed_message, signature: q.signature })}`, statementResSchema),
     ledgerF8: (body) => call("POST", "/ledger", ledgerResF8Schema, body),
     // F8 invoices end
+    // F4 cash out start
+    createCashOut: (body) => call("POST", "/cash-out", cashOutResSchema, body),
+    getCashOut: (id, wallet) => call("GET", `/cash-out/${encodeURIComponent(id)}?wallet=${encodeURIComponent(wallet)}`, cashOutResSchema),
+    // F4 cash out end
   };
 }

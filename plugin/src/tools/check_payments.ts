@@ -47,6 +47,8 @@ export const resultSchema = z.object({
   refunded: z.string().optional().describe("Refunds of this payment back to the payer, confirmed on Solana."),
   refunded_in_full: z.boolean().optional(),
   refund_pending: z.string().optional().describe("Refunds proposed but not landed yet."),
+  // F3 bank rail
+  paid_via: z.string().optional().describe("How a payment that didn't come from the payer's own wallet arrived (by card or bank transfer through MoonPay). Say it as written."),
 }).strict();
 
 export const outputSchema = z.object({
@@ -151,6 +153,9 @@ function parse(raw: string, ctx: CallContext, deps: Deps): Parsed {
 }
 
 const NOT_FOUND = "No Owed request has this id.";
+// F3 bank rail: the rail labels (the payer field is then MoonPay's wallet, not the payer's).
+export const BANK_TRANSFER_LABEL = "bank transfer to the recipient's MoonPay account (MoonPay delivered the USDC; confirmed on Solana)";
+export const CARD_LABEL = "card, through MoonPay (MoonPay delivered the USDC; confirmed on Solana)";
 
 function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
   const out: CheckResult = { input, id: r.id, status: r.status, amount_requested: r.amount_requested ?? null, token: r.token ?? null };
@@ -174,6 +179,9 @@ function fromOwed(input: string, r: StatusResult, now: number): CheckResult {
   if (r.matched) out.matched = r.matched.covers === "rest" ? `the rest (${r.matched.amount}${r.token ? ` ${r.token}` : ""}) was ${MATCHED_LABEL}` : MATCHED_LABEL;
   if (r.rest_request) out.rest_request = r.rest_request;
   if (r.rest_of) out.rest_of = r.rest_of;
+  // F3 bank rail: payments MoonPay delivered from its own wallet are labelled with how the payer paid.
+  if (r.rail === "bank_transfer") out.paid_via = BANK_TRANSFER_LABEL;
+  else if (r.rail === "moonpay_card") out.paid_via = CARD_LABEL;
   if ((r.status === "open" || r.status === "underpaid") && r.created_at) {
     const waited = ago(r.created_at, now);
     if (waited) out.waited = waited;
