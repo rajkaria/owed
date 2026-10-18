@@ -3,6 +3,7 @@ import { isoUtc, isUniqueViolation, sql, transaction } from "../db";
 import type { Credit } from "../validate";
 import { isTeamSql, teamWallets } from "../team"; // W2-F is_team
 import { watchSoon } from "../notify/helius"; // W3-A
+import { alertsSoon } from "../alerts/soon"; // S1 alerts
 import { POLL_EVERY_SECONDS, POLL_FOR_SECONDS, type PurchaseState } from "./attribution";
 import type { MoonpayTx } from "./transaction";
 
@@ -166,6 +167,7 @@ export const store: Store = {
         },
       ]);
       if (updated.length > 0 && outcome === "verified") watchSoon(); // W3-A: a paid request leaves the Helius watch
+      if (updated.length > 0) alertsSoon(); // S1 alerts: send what the 0025 trigger queued, after the response
       return updated.length > 0;
     } catch (e) {
       if (isUniqueViolation(e, "requests_paid_signature_key")) {

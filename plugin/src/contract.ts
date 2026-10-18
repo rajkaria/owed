@@ -995,3 +995,31 @@ export type StatementRes = z.infer<typeof statementResSchema>;
 export type LedgerEntryF8 = z.infer<typeof ledgerEntryF8Schema>;
 export type LedgerResF8 = z.infer<typeof ledgerResF8Schema>;
 // ---- F8 invoices end ----
+
+// ---- S1 alerts start: paid alerts (server-only: no tool calls these; mirrored so both sides parse every fixture) ----
+// POST /api/v1/alerts (the wallet's signed "Owed alerts for <wallet> at <ISO>" + a channel), POST /api/v1/alerts/confirm
+// and /unsubscribe (a 43-character token).
+const alertIdSchema = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{12}$/);
+const alertEmailSchema = z.string().max(254).regex(/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/);
+const alertSignedFields = { wallet: addressSchema, signed_message: z.string().min(1).max(200), signature: z.string().min(64).max(200) };
+export const createAlertReqSchema = z.discriminatedUnion("channel", [
+  z.object({ ...alertSignedFields, channel: z.literal("telegram") }).strict(),
+  z.object({ ...alertSignedFields, channel: z.literal("email"), email: alertEmailSchema }).strict(),
+]);
+const alertPendingFields = { id: alertIdSchema, wallet: addressSchema, status: z.literal("pending"), created_at: isoTime, expires_at: isoTime, next: z.string().max(300) };
+export const createAlertResSchema = z.discriminatedUnion("channel", [
+  z.object({
+    ...alertPendingFields,
+    channel: z.literal("telegram"),
+    telegram: z.object({ bot: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{3,31}$/), code: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/), link: httpsUrl }),
+  }),
+  z.object({ ...alertPendingFields, channel: z.literal("email"), email: z.object({ address: alertEmailSchema }) }),
+]);
+export const alertTokenReqSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+export const confirmAlertResSchema = z.object({
+  id: alertIdSchema, wallet: addressSchema, channel: z.literal("email"), status: z.literal("active"), activated_at: isoTime, already_active: z.boolean(),
+});
+export const unsubscribeAlertResSchema = z.object({
+  id: alertIdSchema, wallet: addressSchema, channel: z.enum(["telegram", "email"]), status: z.literal("unsubscribed"), unsubscribed_at: isoTime, already_unsubscribed: z.boolean(),
+});
+// ---- S1 alerts end ----

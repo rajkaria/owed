@@ -19,6 +19,7 @@ import { BaseRpcError } from "./evm/rpc";
 import { ApiError } from "./http";
 // W3-B Base requests end
 import type { FiatQuote } from "./fiat"; // local-currency asks
+import { alertsSoon } from "./alerts/soon"; // S1 alerts
 
 // Requests: storage, the public shape, and settling them against the chain.
 
@@ -414,6 +415,7 @@ async function recordPayment(row: RequestRow, check: PaymentCheck): Promise<Requ
       [row.id, check.status, p.signature, p.payer, p.amountAtomic, p.at, teamWallets(), p.instruction ?? null],
     );
     if (rows.length && check.status === "paid") watchSoon(); // W3-A: a paid request leaves the Helius watch
+    if (rows.length) alertsSoon(); // S1 alerts: send what the 0025 trigger queued, after the response
     if (rows.length) return fromRow(rows[0]);
     return (await getRequest(row.id)) ?? row; // settled concurrently
   } catch (e) {

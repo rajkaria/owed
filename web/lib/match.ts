@@ -3,6 +3,7 @@ import { isUniqueViolation, sql, transaction } from "./db";
 import { ApiError } from "./http";
 import { fromAtomic } from "./money";
 import { watchSoon } from "./notify/helius"; // W3-A: a paid request leaves the Helius watch
+import { alertsSoon } from "./alerts/soon"; // S1 alerts
 import { COLUMNS, createRequest, fromRow, getRequest, settleFromChain, type RequestRow } from "./requests";
 import { rpcBatch, type RpcOptions } from "./solana";
 import { isTeamSql, teamWallets } from "./team";
@@ -198,6 +199,7 @@ export async function confirmMatch(input: MatchInput, rpc: RpcOptions = { deadli
     ]);
     if (inserted.length > 0 && updated.length > 0) {
       watchSoon();
+      alertsSoon(); // S1 alerts: send what the 0025 trigger queued, after the response
       return { row: fromRow(updated[0]), already: false };
     }
   } catch (e) {

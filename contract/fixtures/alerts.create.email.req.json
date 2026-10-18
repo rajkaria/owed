@@ -1,0 +1,7 @@
+{
+  "wallet": "7zniWJ5xTc2ZHy6gQ1WUFTabYKts7VpXpupCVichntR3",
+  "signed_message": "Owed alerts for 7zniWJ5xTc2ZHy6gQ1WUFTabYKts7VpXpupCVichntR3 at 2026-10-18T12:39:42Z",
+  "signature": "8df0a5e3328c374562330019844bb5b388138f30b4dbf2c3af8ccde4258c610667cd05cabdb10bee66d3d11956b3f4db239273702538732c1585b43cebafe20a",
+  "channel": "email",
+  "email": "Pat@Example.com"
+}

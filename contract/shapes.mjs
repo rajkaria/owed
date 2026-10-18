@@ -1968,3 +1968,68 @@ Object.assign(fixtureShapes, {
   "refunds.lookup.res.json": "refundsLookupRes",
 });
 // ---------------------------------------------------------------------------------------------- F8 invoices end
+
+// ---------------------------------------------------------------------------------------------- S1 alerts start
+// Paid alerts (web/lib/alerts, migration 0025). POST /api/v1/alerts: the wallet signs "Owed alerts for <wallet> at
+// <ISO>" (checked for real here when the signature is hex, as PayBox returns it) and names a channel; the reply is a
+// pending subscription with a one-time Telegram /start link (15 minutes) or "check your email" (24 hours, email only
+// when the deployment has it configured). POST /api/v1/alerts/confirm and /unsubscribe take a 43-character token.
+const alertId = string({ pattern: /^[1-9A-HJ-NP-Za-km-z]{12}$/, label: "a 12-char base58 alert id" });
+const alertEmail = string({
+  max: 254, label: "an email address",
+  pattern: /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/,
+});
+const alertToken = string({ pattern: /^[A-Za-z0-9_-]{43}$/, label: "a 43-char base64url token" });
+const alertSigned = (value, path, ctx) => signedAs(`Owed alerts for ${value.wallet} at `, value.wallet, value, path, ctx);
+const alertReqFields = { wallet: pubkey, signed_message: string({ min: 1, max: 200 }), signature: string({ min: 64, max: 200 }) };
+const alertPendingFields = { id: alertId, wallet: pubkey, status: oneOf("pending"), created_at: iso, expires_at: iso, next: string({ min: 1, max: 300 }) };
+const ALERT_TTL_MS = { telegram: 15 * 60_000, email: 24 * 3600_000 };
+const alertTtl = (value, path, ctx) => {
+  if (Date.parse(value.expires_at) - Date.parse(value.created_at) !== ALERT_TTL_MS[value.channel]) {
+    ctx.errors.push(`${path}.expires_at: not ${value.channel === "telegram" ? "15 minutes" : "24 hours"} after created_at`);
+  }
+};
+const byChannel = (shapesByChannel) => (value, path, ctx) => {
+  if (kind(value) !== "object") return void ctx.errors.push(`${path}: expected object, got ${kind(value)}`);
+  const shape = shapesByChannel[value.channel];
+  if (!shape) return void ctx.errors.push(`${path}.channel: ${show(value.channel)} is not one of telegram|email`);
+  shape(value, path, ctx);
+};
+
+Object.assign(shapes, {
+  createAlertReq: byChannel({
+    telegram: object({ ...alertReqFields, channel: oneOf("telegram") }, alertSigned),
+    email: object({ ...alertReqFields, channel: oneOf("email"), email: alertEmail }, alertSigned),
+  }),
+  createAlertRes: byChannel({
+    telegram: object({
+      ...alertPendingFields, channel: oneOf("telegram"),
+      telegram: object({
+        bot: string({ pattern: /^[A-Za-z][A-Za-z0-9_]{3,31}$/, label: "a bot username" }),
+        code: string({ pattern: /^[A-Za-z0-9_-]{16,64}$/, label: "a /start code" }),
+        link: httpsUrl,
+      }),
+    }, (value, path, ctx) => {
+      alertTtl(value, path, ctx);
+      if (value.telegram.link !== `https://t.me/${value.telegram.bot}?start=${value.telegram.code}`) ctx.errors.push(`${path}.telegram.link: not https://t.me/<bot>?start=<code>`);
+    }),
+    email: object({ ...alertPendingFields, channel: oneOf("email"), email: object({ address: alertEmail }) }, alertTtl),
+  }),
+  alertTokenReq: object({ token: alertToken }),
+  confirmAlertRes: object({ id: alertId, wallet: pubkey, channel: oneOf("email"), status: oneOf("active"), activated_at: iso, already_active: oneOf(true, false) }),
+  unsubscribeAlertRes: object({
+    id: alertId, wallet: pubkey, channel: oneOf("telegram", "email"), status: oneOf("unsubscribed"), unsubscribed_at: iso, already_unsubscribed: oneOf(true, false),
+  }),
+});
+
+Object.assign(fixtureShapes, {
+  "alerts.create.telegram.req.json": "createAlertReq",
+  "alerts.create.telegram.res.json": "createAlertRes",
+  "alerts.create.email.req.json": "createAlertReq",
+  "alerts.create.email.res.json": "createAlertRes",
+  "alerts.confirm.req.json": "alertTokenReq",
+  "alerts.confirm.res.json": "confirmAlertRes",
+  "alerts.unsubscribe.req.json": "alertTokenReq",
+  "alerts.unsubscribe.res.json": "unsubscribeAlertRes",
+});
+// ---------------------------------------------------------------------------------------------- S1 alerts end

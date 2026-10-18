@@ -1,0 +1,14 @@
+{
+  "id": "D7NPASiyvLSX",
+  "wallet": "7zniWJ5xTc2ZHy6gQ1WUFTabYKts7VpXpupCVichntR3",
+  "channel": "telegram",
+  "status": "pending",
+  "created_at": "2026-10-18T12:40:37Z",
+  "expires_at": "2026-10-18T12:55:37Z",
+  "telegram": {
+    "bot": "OwedAlertsBot",
+    "code": "QxA82shKiEzhPZ4seF16TA",
+    "link": "https://t.me/OwedAlertsBot?start=QxA82shKiEzhPZ4seF16TA"
+  },
+  "next": "Open the link in Telegram and press Start within 15 minutes; the bot replies to confirm. The link works once."
+}

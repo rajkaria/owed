@@ -1,0 +1,12 @@
+{
+  "id": "K8B1S1UnnvzS",
+  "wallet": "7zniWJ5xTc2ZHy6gQ1WUFTabYKts7VpXpupCVichntR3",
+  "channel": "email",
+  "status": "pending",
+  "created_at": "2026-10-18T12:40:48Z",
+  "expires_at": "2026-10-19T12:40:48Z",
+  "email": {
+    "address": "pat@example.com"
+  },
+  "next": "Check pat@example.com for a confirmation link; it works for 24 hours. Nothing is sent until it is confirmed."
+}
