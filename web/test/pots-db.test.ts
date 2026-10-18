@@ -24,6 +24,16 @@ import { handlePotX402, type PotX402Deps, type X402Deps } from "@/lib/x402/handl
 import { store } from "@/lib/x402/store";
 import { parseJsonExact } from "@/lib/solana";
 import type { Facilitator, Supported } from "@/lib/x402/facilitator";
+import { check, shapes as allShapes } from "../../contract/shapes.mjs";
+
+// Pot shapes are added to contract/shapes.mjs with Object.assign, so TypeScript can't see them on `shapes`.
+type ShapeName = "potRes" | "potContributionRes" | "getRequestRes" | "ledgerRes" | "statsRes" | "createPotReq";
+const shapes = allShapes as unknown as Record<ShapeName, Parameters<typeof check>[0]>;
+/** The real reply satisfies contract/shapes.mjs (the smoke's and the fixtures' shapes) with nothing left over. */
+function agrees(shape: ShapeName, value: unknown) {
+  const { errors, warnings } = check(shapes[shape], JSON.parse(JSON.stringify(value)));
+  assert.deepEqual({ errors, warnings }, { errors: [], warnings: [] }, shape);
+}
 
 // F7 chip-in pots on real Postgres: migration 0019, the three pot routes, the pot's transaction request
 // (/api/v1/pay/<pot id>), its x402 presets (/x/pot/<id>/<amount>), the ledger and stats. PGlite answers lib/db.ts's
@@ -672,6 +682,32 @@ it("deadline: the pay page's request reads as expired (no pay controls) once the
   assert.equal(pub!.status, "expired");
   const { modelFromRequest } = await import("@/lib/view/request-view");
   assert.equal(modelFromRequest(pub!, BASE).initial.status, "expired");
+});
+
+// ---------------------------------------------------------------- the contract
+
+it("every reply agrees with contract/shapes.mjs: pot (empty and with contributions), contribution, the request read, ledger and stats", async () => {
+  const pot = await newPot({ title: "Shapes check", suggested: "10", presets: ["5", "20"], target: "50" });
+  agrees("potRes", pot);
+  const a = await contribute(pot.id);
+  agrees("potContributionRes", a);
+  const b = await contribute(pot.id, { amount: "5" });
+  pay(ANA, 10_000_000n, [a.reference]);
+  pay(BEN, 5_000_000n, [b.reference]);
+  const read = await board(pot.id);
+  assert.equal(read.totals.count, 2);
+  agrees("potRes", read);
+  const one = await getRequestRoute(new Request(`${BASE}/api/v1/requests/${a.id}`), ctx({ id: a.id }));
+  const paid = await one.json();
+  agrees("getRequestRes", paid);
+  agrees("potContributionRes", paid);
+  agrees("ledgerRes", await withPots(await getLedger(TEAM, { base: BASE }), { base: BASE }));
+  agrees("statsRes", await (await statsRoute()).json());
+  agrees("createPotReq", { recipient: TEAM, title: "x", suggested: "1", source: "web" });
+  const sol = await newPot({ token: "SOL", suggested: "0.25" });
+  agrees("potRes", sol);
+  await endPot(sol.id);
+  agrees("potRes", await board(sol.id));
 });
 
 // ---------------------------------------------------------------- who_owes_me and stats

@@ -25,6 +25,7 @@ import { BulkRequestsResponse, InboxBlockBody, InboxBlockResponse, InboxBody, In
 import { CreatePlanBody, CreatePlanResponse, FundingPlanDoc, PlanStatsResponse, PlanUsedBody, PlanUsedResponse } from "@/lib/contract"; // F2
 import { AddExpenseBody, AddExpenseResponse, CreateLedgerBody, GroupLedgerResponse, SettleUpBody, SettleUpResponse } from "@/lib/contract"; // F6 ledger
 import { CreateInvoiceTermsBody, CreateRefundBody, CreateRefundResponse, InvoiceTermsResponse, RefundResponse, RefundsLookupResponse, StatementResponse } from "@/lib/contract"; // F8 invoices
+import { ContributionBody, CreatePotBody, LedgerPotsResponse, PotContributionResponse, PotResponse, StatsPotsResponse } from "@/lib/contract"; // F7 pots
 
 const dir = new URL("../../contract/fixtures/", import.meta.url);
 
@@ -127,7 +128,28 @@ const SCHEMAS: Record<string, ZodType> = {
   "refund.create.res.json": CreateRefundResponse,
   "refund.get.res.json": RefundResponse,
   "refunds.lookup.res.json": RefundsLookupResponse,
+  // F7 pots
+  "pots.create.req.json": CreatePotBody,
+  "pots.create.res.json": PotResponse,
+  "pots.get.res.json": PotResponse,
+  "pots.contribution.req.json": ContributionBody,
+  "pots.contribution.res.json": PotContributionResponse,
+  "pots.get-request.res.json": PotContributionResponse,
+  "ledger.pots.res.json": LedgerPotsResponse,
+  "stats.pots.res.json": StatsPotsResponse,
 };
+
+// F7 pots: a contribution is a request, so its fixtures parse as one too, and the pots fields are optional on the ledger and stats.
+test("F7: contribution fixtures parse as plain requests; ledger and stats fixtures with pots parse with the older schemas", () => {
+  for (const file of ["pots.contribution.res.json", "pots.get-request.res.json"]) {
+    assert.ok(GetRequestResponse.safeParse(JSON.parse(readFileSync(new URL(file, dir), "utf8"))).success, file);
+  }
+  assert.ok(LedgerResponse.safeParse(JSON.parse(readFileSync(new URL("ledger.pots.res.json", dir), "utf8"))).success);
+  assert.ok(StatsResponse.safeParse(JSON.parse(readFileSync(new URL("stats.pots.res.json", dir), "utf8"))).success);
+  for (const file of ["ledger.res.json", "ledger.schedules.res.json", "fiat.ledger.res.json"]) {
+    assert.ok(LedgerPotsResponse.safeParse(JSON.parse(readFileSync(new URL(file, dir), "utf8"))).success, file);
+  }
+});
 
 // F8 invoices: every existing invoice fixture still parses with the terms-aware schemas (all F8 fields are optional).
 test("F8: existing invoice fixtures parse as InvoiceTermsResponse and CreateInvoiceTermsBody", () => {
